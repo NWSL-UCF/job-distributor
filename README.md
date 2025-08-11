@@ -4,7 +4,7 @@
 
 ## Example Use Case: MNIST Hyperparameter Tuning
 
-To showcase how this framework works, we applied it to a classic machine learning task: hyperparameter tuning for a handwritten digit classifier using the MNIST dataset. The goal is to evaluate various combinations of hyperparameters and find the best-performing configuration. For a clearer understanding of the research task, visit: [MNIST-parameter-tuning](https://github.com/NWSL-UCF/MNIST-parameter-tuning)
+To showcase how this framework works, we applied it to a classic machine learning task: hyperparameter tuning for a handwritten digit classifier using the MNIST dataset. The goal is to evaluate various combinations of hyperparameters and find the best-performing configuration. For a clearer understanding of the research task, visit: [MNIST-parameter-tuning](https://github.com/anonymous/MNIST-parameter-tuning)
 
 ## Setup Overview
 

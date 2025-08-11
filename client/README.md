@@ -1,7 +1,7 @@
 
 ## Worker Machine Setup
 
-This section explains how to set up a worker machine to run atomic hyperparameter tuning jobs. In this case, we use the [MNIST-parameter-tuning](https://github.com/NWSL-UCF/MNIST-parameter-tuning) repository as the task workload. It's a good practice to set up the client in a separate directory from the server when running both on the same machine. This helps avoid confusion and keeps the server and client environments isolated and organized.
+This section explains how to set up a worker machine to run atomic hyperparameter tuning jobs. In this case, we use the [MNIST-parameter-tuning](https://github.com/anonymous/MNIST-parameter-tuning) repository as the task workload. It's a good practice to set up the client in a separate directory from the server when running both on the same machine. This helps avoid confusion and keeps the server and client environments isolated and organized.
 
 ---
 
@@ -9,7 +9,7 @@ This section explains how to set up a worker machine to run atomic hyperparamete
 
 #### For **Linux/macOS**:
 ```bash
-git clone https://github.com/NWSL-UCF/job-distributor.git
+git clone https://github.com/anonymous/job-distributor.git
 cd job-distributor/client
 python3 -m venv venv
 source venv/bin/activate
@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 #### For **Windows** (Command Prompt or PowerShell):
 ```cmd
-git clone https://github.com/NWSL-UCF/job-distributor.git
+git clone https://github.com/anonymous/job-distributor.git
 cd job-distributor\client
 python -m venv venv
 venv\Scripts\activate
@@ -31,14 +31,14 @@ pip install -r requirements.txt
 
 #### For **Linux/macOS**:
 ```bash
-git clone https://github.com/NWSL-UCF/MNIST-parameter-tuning.git
+git clone https://github.com/anonymous/MNIST-parameter-tuning.git
 cp MNIST-parameter-tuning/* ./
 pip install -r requirements.txt
 ```
 
 #### For **Windows**:
 ```cmd
-git clone https://github.com/NWSL-UCF/MNIST-parameter-tuning.git
+git clone https://github.com/anonymous/MNIST-parameter-tuning.git
 xcopy MNIST-parameter-tuning\*.* .\ /E /Y
 pip install -r requirements.txt
 ```

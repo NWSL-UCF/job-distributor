@@ -6,7 +6,7 @@ To get started, clone the job-distributor repository and setup virtual environme
 
 Terminal (Linux or macOS)
 ```bash
-git clone https://github.com/NWSL-UCF/job-distributor.git
+git clone https://github.com/anonymous/job-distributor.git
 cd job-distributor/server
 python3 -m venv venv
 source venv/bin/activate
@@ -14,7 +14,7 @@ pip install -r requirements.txt
 ```
 For powershell (windows)
 ```bash
-git clone https://github.com/NWSL-UCF/job-distributor.git
+git clone https://github.com/anonymous/job-distributor.git
 cd job-distributor\server
 python3 -m venv venv
 .\venv\Scripts\Activate.ps1
