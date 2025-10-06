@@ -1,19 +1,19 @@
 {
-    "expId": "mnist_param_tune",
-    "jobDB": "jobs.db",
-    "host": "localhost",
-    "dashboard_port": 5050,
-    "server_port": 5000,
-    "idleTimeout": 120,
-    "abortedJobResetTimeout": 600,
-    "fresh_start": true,
-    "enable_ngork": false,
-    "status_change_pin": "1234",
-    "parameters": {
-        "epochs": [1, 2, 4, 8, 16, 32],
-        "optimizer": ["adam", "sgd", "lbfgs"],
-        "hidden_layers": [1, 2, 4, 8, 16],
-        "nodes_per_layer": [10, 20, 30, 40, 50],
-        "batch_size": [4, 8, 16, 32, 64, 128]
-    }
+  "expId": "mnist_param_tune",
+  "jobDB": "jobs.db",
+  "host": "localhost",
+  "dashboard_port": 5050,
+  "server_port": 5000,
+  "idleTimeout": 120,
+  "abortedJobResetTimeout": 600,
+  "fresh_start": true,
+  "enable_ngork": true,
+  "status_change_pin": "1234",
+  "parameters": {
+    "epochs": [1, 2, 4, 8, 16, 32],
+    "optimizer": ["adam", "sgd", "lbfgs"],
+    "hidden_layers": [1, 2, 4, 8, 16],
+    "nodes_per_layer": [10, 20, 30, 40, 50],
+    "batch_size": [4, 8, 16, 32, 64, 128]
+  }
 }

@@ -16,3 +16,4 @@ venv
 train.csv
 test.csv
 jobs.csv
+.env
