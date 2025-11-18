@@ -31,12 +31,28 @@ class JobDatabase:
                     request_timestamp REAL DEFAULT 0,
                     completion_timestamp REAL DEFAULT 0,
                     required_time REAL DEFAULT 0,
+                    predicted_runtime REAL DEFAULT 0,
                     last_ping_timestamp REAL DEFAULT 0,
                     status TEXT DEFAULT 'PENDING',
                     message TEXT DEFAULT '[]',
-                    parameters TEXT NOT NULL
+                    parameters TEXT NOT NULL,
+                    system_metrics TEXT DEFAULT '{}'
                 )
             ''')
+            
+            # Add system_metrics column if it doesn't exist (for existing databases)
+            try:
+                cursor.execute('ALTER TABLE jobs ADD COLUMN system_metrics TEXT DEFAULT "{}"')
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
+            
+            # Add predicted_runtime column if it doesn't exist (for existing databases)
+            try:
+                cursor.execute('ALTER TABLE jobs ADD COLUMN predicted_runtime REAL DEFAULT 0')
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS api_stats (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,17 +116,19 @@ class JobDatabase:
                         0,   # request_timestamp
                         0,   # completion_timestamp
                         0,   # required_time
+                        0,   # predicted_runtime
                         0,   # last_ping_timestamp
                         STATUS_PENDING,  # status
                         '[]',  # message
-                        params  # parameters
+                        params,  # parameters
+                        '{}'  # system_metrics
                     ))
                 
                 cursor.executemany('''
                     INSERT INTO jobs 
                     (id, requested_by, request_timestamp, completion_timestamp, 
-                     required_time, last_ping_timestamp, status, message, parameters)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     required_time, predicted_runtime, last_ping_timestamp, status, message, parameters, system_metrics)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', jobs_data)
                 
                 conn.commit()
@@ -137,6 +155,10 @@ class JobDatabase:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:
                     job['parameters'] = {}
+                try:
+                    job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
+                except (json.JSONDecodeError, KeyError):
+                    job['system_metrics'] = {}
                 jobs.append(job)
             
             return jobs
@@ -241,6 +263,10 @@ class JobDatabase:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:
                     job['parameters'] = {}
+                try:
+                    job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
+                except (json.JSONDecodeError, KeyError):
+                    job['system_metrics'] = {}
                 return job
             return None
 
@@ -304,6 +330,10 @@ class JobDatabase:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:
                     job['parameters'] = {}
+                try:
+                    job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
+                except (json.JSONDecodeError, KeyError):
+                    job['system_metrics'] = {}
                 jobs.append(job)
             
             return {
@@ -314,17 +344,37 @@ class JobDatabase:
                 'per_page': per_page
             }
     
-    def request_job(self, requested_by: str) -> Optional[Dict[str, Any]]:
-        """Assign a PENDING job to a requester and mark it as SERVED."""
+    def request_job(self, requested_by: str, system_metrics: Optional[Dict[str, Any]] = None, 
+                    job_id: Optional[int] = None, predicted_runtime: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """
+        Assign a PENDING job to a requester and mark it as SERVED.
+        
+        Args:
+            requested_by: Identifier of the requester
+            system_metrics: System metrics from the worker (optional)
+            job_id: Specific job ID to assign (if None, selects based on prediction)
+            predicted_runtime: Predicted runtime in seconds (optional)
+        
+        Returns:
+            Assigned job dictionary or None if no jobs available
+        """
         with self.lock:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Find first PENDING job
-                cursor.execute(
-                    "SELECT * FROM jobs WHERE status = ? ORDER BY id LIMIT 1",
-                    (STATUS_PENDING,)
-                )
+                # Find PENDING job (either specific ID or any)
+                if job_id is not None:
+                    cursor.execute(
+                        "SELECT * FROM jobs WHERE id = ? AND status = ?",
+                        (job_id, STATUS_PENDING)
+                    )
+                else:
+                    # Get first PENDING job (will be overridden by bandit selection)
+                    cursor.execute(
+                        "SELECT * FROM jobs WHERE status = ? ORDER BY id LIMIT 1",
+                        (STATUS_PENDING,)
+                    )
+                
                 row = cursor.fetchone()
                 
                 if not row:
@@ -345,12 +395,19 @@ class JobDatabase:
                     "timestamp": timestamp
                 })
                 
-                # Update job
+                # Store system_metrics as JSON string
+                system_metrics_json = json.dumps(system_metrics) if system_metrics else '{}'
+                
+                # Update job with predicted_runtime if provided
+                predicted_runtime_value = predicted_runtime if predicted_runtime is not None else 0.0
+                
                 cursor.execute('''
                     UPDATE jobs 
-                    SET requested_by = ?, status = ?, request_timestamp = ?, message = ?
+                    SET requested_by = ?, status = ?, request_timestamp = ?, 
+                        message = ?, system_metrics = ?, predicted_runtime = ?
                     WHERE id = ?
-                ''', (requested_by, STATUS_SERVED, timestamp, json.dumps(messages), job['id']))
+                ''', (requested_by, STATUS_SERVED, timestamp, json.dumps(messages), 
+                      system_metrics_json, predicted_runtime_value, job['id']))
                 
                 conn.commit()
                 
@@ -359,12 +416,35 @@ class JobDatabase:
                 job['status'] = STATUS_SERVED
                 job['request_timestamp'] = timestamp
                 job['message'] = messages
+                job['system_metrics'] = system_metrics if system_metrics else {}
                 try:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:
                     job['parameters'] = {}
                 
                 return job
+    
+    def get_pending_jobs(self) -> List[Dict[str, Any]]:
+        """Get all PENDING jobs."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM jobs WHERE status = ? ORDER BY id", (STATUS_PENDING,))
+            rows = cursor.fetchall()
+            
+            jobs = []
+            for row in rows:
+                job = dict(row)
+                try:
+                    job['parameters'] = json.loads(job['parameters'])
+                except json.JSONDecodeError:
+                    job['parameters'] = {}
+                try:
+                    job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
+                except (json.JSONDecodeError, KeyError):
+                    job['system_metrics'] = {}
+                jobs.append(job)
+            
+            return jobs
     
     def update_job_status(self, job_id: int, status: str, message: str = "") -> bool:
         """Update job status to DONE or ABORTED."""
@@ -622,6 +702,10 @@ class JobDatabase:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:
                     job['parameters'] = {}
+                try:
+                    job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
+                except (json.JSONDecodeError, KeyError):
+                    job['system_metrics'] = {}
                 jobs.append(job)
             
             return jobs

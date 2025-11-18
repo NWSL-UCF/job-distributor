@@ -11,6 +11,7 @@ import threading
 import time
 
 import requests
+import psutil
 
 # Check OS
 IS_WINDOWS = platform.system() == "Windows"
@@ -64,6 +65,196 @@ PING_URL = f"{base_url}/ping"
 
 # Track the current child process
 current_proc = None
+
+# --------------- System Metrics Collection ----------------
+
+def get_system_metrics():
+    try:
+        # CPU metrics
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        cpu_count_physical = psutil.cpu_count(logical=False)
+        cpu_count_logical = psutil.cpu_count(logical=True)
+        
+        # CPU frequency
+        try:
+            cpu_freq = psutil.cpu_freq()
+            cpu_freq_mhz = cpu_freq.current if cpu_freq else 0
+        except (AttributeError, RuntimeError):
+            # Fallback for systems where CPU frequency is not available
+            cpu_freq_mhz = 0
+        
+        # Memory metrics
+        memory = psutil.virtual_memory()
+        ram_total_gb = memory.total / (1024 ** 3)  # Convert bytes to GB
+        ram_available_gb = memory.available / (1024 ** 3)
+        ram_util_percent = memory.percent
+        
+        # System load averages (Unix/Linux only)
+        if not IS_WINDOWS:
+            try:
+                load_avg = os.getloadavg()
+                load_1min = load_avg[0]
+                load_5min = load_avg[1]
+                load_15min = load_avg[2]
+                load_per_cpu = load_1min / cpu_count_logical if cpu_count_logical > 0 else 0
+            except (AttributeError, OSError):
+                # Windows doesn't support os.getloadavg()
+                load_1min = 0
+                load_5min = 0
+                load_15min = 0
+                load_per_cpu = 0
+        else:
+            # On Windows, approximate load using CPU usage
+            # This is a rough approximation since Windows doesn't have load averages
+            load_1min = cpu_percent / 100.0 * cpu_count_logical
+            load_5min = load_1min  # Same approximation
+            load_15min = load_1min  # Same approximation
+            load_per_cpu = cpu_percent / 100.0
+        
+        # Calculate idle slots (available CPU capacity)
+        # Idle slots = max(0, total_cores - current_load)
+        idle_slots = max(0, cpu_count_logical - load_1min) if not IS_WINDOWS else max(0, cpu_count_logical * (1 - cpu_percent / 100.0))
+        
+        # Disk I/O utilization
+        # Note: psutil doesn't directly provide disk I/O utilization percentage
+        # We need to sample disk I/O counters over a short interval
+        try:
+            # First sample
+            disk_io_start = psutil.disk_io_counters()
+            time.sleep(0.1)  # Sample over 100ms
+            # Second sample
+            disk_io_end = psutil.disk_io_counters()
+            
+            if disk_io_start and disk_io_end:
+                # Calculate I/O operations per second
+                time_delta = 0.1
+                read_ops = disk_io_end.read_count - disk_io_start.read_count
+                write_ops = disk_io_end.write_count - disk_io_start.write_count
+                total_ops = read_ops + write_ops
+                ops_per_sec = total_ops / time_delta
+                
+                # Calculate I/O bytes per second
+                read_bytes = disk_io_end.read_bytes - disk_io_start.read_bytes
+                write_bytes = disk_io_end.write_bytes - disk_io_start.write_bytes
+                total_bytes = read_bytes + write_bytes
+                bytes_per_sec = total_bytes / time_delta
+                
+                # Estimate utilization based on I/O activity
+                # This is a heuristic: normalize by a reasonable threshold
+                # High-end SSDs can do ~100k IOPS, so we'll use that as a reference
+                # For bytes, we'll use ~1GB/s as a reference
+                max_iops = 100000  # Reference: high-end SSD
+                max_throughput = 1e9  # 1 GB/s reference
+                
+                iops_util = min(100.0, (ops_per_sec / max_iops) * 100.0)
+                throughput_util = min(100.0, (bytes_per_sec / max_throughput) * 100.0)
+                
+                # Take the maximum of the two as overall disk I/O utilization
+                disk_io_util = max(iops_util, throughput_util)
+            else:
+                disk_io_util = 0.0
+        except (AttributeError, RuntimeError, TypeError):
+            disk_io_util = 0.0
+        
+        # Build the metrics dictionary
+        metrics = {
+            "cpu_util": round(cpu_percent, 1),
+            "ram_util": round(ram_util_percent, 1),
+            "ram_available": round(ram_available_gb, 15),  # Match precision from image
+            "ram_total": round(ram_total_gb, 1),
+            "worker_type": machine_type,
+            "idle_slots": int(round(idle_slots)),
+            "load_1min": round(load_1min, 10),
+            "load_5min": round(load_5min, 10),
+            "load_15min": round(load_15min, 10),
+            "load_per_cpu": round(load_per_cpu, 13),
+            "disk_io_util": round(disk_io_util, 2),
+            "cpu_cores": cpu_count_physical if cpu_count_physical else cpu_count_logical,
+            "cpu_threads": cpu_count_logical,
+            "cpu_freq_mhz": int(round(cpu_freq_mhz)) if cpu_freq_mhz > 0 else 0
+        }
+        
+        return metrics
+        
+    except Exception as e:
+        logger.error(f"Error collecting system metrics: {type(e).__name__}: {e}")
+        # Return default values on error
+        return {
+            "cpu_util": 0.0,
+            "ram_util": 0.0,
+            "ram_available": 0.0,
+            "ram_total": 0.0,
+            "worker_type": machine_type,
+            "idle_slots": 0,
+            "load_1min": 0.0,
+            "load_5min": 0.0,
+            "load_15min": 0.0,
+            "load_per_cpu": 0.0,
+            "disk_io_util": 0.0,
+            "cpu_cores": 0,
+            "cpu_threads": 0,
+            "cpu_freq_mhz": 0
+        }
+
+
+def get_averaged_system_metrics():
+    logger.info("Collecting system metrics (5 samples with 3-second intervals)...")
+    
+    # Collect five samples
+    samples = []
+    for i in range(5):
+        logger.info(f"Collecting sample {i+1}/5...")
+        metrics = get_system_metrics()
+        samples.append(metrics)
+        
+        # Wait 3 seconds before next sample (except after the last one)
+        if i < 4:
+            time.sleep(3)
+    
+    # Calculate averages for numeric metrics
+    # Metrics that should be averaged
+    numeric_keys = [
+        "cpu_util", "ram_util", "ram_available", "ram_total",
+        "idle_slots", "load_1min", "load_5min", "load_15min",
+        "load_per_cpu", "disk_io_util", "cpu_freq_mhz"
+    ]
+    
+    # Metrics that should remain constant (take from first sample)
+    constant_keys = ["worker_type", "cpu_cores", "cpu_threads"]
+    
+    # Initialize averaged metrics with first sample's constant values
+    averaged_metrics = {}
+    for key in constant_keys:
+        if key in samples[0]:
+            averaged_metrics[key] = samples[0][key]
+    
+    # Calculate averages for numeric metrics
+    for key in numeric_keys:
+        values = [sample.get(key, 0) for sample in samples if key in sample]
+        if values:
+            avg_value = sum(values) / len(values)
+            # Round to match the precision of individual metrics
+            if key in ["cpu_util", "ram_util", "ram_total"]:
+                averaged_metrics[key] = round(avg_value, 1)
+            elif key == "ram_available":
+                averaged_metrics[key] = round(avg_value, 15)
+            elif key in ["load_1min", "load_5min", "load_15min"]:
+                averaged_metrics[key] = round(avg_value, 10)
+            elif key == "load_per_cpu":
+                averaged_metrics[key] = round(avg_value, 13)
+            elif key == "disk_io_util":
+                averaged_metrics[key] = round(avg_value, 2)
+            elif key == "idle_slots":
+                averaged_metrics[key] = int(round(avg_value))
+            elif key == "cpu_freq_mhz":
+                averaged_metrics[key] = int(round(avg_value))
+            else:
+                averaged_metrics[key] = avg_value
+        else:
+            averaged_metrics[key] = 0
+    
+    logger.info("System metrics collection completed.")
+    return averaged_metrics
 
 # --------------- Cleanup Handler ----------------
 
@@ -135,8 +326,11 @@ def main():
     while True:
         try:
             logger.info("Requesting a new job...")
+            # Collect system metrics to send with the job request
+            system_metrics = get_averaged_system_metrics()
             response = requests.post(REQUEST_JOB_URL, json={
-                                     "requested_by": runner_id})
+                                     "requested_by": runner_id,
+                                     "system_metrics": system_metrics})
 
             if response.status_code == 404:
                 logger.info("No more jobs available. Runner exiting.")

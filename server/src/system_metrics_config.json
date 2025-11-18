@@ -1,0 +1,35 @@
+{
+  "system_metric_fields": [
+    "cpu_util",
+    "ram_util",
+    "ram_available",
+    "ram_total",
+    "idle_slots",
+    "load_1min",
+    "load_5min",
+    "load_15min",
+    "load_per_cpu",
+    "disk_io_util",
+    "cpu_cores",
+    "cpu_threads",
+    "cpu_freq_mhz"
+  ],
+  "normalization": {
+    "cpu_freq_mhz": {
+      "enabled": true,
+      "divisor": 10000.0,
+      "description": "Normalize CPU frequency to ~0-1 range"
+    },
+    "ram_total": {
+      "enabled": true,
+      "divisor": 100.0,
+      "description": "Normalize RAM total assuming max 100GB"
+    },
+    "ram_available": {
+      "enabled": true,
+      "divisor": 100.0,
+      "description": "Normalize RAM available assuming max 100GB"
+    }
+  }
+}
+

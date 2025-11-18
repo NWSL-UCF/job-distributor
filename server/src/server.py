@@ -8,6 +8,7 @@ from pathlib import Path
 
 from database import JobDatabase
 from flask import Flask, jsonify, request
+from contextual_bandit import create_bandit
 
 
 # Load .env if available (place .env in the server project root)
@@ -117,6 +118,8 @@ def setup_log(args):
 
 # Initialize database connection
 db = None
+# Initialize contextual bandit
+bandit = None
 
 STATUS_PENDING = "PENDING"
 STATUS_SERVED = "SERVED"
@@ -139,18 +142,62 @@ def format_timestamp(timestamp):
 @app.route("/request_job", methods=["POST"])
 def request_job():
     """Assign a PENDING job to a requester and mark it as SERVED."""
+    global bandit, db
     # Track API request
     db.track_api_request("Job Request", "POST")
 
     data = request.json or {}
     requested_by = data.get("requested_by")
+    system_metrics = data.get("system_metrics", {})
 
     if not requested_by:
         logging.warning(
             "Job request failed: No requester identification provided.")
         return jsonify({"error": "Requester identification is required"}), 400
 
-    job = db.request_job(requested_by)
+    # Get all pending jobs
+    pending_jobs = db.get_pending_jobs()
+    
+    if not pending_jobs:
+        logging.info("No PENDING jobs available.")
+        return jsonify({"error": "No available jobs"}), 404
+
+    # If bandit is available, predict runtime for all pending jobs and select the one with lowest runtime
+    selected_job_id = None
+    selected_predicted_runtime = None
+    if bandit and system_metrics:
+        try:
+            # Load state once for all predictions (optimization for multiple pending jobs)
+            if bandit.model_state_file and pending_jobs:
+                bandit.load_state(force_reload=False)
+            
+            # Predict runtime for each pending job
+            job_predictions = []
+            for job in pending_jobs:
+                try:
+                    # Skip state load for subsequent predictions (already loaded once)
+                    predicted_runtime = bandit.predict(system_metrics, job['parameters'], skip_state_load=True)
+                    job_predictions.append((job['id'], predicted_runtime))
+                    logging.debug(f"Job {job['id']} predicted runtime: {predicted_runtime:.2f} seconds")
+                except Exception as e:
+                    logging.warning(f"Error predicting runtime for job {job['id']}: {e}")
+                    # If prediction fails, use a large default value
+                    job_predictions.append((job['id'], float('inf')))
+            
+            # Select job with lowest predicted runtime
+            if job_predictions:
+                job_predictions.sort(key=lambda x: x[1])
+                selected_job_id = job_predictions[0][0]
+                selected_predicted_runtime = job_predictions[0][1]
+                logging.info(f"Selected job {selected_job_id} with predicted runtime: {selected_predicted_runtime:.2f} seconds")
+        except Exception as e:
+            logging.error(f"Error in bandit prediction: {e}, falling back to first available job")
+            selected_job_id = None
+            selected_predicted_runtime = None
+
+    # Assign the selected job (or first available if no bandit/selection)
+    job = db.request_job(requested_by, system_metrics, selected_job_id, selected_predicted_runtime)
+    
     if not job:
         logging.info("No PENDING jobs available.")
         return jsonify({"error": "No available jobs"}), 404
@@ -163,6 +210,7 @@ def request_job():
 @app.route("/update_job_status", methods=["POST"])
 def update_job_status():
     """Update job status as DONE or ABORTED."""
+    global bandit, db
     # Track API request
     db.track_api_request("Job Status Update", "POST")
 
@@ -176,9 +224,41 @@ def update_job_status():
             f"Invalid job status update request: job_id={job_id}, status={status}")
         return jsonify({"error": "Invalid job_id or status"}), 400
 
+    # Get job info before updating (to retrieve system_metrics and parameters)
+    job = db.get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    
     success = db.update_job_status(job_id, status, message)
     if not success:
         return jsonify({"error": "Job not found or not in SERVED status"}), 404
+
+    # Update bandit model with observed runtime
+    if bandit and job.get('system_metrics') and job.get('parameters'):
+        try:
+            system_metrics = job.get('system_metrics', {})
+            job_parameters = job.get('parameters', {})
+            
+            if status == STATUS_DONE:
+                # Get actual runtime and predicted runtime from updated job
+                updated_job = db.get_job_by_id(job_id)
+                if updated_job and updated_job.get('required_time', 0) > 0:
+                    observed_runtime = updated_job['required_time']
+                    saved_predicted_runtime = updated_job.get('predicted_runtime', 0)
+                    
+                    # Pass the saved predicted runtime to update method for consistent logging
+                    # Use update_with_persistence to prevent race conditions
+                    if bandit.model_state_file:
+                        bandit.update_with_persistence(system_metrics, job_parameters, observed_runtime, 
+                                                      saved_predicted_runtime=saved_predicted_runtime)
+                    else:
+                        bandit.update(system_metrics, job_parameters, observed_runtime,
+                                    saved_predicted_runtime=saved_predicted_runtime)
+                    logging.info(f"Updated bandit model with job {job_id} completion: "
+                               f"runtime={observed_runtime:.2f}s")
+            # Note: ABORTED jobs are handled by job_cleaner.py with punishment
+        except Exception as e:
+            logging.error(f"Error updating bandit model for job {job_id}: {e}")
 
     if status == STATUS_DONE:
         logging.info(f"Job {job_id} marked as DONE.")
@@ -205,7 +285,19 @@ def ping_job():
 
     success = db.ping_job(job_id)
     if not success:
-        return jsonify({"error": "Job not found or not in SERVED state"}), 404
+        # Check if job exists but is not in SERVED state (likely DONE or ABORTED)
+        job = db.get_job_by_id(job_id)
+        if job:
+            # Job exists but is not in SERVED state - this is expected when job completes
+            # Return 200 to avoid unnecessary warnings, but don't update ping timestamp
+            now = round(time.time())
+            logging.debug(
+                f"Ping received for job {job_id} (status: {job.get('status', 'UNKNOWN')}). Job not in SERVED state.")
+            return jsonify({"message": f"Job {job_id} is not in SERVED state (current: {job.get('status', 'UNKNOWN')})", 
+                          "timestamp": now}), 200
+        else:
+            # Job doesn't exist
+            return jsonify({"error": "Job not found"}), 404
 
     now = round(time.time())
     logging.info(
@@ -233,6 +325,27 @@ if __name__ == "__main__":
 
     # Initialize database connection
     db = JobDatabase(DB_FILE)
+
+    # Initialize contextual bandit from config
+    try:
+        config_path = os.path.join(BASE_DIR, "config.json")
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        bandit_algorithm = config.get("bandit_algorithm", "linear")
+        config_parameters = config.get("parameters", {})
+        
+        if config_parameters:
+            # Use shared state file for multi-process safety
+            state_file_path = os.path.join(BASE_DIR, args.expId, "bandit_model_state.pkl")
+            bandit = create_bandit(bandit_algorithm, config_parameters, state_file_path=state_file_path)
+            logging.info(f"Initialized contextual bandit: {bandit_algorithm} with state file: {state_file_path}")
+        else:
+            logging.warning("No parameters found in config, bandit not initialized")
+            bandit = None
+    except Exception as e:
+        logging.error(f"Failed to initialize contextual bandit: {e}")
+        bandit = None
 
     # Start ngrok only if requested and authtoken is set
     if args.enableNgrok:

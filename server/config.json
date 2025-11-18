@@ -4,11 +4,12 @@
   "host": "localhost",
   "dashboard_port": 5050,
   "server_port": 5000,
-  "idleTimeout": 120,
+  "idleTimeout": 200,
   "abortedJobResetTimeout": 600,
   "fresh_start": true,
   "enable_ngork": true,
   "status_change_pin": "1234",
+  "bandit_algorithm": "linucb",
   "parameters": {
     "epochs": [1, 2, 4, 8, 16, 32],
     "optimizer": ["adam", "sgd", "lbfgs"],
@@ -17,3 +18,5 @@
     "batch_size": [4, 8, 16, 32, 64, 128]
   }
 }
+
+  

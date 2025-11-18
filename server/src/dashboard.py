@@ -1153,7 +1153,7 @@ def dashboard():
             .myTable th:nth-child(1), .myTable td:nth-child(1) { width: 80px; } /* ID */
             .myTable th:nth-child(2), .myTable td:nth-child(2) { width: 140px; } /* Machine */
             .myTable th:nth-child(3), .myTable td:nth-child(3) { width: 160px; } /* Requested At */
-            .myTable th:nth-child(4), .myTable td:nth-child(4) { width: 160px; } /* Started At */
+            .myTable th:nth-child(4), .myTable td:nth-child(4) { width: 160px; } /* Predicted Runtime */
             .myTable th:nth-child(5), .myTable td:nth-child(5) { width: 160px; } /* Completed At */
             .myTable th:nth-child(6), .myTable td:nth-child(6) { width: 120px; } /* Duration */
             .myTable th:nth-child(7), .myTable td:nth-child(7) { width: 140px; } /* Job History */
@@ -1289,26 +1289,20 @@ def dashboard():
                 display: none;
             }
 
-            #parametersTable table {
+            #parametersTable table, #systemMetricsTable table {
                 width: 100%;
                 border-collapse: collapse;
                 margin-top: 10px;
             }
 
-            #parametersTable th, #parametersTable td {
+            #parametersTable th, #parametersTable td,
+            #systemMetricsTable th, #systemMetricsTable td {
                 border: 1px solid #ccc;
                 padding: 8px;
                 text-align: left;
             }
 
-            #parametersTable th {
-                background-color: #f5f5f5;
-            }
-                padding: 8px;
-                text-align: left;
-            }
-
-            #parametersTable th {
+            #parametersTable th, #systemMetricsTable th {
                 background-color: #f5f5f5;
             }
 
@@ -1658,21 +1652,36 @@ def dashboard():
                             const requestTime = job.request_timestamp ? new Date(job.request_timestamp * 1000).toLocaleString() : '';
                             const completionTime = job.completion_timestamp ? new Date(job.completion_timestamp * 1000).toLocaleString() : '';
                             const duration = job.required_time ? formatTime(job.required_time) : '';
+                            
+                            // Predicted runtime: show 0 for unassigned (PENDING), show value for other states
+                            let predictedRuntime = '';
+                            let predictedRuntimeValue = 0;
+                            if (job.status === 'PENDING') {
+                                // Unassigned jobs show 0
+                                predictedRuntimeValue = 0;
+                                predictedRuntime = '00:00:00';
+                            } else {
+                                // For other states (SERVED, RUNNING, DONE, ABORTED), show predicted_runtime
+                                const predicted = job.predicted_runtime || 0;
+                                predictedRuntimeValue = predicted;
+                                predictedRuntime = formatTime(predicted);
+                            }
 
                             // Use comprehensive encoding for all special characters
                             const messageJson = encodeForHtmlAttribute(job.message);
                             const parametersJson = encodeForHtmlAttribute(job.parameters);
+                            const systemMetricsJson = encodeForHtmlAttribute(job.system_metrics || {});
 
                             html += `
                                 <tr>
                                     <td style="font-weight: bold;">${job.id}</td>
                                     <td>${machine}</td>
                                     <td data-timestamp="${job.request_timestamp || ''}">${requestTime}</td>
-                                    <td data-timestamp="${job.request_timestamp || ''}">${requestTime}</td>
+                                    <td data-value="${predictedRuntimeValue}">${predictedRuntime}</td>
                                     <td data-timestamp="${job.completion_timestamp || ''}">${completionTime}</td>
                                     <td>${duration}</td>
                                     <td>
-                                        <button class="view-details-btn" onclick="showMessageModalWithRecovery(${job.id}, '${messageJson}', '${parametersJson}', '${job.status}')" title="View Details">
+                                        <button class="view-details-btn" onclick="showMessageModalWithRecovery(${job.id}, '${messageJson}', '${parametersJson}', '${systemMetricsJson}', '${job.status}')" title="View Details">
                                             <i class="fas fa-eye"></i>
                                         </button>
                                     </td>
@@ -1787,12 +1796,14 @@ def dashboard():
                 });
             });
 
-            function showMessageModal(jobId, message, parameters, currentStatus) {
+            function showMessageModal(jobId, message, parameters, systemMetrics, currentStatus) {
                 const modal = document.getElementById("messageModal");
                 const jobIdSpan = document.getElementById("jobId");
                 const messageTimeline = document.getElementById("messageTimeline");
                 const parametersTable = document.getElementById("parametersTable");
-                const toggleBtn = document.getElementById("toggleParamsBtn");
+                const systemMetricsTable = document.getElementById("systemMetricsTable");
+                const toggleParamsBtn = document.getElementById("toggleParamsBtn");
+                const toggleMetricsBtn = document.getElementById("toggleMetricsBtn");
                 const statusChangeSection = document.getElementById("statusChangeSection");
                 const statusChangeTitle = document.getElementById("statusChangeTitle");
 
@@ -1818,20 +1829,24 @@ def dashboard():
                 // Clear old contents
                 messageTimeline.innerHTML = "";
                 parametersTable.innerHTML = "";
+                systemMetricsTable.innerHTML = "";
                 parametersTable.classList.add("hidden");
-                toggleBtn.innerHTML = "&#9654; View Parameters"; // ➤ icon
+                systemMetricsTable.classList.add("hidden");
+                toggleParamsBtn.innerHTML = "&#9654; View Parameters"; // ➤ icon
+                toggleMetricsBtn.innerHTML = "&#9654; View System Metrics"; // ➤ icon
 
                 try {
                     // Debug: Log the raw data
                     console.log('Raw message:', message);
                     console.log('Raw parameters:', parameters);
+                    console.log('Raw system_metrics:', systemMetrics);
                     
                     // Parse parameters using safe JSON parsing
                     let parsedParameters = safeJsonParse(parameters, {});
                     console.log('Parsed parameters:', parsedParameters);
 
                     // Show parameters table
-                    if (parsedParameters && typeof parsedParameters === "object") {
+                    if (parsedParameters && typeof parsedParameters === "object" && Object.keys(parsedParameters).length > 0) {
                         const table = document.createElement("table");
                         table.innerHTML = `<tr><th>Key</th><th>Value</th></tr>`;
                         for (let key in parsedParameters) {
@@ -1840,6 +1855,35 @@ def dashboard():
                             table.appendChild(row);
                         }
                         parametersTable.appendChild(table);
+                    }
+
+                    // Parse system_metrics using safe JSON parsing
+                    let parsedSystemMetrics = safeJsonParse(systemMetrics, {});
+                    console.log('Parsed system_metrics:', parsedSystemMetrics);
+
+                    // Show system_metrics table
+                    if (parsedSystemMetrics && typeof parsedSystemMetrics === "object" && Object.keys(parsedSystemMetrics).length > 0) {
+                        const table = document.createElement("table");
+                        table.innerHTML = `<tr><th>Metric</th><th>Value</th></tr>`;
+                        for (let key in parsedSystemMetrics) {
+                            const row = document.createElement("tr");
+                            let value = parsedSystemMetrics[key];
+                            // Format numeric values nicely
+                            if (typeof value === 'number') {
+                                if (key.includes('util') || key.includes('percent')) {
+                                    value = value.toFixed(1) + '%';
+                                } else if (key.includes('ram') && (key.includes('available') || key.includes('total'))) {
+                                    value = value.toFixed(2) + ' GB';
+                                } else if (key.includes('freq')) {
+                                    value = value + ' MHz';
+                                } else {
+                                    value = value.toFixed(2);
+                                }
+                            }
+                            row.innerHTML = `<td><strong>${key}</strong></td><td>${value}</td>`;
+                            table.appendChild(row);
+                        }
+                        systemMetricsTable.appendChild(table);
                     }
 
                     // Parse message using safe JSON parsing
@@ -1889,6 +1933,19 @@ def dashboard():
                 } else {
                     parametersTable.classList.add("hidden");
                     toggleBtn.innerHTML = "&#9654; View Parameters"; // ➤
+                }
+            }
+
+            function toggleMetrics() {
+                const systemMetricsTable = document.getElementById("systemMetricsTable");
+                const toggleBtn = document.getElementById("toggleMetricsBtn");
+
+                if (systemMetricsTable.classList.contains("hidden")) {
+                    systemMetricsTable.classList.remove("hidden");
+                    toggleBtn.innerHTML = "&#9660; Hide System Metrics"; // ▼
+                } else {
+                    systemMetricsTable.classList.add("hidden");
+                    toggleBtn.innerHTML = "&#9654; View System Metrics"; // ➤
                 }
             }
 
@@ -2021,20 +2078,34 @@ def dashboard():
                 iconRef.setAttribute("data-ascending", ascending ? "true" : "false");
 
                 rows.sort((rowA, rowB) => {
-                    const cellA = rowA.children[colIndex].innerText.trim();
-                    const cellB = rowB.children[colIndex].innerText.trim();
-
-                    // For numeric columns
+                    const cellA = rowA.children[colIndex];
+                    const cellB = rowB.children[colIndex];
+                    
+                    // For numeric columns, try to use data-value attribute first, then parse innerText
                     if (dataType === "number") {
-                        const valA = parseFloat(cellA) || 0;
-                        const valB = parseFloat(cellB) || 0;
+                        let valA = 0, valB = 0;
+                        // Check if data-value attribute exists (for predicted runtime)
+                        if (cellA.hasAttribute('data-value')) {
+                            valA = parseFloat(cellA.getAttribute('data-value')) || 0;
+                        } else {
+                            valA = parseFloat(cellA.innerText.trim()) || 0;
+                        }
+                        if (cellB.hasAttribute('data-value')) {
+                            valB = parseFloat(cellB.getAttribute('data-value')) || 0;
+                        } else {
+                            valB = parseFloat(cellB.innerText.trim()) || 0;
+                        }
                         return ascending ? valA - valB : valB - valA;
-                    } 
+                    }
+                    
+                    // For string columns, use innerText
+                    const textA = cellA.innerText.trim();
+                    const textB = cellB.innerText.trim(); 
                     // Otherwise string compare
                     if (ascending) {
-                        return cellA.localeCompare(cellB);
+                        return textA.localeCompare(textB);
                     } else {
-                        return cellB.localeCompare(cellA);
+                        return textB.localeCompare(textA);
                     }
                 });
 
@@ -2060,9 +2131,9 @@ def dashboard():
 
 
             // Comprehensive error recovery for message modal
-            function showMessageModalWithRecovery(jobId, message, parameters, currentStatus) {
+            function showMessageModalWithRecovery(jobId, message, parameters, systemMetrics, currentStatus) {
                 try {
-                    showMessageModal(jobId, message, parameters, currentStatus);
+                    showMessageModal(jobId, message, parameters, systemMetrics, currentStatus);
                 } catch (error) {
                     console.error('Error in showMessageModal, attempting recovery:', error);
                     
@@ -2299,7 +2370,7 @@ def dashboard():
                                                     <th>ID <span class="sort-icon" onclick="sortTable(this, 0, 'number')">↕</span></th>
                                                     <th>Machine <span class="sort-icon" onclick="sortTable(this, 1, 'string')">↕</span></th>
                                                     <th>Requested At <span class="sort-icon" onclick="sortTable(this, 2, 'string')">↕</span></th>
-                                                    <th>Started At <span class="sort-icon" onclick="sortTable(this, 3, 'string')">↕</span></th>
+                                                    <th>Predicted Runtime <span class="sort-icon" onclick="sortTable(this, 3, 'number')">↕</span></th>
                                                     <th>Completed At <span class="sort-icon" onclick="sortTable(this, 4, 'string')">↕</span></th>
                                                     <th>Duration <span class="sort-icon" onclick="sortTable(this, 5, 'string')">↕</span></th>
                                                     <th>Job History <span class="sort-icon" onclick="sortTable(this, 6, 'string')">↕</span></th>
@@ -2401,9 +2472,12 @@ def dashboard():
                 <span class="close" onclick="closeMessageModal()">&times;</span>
                 <h2>Job History</h2>
 
-                <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
                     <p><strong>Job ID:</strong> <span id="jobId"></span></p>
-                    <button id="toggleParamsBtn" onclick="toggleParams()" style="cursor: pointer; border: none; background: none; font-weight: bold;">&#9654; View Parameters</button>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="toggleParamsBtn" onclick="toggleParams()" style="cursor: pointer; border: none; background: none; font-weight: bold;">&#9654; View Parameters</button>
+                        <button id="toggleMetricsBtn" onclick="toggleMetrics()" style="cursor: pointer; border: none; background: none; font-weight: bold;">&#9654; View System Metrics</button>
+                    </div>
                 </div>
 
                 <!-- Status Change Section -->
@@ -2417,6 +2491,8 @@ def dashboard():
                 </div>
 
                 <div id="parametersTable" class="hidden" style="margin-bottom: 15px;"></div>
+
+                <div id="systemMetricsTable" class="hidden" style="margin-bottom: 15px;"></div>
 
                 <div class="timeline" id="messageTimeline"></div>
             </div>
