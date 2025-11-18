@@ -102,7 +102,8 @@ def main():
     cleaner_cmd = (
         f"{sys.executable} src/job_cleaner.py "
         f"--expId={config['expId']} "
-        f"--jobDB={config['jobDB']} "
+        f"--serverUrl={config['host']} "
+        f"--serverPort={config['server_port']} "
         f"--abortedJobResetTimeout={config['abortedJobResetTimeout']} "
         f"--idleTimeout={config['idleTimeout']}"
     )

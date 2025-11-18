@@ -3,3 +3,4 @@ pandas
 pytz
 pyngrok
 numpy
+requests
