@@ -122,6 +122,10 @@ def setup_log(args):
 db = None
 # Initialize contextual bandit
 bandit = None
+# Job prediction percentage (for limiting predictions to avoid excessive computation)
+job_prediction_percentage = 0.05  # Default value, will be overridden by config
+# Prediction pool selection method: "sequential" or "random"
+prediction_pool = "sequential"  # Default value, will be overridden by config
 
 STATUS_PENDING = "PENDING"
 STATUS_SERVED = "SERVED"
@@ -169,7 +173,7 @@ def format_timestamp(timestamp):
 
 def process_job_request(requested_by: str, system_metrics: dict):
     """Process a job request: select best job and store in ready_jobs."""
-    global bandit, db, ready_jobs
+    global bandit, db, ready_jobs, job_prediction_percentage, prediction_pool
     
     try:
         # Get fresh list of pending jobs for this worker
@@ -194,12 +198,20 @@ def process_job_request(requested_by: str, system_metrics: dict):
                     bandit.load_state(force_reload=False)
                 
                 # Optimization: For high concurrency, limit predictions to avoid excessive computation
-                # Predict for 5% of total jobs or all pending jobs, whichever is minimum
+                # Predict for configured percentage of total jobs or all pending jobs, whichever is minimum
                 job_counts = db.get_job_counts_by_status()
                 total_jobs = sum(job_counts.values())
-                five_percent_of_total = max(1, int(total_jobs * 0.05))  # At least 1, round down
-                num_to_predict = min(five_percent_of_total, len(pending_jobs))
-                jobs_to_predict = pending_jobs[:num_to_predict]
+                percentage_of_total = max(1, int(total_jobs * job_prediction_percentage))  # At least 1, round down
+                num_to_predict = min(percentage_of_total, len(pending_jobs))
+                
+                # Select jobs based on prediction_pool setting
+                if prediction_pool.lower() == "random":
+                    import random
+                    jobs_to_predict = random.sample(pending_jobs, min(num_to_predict, len(pending_jobs)))
+                    logging.debug(f"Randomly selected {len(jobs_to_predict)} jobs from {len(pending_jobs)} pending jobs for prediction")
+                else:  # sequential (default)
+                    jobs_to_predict = pending_jobs[:num_to_predict]
+                    logging.debug(f"Sequentially selected first {len(jobs_to_predict)} jobs from {len(pending_jobs)} pending jobs for prediction")
                 
                 # Predict runtime for selected jobs
                 for job in jobs_to_predict:
@@ -764,6 +776,7 @@ if __name__ == "__main__":
     db = JobDatabase(DB_FILE)
 
     # Initialize contextual bandit from config
+    global job_prediction_percentage, prediction_pool
     try:
         config_path = os.path.join(BASE_DIR, "config.json")
         with open(config_path, 'r') as f:
@@ -771,6 +784,10 @@ if __name__ == "__main__":
         
         bandit_algorithm = config.get("bandit_algorithm", "linear")
         config_parameters = config.get("parameters", {})
+        # Load job prediction percentage from config (default: 0.05 = 5%)
+        job_prediction_percentage = config.get("job_prediction_percentage", 0.05)
+        # Load prediction pool method from config (default: "sequential")
+        prediction_pool = config.get("prediction_pool", "sequential")
         
         # If algorithm is "none", skip bandit initialization
         if bandit_algorithm.lower() == "none":

@@ -10,6 +10,8 @@
   "enable_ngork": true,
   "status_change_pin": "1234",
   "bandit_algorithm": "none",
+  "job_prediction_percentage": 0.05,
+  "prediction_pool": "sequential",
   "parameters": {
     "epochs": [1, 2, 4, 8, 16, 32],
     "optimizer": ["adam", "sgd", "lbfgs"],
