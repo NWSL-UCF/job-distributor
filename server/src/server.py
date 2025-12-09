@@ -779,7 +779,6 @@ if __name__ == "__main__":
     db = JobDatabase(DB_FILE)
 
     # Initialize contextual bandit from config
-    global job_prediction_percentage, prediction_pool
     try:
         config_path = os.path.join(BASE_DIR, "config.json")
         with open(config_path, 'r') as f:
