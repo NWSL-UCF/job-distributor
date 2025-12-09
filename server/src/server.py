@@ -137,7 +137,7 @@ STATUS_ABORTED = "ABORTED"
 ready_jobs = {}
 ready_jobs_lock = threading.Lock()
 
-# Queue for job request tasks: deque of (requested_by, system_metrics)
+# Queue for job request tasks: deque of (requested_by, system_metrics, initialization_timestamp)
 job_request_queue = deque()
 job_request_queue_lock = threading.Lock()
 
@@ -171,7 +171,7 @@ def format_timestamp(timestamp):
     return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
 
 
-def process_job_request(requested_by: str, system_metrics: dict):
+def process_job_request(requested_by: str, system_metrics: dict, initialization_timestamp: float):
     """Process a job request: select best job and store in ready_jobs."""
     global bandit, db, ready_jobs, job_prediction_percentage, prediction_pool
     
@@ -241,11 +241,11 @@ def process_job_request(requested_by: str, system_metrics: dict):
         # Since requests are processed sequentially by the background worker,
         # each worker gets a fresh view of pending jobs, so no race condition
         if selected_job_id is not None:
-            job = db.request_job(requested_by, system_metrics, selected_job_id, selected_predicted_runtime)
+            job = db.request_job(requested_by, system_metrics, selected_job_id, selected_predicted_runtime, initialization_timestamp)
         else:
             # No bandit selection, just get first available job by ID (predicted_runtime = 0)
             # This happens when bandit_algorithm is "none" or bandit is not initialized
-            job = db.request_job(requested_by, system_metrics, None, 0.0)
+            job = db.request_job(requested_by, system_metrics, None, 0.0, initialization_timestamp)
             if job:
                 logging.info(f"Assigned first available job {job['id']} to {requested_by} (no bandit prediction, predicted_runtime=0)")
         
@@ -423,13 +423,14 @@ def background_worker():
             # Process job request queue
             with job_request_queue_lock:
                 if job_request_queue:
-                    requested_by, system_metrics = job_request_queue.popleft()
+                    requested_by, system_metrics, initialization_timestamp = job_request_queue.popleft()
                 else:
                     requested_by = None
+                    initialization_timestamp = None
             
             if requested_by:
                 logging.debug(f"Processing job request for {requested_by}")
-                process_job_request(requested_by, system_metrics)
+                process_job_request(requested_by, system_metrics, initialization_timestamp)
             
             # Process status update queue
             with status_update_queue_lock:
@@ -491,10 +492,12 @@ def request_job():
         return jsonify({"error": "No available jobs"}), 404
 
     # Queue the job request for background processing
+    # Capture initialization timestamp when request arrives at server
+    initialization_timestamp = time.time()
     with job_request_queue_lock:
         # Remove any existing request from this worker (only one pending request per worker)
-        job_request_queue = deque([(r, m) for r, m in job_request_queue if r != requested_by])
-        job_request_queue.append((requested_by, system_metrics))
+        job_request_queue = deque([(r, m, t) for r, m, t in job_request_queue if r != requested_by])
+        job_request_queue.append((requested_by, system_metrics, initialization_timestamp))
     
     # Clear any old ready job for this worker
     with ready_jobs_lock:

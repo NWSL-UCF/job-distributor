@@ -53,6 +53,13 @@ class JobDatabase:
             except sqlite3.OperationalError:
                 # Column already exists, ignore
                 pass
+            
+            # Add initialization_timestamp column if it doesn't exist (for existing databases)
+            try:
+                cursor.execute('ALTER TABLE jobs ADD COLUMN initialization_timestamp REAL DEFAULT 0')
+            except sqlite3.OperationalError:
+                # Column already exists, ignore
+                pass
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS api_stats (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,14 +128,15 @@ class JobDatabase:
                         STATUS_PENDING,  # status
                         '[]',  # message
                         params,  # parameters
-                        '{}'  # system_metrics
+                        '{}',  # system_metrics
+                        0    # initialization_timestamp
                     ))
                 
                 cursor.executemany('''
                     INSERT INTO jobs 
                     (id, requested_by, request_timestamp, completion_timestamp, 
-                     required_time, predicted_runtime, last_ping_timestamp, status, message, parameters, system_metrics)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     required_time, predicted_runtime, last_ping_timestamp, status, message, parameters, system_metrics, initialization_timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', jobs_data)
                 
                 conn.commit()
@@ -345,7 +353,8 @@ class JobDatabase:
             }
     
     def request_job(self, requested_by: str, system_metrics: Optional[Dict[str, Any]] = None, 
-                    job_id: Optional[int] = None, predicted_runtime: Optional[float] = None) -> Optional[Dict[str, Any]]:
+                    job_id: Optional[int] = None, predicted_runtime: Optional[float] = None,
+                    initialization_timestamp: Optional[float] = None) -> Optional[Dict[str, Any]]:
         """
         Assign a PENDING job to a requester and mark it as SERVED.
         
@@ -401,13 +410,17 @@ class JobDatabase:
                 # Update job with predicted_runtime if provided
                 predicted_runtime_value = predicted_runtime if predicted_runtime is not None else 0.0
                 
+                # Use initialization_timestamp if provided, otherwise use current timestamp
+                init_timestamp = initialization_timestamp if initialization_timestamp is not None else timestamp
+                
                 cursor.execute('''
                     UPDATE jobs 
                     SET requested_by = ?, status = ?, request_timestamp = ?, 
-                        message = ?, system_metrics = ?, predicted_runtime = ?
+                        message = ?, system_metrics = ?, predicted_runtime = ?,
+                        initialization_timestamp = ?
                     WHERE id = ?
                 ''', (requested_by, STATUS_SERVED, timestamp, json.dumps(messages), 
-                      system_metrics_json, predicted_runtime_value, job['id']))
+                      system_metrics_json, predicted_runtime_value, init_timestamp, job['id']))
                 
                 conn.commit()
                 
@@ -415,6 +428,7 @@ class JobDatabase:
                 job['requested_by'] = requested_by
                 job['status'] = STATUS_SERVED
                 job['request_timestamp'] = timestamp
+                job['initialization_timestamp'] = init_timestamp
                 job['message'] = messages
                 job['system_metrics'] = system_metrics if system_metrics else {}
                 try:
@@ -538,7 +552,7 @@ class JobDatabase:
                         UPDATE jobs 
                         SET status = ?, message = ?, request_timestamp = 0, 
                             completion_timestamp = 0, required_time = 0, 
-                            last_ping_timestamp = 0, requested_by = ''
+                            last_ping_timestamp = 0, initialization_timestamp = 0, requested_by = ''
                         WHERE id = ?
                     ''', (new_status, json.dumps(messages), job_id))
                 else:
@@ -609,7 +623,7 @@ class JobDatabase:
                         UPDATE jobs 
                         SET status = ?, requested_by = '', request_timestamp = 0, 
                             completion_timestamp = 0, required_time = 0, 
-                            last_ping_timestamp = 0, message = ?
+                            last_ping_timestamp = 0, initialization_timestamp = 0, message = ?
                         WHERE id = ?
                     ''', (STATUS_PENDING, json.dumps(messages), job['id']))
                     
@@ -657,7 +671,7 @@ class JobDatabase:
                         UPDATE jobs 
                         SET status = ?, requested_by = '', request_timestamp = 0, 
                             completion_timestamp = 0, required_time = 0, 
-                            last_ping_timestamp = 0, message = ?
+                            last_ping_timestamp = 0, initialization_timestamp = 0, message = ?
                         WHERE id = ?
                     ''', (STATUS_PENDING, json.dumps(messages), job['id']))
                     
