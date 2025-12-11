@@ -334,7 +334,16 @@ def process_reset_aborted_jobs(operation_id: str):
         # Punish the bandit model for failed jobs
         punished_count = 0
         if bandit and aborted_jobs:
-            PUNISHMENT_RUNTIME = 1000000.0  # Large punishment value for failed jobs (in seconds)
+            # Calculate adaptive punishment based on 99th percentile of completed jobs
+            p99_runtime = db.get_percentile_runtime(0.99)
+            if p99_runtime > 0:
+                PUNISHMENT_RUNTIME = 5.0 * p99_runtime  # 5x the 99th percentile
+                logging.info(f"Using adaptive punishment: {PUNISHMENT_RUNTIME:.0f}s (5x p99_runtime={p99_runtime:.0f}s)")
+            else:
+                # Fallback if no completed jobs yet
+                PUNISHMENT_RUNTIME = 10000.0  # ~2.8 hours as fallback
+                logging.info(f"Using fallback punishment: {PUNISHMENT_RUNTIME:.0f}s (no completed jobs yet)")
+            
             for job in aborted_jobs:
                 try:
                     system_metrics = job.get('system_metrics', {})

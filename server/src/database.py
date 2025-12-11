@@ -697,6 +697,39 @@ class JobDatabase:
             
             return counts
     
+    def get_percentile_runtime(self, percentile: float) -> float:
+        """
+        Get the percentile runtime from completed jobs.
+        
+        Args:
+            percentile: Percentile value between 0 and 1 (e.g., 0.99 for 99th percentile)
+        
+        Returns:
+            Runtime at the specified percentile, or 0 if no completed jobs
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all completed jobs with valid required_time
+            cursor.execute("""
+                SELECT required_time 
+                FROM jobs 
+                WHERE status = ? AND required_time > 0
+                ORDER BY required_time
+            """, (STATUS_DONE,))
+            
+            runtimes = [row['required_time'] for row in cursor.fetchall()]
+            
+            if not runtimes:
+                return 0.0
+            
+            # Calculate percentile index
+            n = len(runtimes)
+            index = int(percentile * (n - 1))
+            index = max(0, min(index, n - 1))  # Clamp to valid range
+            
+            return runtimes[index]
+    
     def get_jobs_by_status(self, status: str) -> List[Dict[str, Any]]:
         """Get all jobs with a specific status."""
         with self.get_connection() as conn:

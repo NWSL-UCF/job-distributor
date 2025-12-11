@@ -527,6 +527,9 @@ class LinUCB(ModelPersistence):
     """
     Linear Upper Confidence Bound algorithm for contextual bandits.
     Uses confidence intervals for exploration-exploitation trade-off.
+    
+    Note: For minimization problems (like runtime), this uses Lower Confidence Bound (LCB)
+    where prediction = mean - confidence_bound, giving uncertain jobs higher priority for exploration.
     """
     
     def __init__(self, config_parameters: Dict[str, List[Any]], 
@@ -588,7 +591,7 @@ class LinUCB(ModelPersistence):
     def predict(self, system_metrics: Dict[str, Any], 
                 job_parameters: Dict[str, Any], skip_state_load: bool = False) -> float:
         """
-        Predict runtime with upper confidence bound.
+        Predict runtime with lower confidence bound (for minimization).
         
         Args:
             system_metrics: System performance metrics
@@ -596,7 +599,7 @@ class LinUCB(ModelPersistence):
             skip_state_load: If True, skip loading state (for batch predictions)
         
         Returns:
-            Predicted runtime (mean + confidence bound)
+            Predicted runtime (mean - confidence bound) - LCB for exploration
         """
         # Load latest state before prediction (if persistence enabled and not skipped)
         if self.model_state_file and not skip_state_load:
@@ -621,10 +624,10 @@ class LinUCB(ModelPersistence):
             A_inv = np.linalg.pinv(self.A)
             confidence_bound = self.exploration_param * np.sqrt(np.dot(x, A_inv @ x))
         
-        # UCB: mean + confidence bound
-        ucb_prediction = mean_prediction + confidence_bound
+        # LCB: mean - confidence bound (for minimization)
+        lcb_prediction = mean_prediction - confidence_bound
         
-        return max(0.0, ucb_prediction)
+        return max(0.0, lcb_prediction)
     
     def update(self, system_metrics: Dict[str, Any], 
                job_parameters: Dict[str, Any], 
@@ -652,18 +655,18 @@ class LinUCB(ModelPersistence):
             theta_old = np.linalg.pinv(self.A) @ self.b
         mean_prediction = np.dot(theta_old, x)
         
-        # Calculate UCB prediction (what was used for job selection)
+        # Calculate LCB prediction (what was used for job selection)
         try:
             A_inv = np.linalg.inv(self.A)
             confidence_bound = self.exploration_param * np.sqrt(np.dot(x, A_inv @ x))
         except np.linalg.LinAlgError:
             A_inv = np.linalg.pinv(self.A)
             confidence_bound = self.exploration_param * np.sqrt(np.dot(x, A_inv @ x))
-        ucb_prediction = mean_prediction + confidence_bound
+        lcb_prediction = mean_prediction - confidence_bound
         
         # Use saved predicted runtime if available (for consistency with scheduling log)
-        # Otherwise use calculated UCB prediction
-        predicted_runtime_for_logging = saved_predicted_runtime if saved_predicted_runtime and saved_predicted_runtime > 0 else ucb_prediction
+        # Otherwise use calculated LCB prediction
+        predicted_runtime_for_logging = saved_predicted_runtime if saved_predicted_runtime and saved_predicted_runtime > 0 else lcb_prediction
         
         # Update parameters
         self.A += np.outer(x, x)
@@ -683,7 +686,7 @@ class LinUCB(ModelPersistence):
                        f"error={prediction_error:.2f}s "
                        f"({'over' if prediction_error > 0 else 'under'}-predicted)")
         else:
-            logger.info(f"LinUCB update: UCB_predicted={ucb_prediction:.2f}s (mean={mean_prediction:.2f}s + bound={confidence_bound:.2f}s), "
+            logger.info(f"LinUCB update: LCB_predicted={lcb_prediction:.2f}s (mean={mean_prediction:.2f}s - bound={confidence_bound:.2f}s), "
                        f"actual={observed_runtime:.2f}s, "
                        f"error={prediction_error:.2f}s "
                        f"({'over' if prediction_error > 0 else 'under'}-predicted)")
