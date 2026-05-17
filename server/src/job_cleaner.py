@@ -8,14 +8,15 @@ import requests
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 LOG_FILENAME = "job_cleaner.log"
 
-ABORTED_JOB_RESET_TIMEOUT = 30 * 60 # ideal time out for aborted jobs
-IDLE_TIMEOUT = 60
-POLLING_INTERVAL = 60  # Default polling interval
+ABORTED_JOB_RESET_TIMEOUT = 30 * 60  # seconds between aborted-job resets
+IDLE_TIMEOUT = 60                     # seconds of silence before a SERVED job is considered stale
+POLLING_INTERVAL = 60                 # how often the cleaner loop runs
 
 # ---------------- Setup ----------------
 
 def createExpBaseDirectory(args):
     os.makedirs(os.path.join(BASE_DIR, args.expId), exist_ok=True)
+
 
 def setup_log(args):
     LOG_FILE = os.path.join(BASE_DIR, args.expId, LOG_FILENAME)
@@ -26,147 +27,66 @@ def setup_log(args):
     )
 
 # ---------------- Cleanup Logic ----------------
-# All database and model operations are now handled via API calls to the server
+
+def reset_aborted_jobs(base_url):
+    try:
+        response = requests.post(
+            f"{base_url}/cleanup/reset_aborted_jobs",
+            json={},
+            timeout=10
+        )
+        if response.status_code == 200:
+            result = response.json()
+            count = result.get("jobs_reset", 0)
+            if count > 0:
+                logging.info(f"Reset {count} ABORTED jobs to PENDING.")
+            else:
+                logging.info("No aborted jobs to reset.")
+        else:
+            logging.error(f"Failed to reset aborted jobs. Status: {response.status_code}, Response: {response.text}")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error calling reset_aborted_jobs API: {e}")
+
+
+def reset_stale_served_jobs(base_url, idle_timeout):
+    try:
+        response = requests.post(
+            f"{base_url}/cleanup/reset_stale_served_jobs",
+            json={"idle_timeout": idle_timeout},
+            timeout=10
+        )
+        if response.status_code == 200:
+            result = response.json()
+            count = result.get("jobs_reset", 0)
+            if count > 0:
+                logging.info(f"Reset {count} stale SERVED jobs to PENDING (timeout: {idle_timeout}s).")
+            else:
+                logging.info("No stale SERVED jobs to reset.")
+        else:
+            logging.error(f"Failed to reset stale served jobs. Status: {response.status_code}, Response: {response.text}")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error calling reset_stale_served_jobs API: {e}")
 
 # ---------------- Main Cleanup Loop ----------------
 
 def cleanup_loop(server_url, server_port):
     last_aborted_reset_time = 0
     last_idle_check_time = 0
-    
-    # Track pending operations to prevent duplicate requests
-    pending_aborted_operation_id = None
-    pending_stale_operation_id = None
-    
+
     base_url = f"http://{server_url}:{server_port}"
 
     while True:
         now = time.time()
-        jobs_updated = False
 
-        # Check if it's time to reset aborted jobs
         if now - last_aborted_reset_time >= ABORTED_JOB_RESET_TIMEOUT:
-            # Check if we have a pending operation
-            if pending_aborted_operation_id:
-                # Check status of pending operation
-                try:
-                    response = requests.get(
-                        f"{base_url}/cleanup/reset_aborted_jobs/{pending_aborted_operation_id}",
-                        timeout=10
-                    )
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        if result.get("status") == "completed":
-                            count = result.get("jobs_reset", 0)
-                            punished_count = result.get("bandit_punishments", 0)
-                            if count > 0:
-                                logging.info(f"Reset {count} ABORTED jobs to PENDING via API (punished {punished_count} in bandit).")
-                                jobs_updated = True
-                            else:
-                                logging.info("No aborted jobs to reset.")
-                            pending_aborted_operation_id = None
-                            last_aborted_reset_time = now
-                        elif result.get("status") == "processing":
-                            logging.debug(f"Reset aborted jobs operation {pending_aborted_operation_id} still processing...")
-                        elif result.get("status") == "error":
-                            logging.error(f"Reset aborted jobs operation failed: {result.get('error')}")
-                            pending_aborted_operation_id = None
-                            last_aborted_reset_time = now
-                    elif response.status_code == 202:
-                        # Still processing
-                        logging.debug(f"Reset aborted jobs operation {pending_aborted_operation_id} still processing...")
-                    else:
-                        logging.warning(f"Unexpected status checking aborted jobs operation: {response.status_code}")
-                        pending_aborted_operation_id = None
-                except requests.exceptions.RequestException as e:
-                    logging.error(f"Error checking reset_aborted_jobs status: {e}")
-            else:
-                # No pending operation, make a new request
-                logging.info("Requesting aborted job cleanup via API...")
-                try:
-                    response = requests.post(
-                        f"{base_url}/cleanup/reset_aborted_jobs",
-                        json={},
-                        timeout=10
-                    )
-                    
-                    if response.status_code == 202:
-                        result = response.json()
-                        operation_id = result.get("operation_id")
-                        if operation_id:
-                            pending_aborted_operation_id = operation_id
-                            logging.info(f"Queued reset_aborted_jobs operation {operation_id}")
-                        else:
-                            # Server says operation already in progress
-                            logging.info("Reset aborted jobs operation already in progress on server")
-                    else:
-                        logging.error(f"Failed to queue reset aborted jobs. Status: {response.status_code}, Response: {response.text}")
-                except requests.exceptions.RequestException as e:
-                    logging.error(f"Error calling reset_aborted_jobs API: {e}")
+            logging.info("Running aborted job cleanup...")
+            reset_aborted_jobs(base_url)
+            last_aborted_reset_time = now
 
-        # Check if it's time to reset stale served jobs
         if now - last_idle_check_time >= IDLE_TIMEOUT:
-            # Check if we have a pending operation
-            if pending_stale_operation_id:
-                # Check status of pending operation
-                try:
-                    response = requests.get(
-                        f"{base_url}/cleanup/reset_stale_served_jobs/{pending_stale_operation_id}",
-                        timeout=10
-                    )
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        if result.get("status") == "completed":
-                            count = result.get("jobs_reset", 0)
-                            if count > 0:
-                                logging.info(f"Reset {count} SERVED jobs due to no ping via API.")
-                                jobs_updated = True
-                            else:
-                                logging.info("No stale served jobs to reset.")
-                            pending_stale_operation_id = None
-                            last_idle_check_time = now
-                        elif result.get("status") == "processing":
-                            logging.debug(f"Reset stale served jobs operation {pending_stale_operation_id} still processing...")
-                        elif result.get("status") == "error":
-                            logging.error(f"Reset stale served jobs operation failed: {result.get('error')}")
-                            pending_stale_operation_id = None
-                            last_idle_check_time = now
-                    elif response.status_code == 202:
-                        # Still processing
-                        logging.debug(f"Reset stale served jobs operation {pending_stale_operation_id} still processing...")
-                    else:
-                        logging.warning(f"Unexpected status checking stale served jobs operation: {response.status_code}")
-                        pending_stale_operation_id = None
-                except requests.exceptions.RequestException as e:
-                    logging.error(f"Error checking reset_stale_served_jobs status: {e}")
-            else:
-                # No pending operation, make a new request
-                logging.info("Requesting stale SERVED job cleanup via API...")
-                try:
-                    response = requests.post(
-                        f"{base_url}/cleanup/reset_stale_served_jobs",
-                        json={"idle_timeout": IDLE_TIMEOUT},
-                        timeout=10
-                    )
-                    
-                    if response.status_code == 202:
-                        result = response.json()
-                        operation_id = result.get("operation_id")
-                        if operation_id:
-                            pending_stale_operation_id = operation_id
-                            logging.info(f"Queued reset_stale_served_jobs operation {operation_id}")
-                        else:
-                            # Server says operation already in progress
-                            logging.info("Reset stale served jobs operation already in progress on server")
-                    else:
-                        logging.error(f"Failed to queue reset stale served jobs. Status: {response.status_code}, Response: {response.text}")
-                except requests.exceptions.RequestException as e:
-                    logging.error(f"Error calling reset_stale_served_jobs API: {e}")
-
-        if not jobs_updated and not pending_aborted_operation_id and not pending_stale_operation_id:
-            logging.info("No updates made in this cycle.")
+            logging.info("Running stale SERVED job cleanup...")
+            reset_stale_served_jobs(base_url, IDLE_TIMEOUT)
+            last_idle_check_time = now
 
         time.sleep(POLLING_INTERVAL)
 
@@ -192,5 +112,5 @@ if __name__ == "__main__":
     logging.info(f"Job cleaner started. Connecting to server at {args.serverUrl}:{args.serverPort}")
     logging.info(f"Configuration: abortedJobResetTimeout={ABORTED_JOB_RESET_TIMEOUT}s, "
                  f"idleTimeout={IDLE_TIMEOUT}s, pollingInterval={POLLING_INTERVAL}s")
-    
+
     cleanup_loop(args.serverUrl, args.serverPort)

@@ -1,5 +1,4 @@
 import argparse
-import json
 import logging
 import os
 from collections import defaultdict
@@ -9,93 +8,6 @@ from pathlib import Path
 import pytz
 from database import JobDatabase
 from flask import Flask, jsonify, render_template_string, request
-
-# Load .env if available (place .env in the server project root)
-
-
-def _load_dotenv():
-    try:
-        from dotenv import load_dotenv
-
-        # BASE_DIR here is parent of src, so .env in that folder
-        dotenv_path = os.path.join(BASE_DIR, ".env")
-        load_dotenv(dotenv_path)
-        logging.info(f"Loaded .env from {dotenv_path}")
-    except Exception:
-        # dotenv is optional; ignore if not installed
-        pass
-
-
-def _parse_ngrok_yml_for_token(path: str) -> str | None:
-    try:
-        import yaml  # optional, but more robust
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-            token = data.get("authtoken") or data.get("auth_token")
-            if token and isinstance(token, str) and set(token) != {"*"}:
-                return token.strip()
-    except ImportError:
-        # Fallback to simple line parsing if PyYAML isn't installed
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if "authtoken" in line:
-                        parts = line.split(":", 1)
-                        if len(parts) == 2:
-                            token = parts[1].strip().strip(' "\'')
-                            if token and set(token) != {"*"}:
-                                return token
-        except Exception:
-            pass
-    except Exception:
-        pass
-    return None
-
-
-def _find_ngrok_token_from_yml() -> str | None:
-    # Respect NGROK_CONFIG if set
-    cfg_env = os.getenv("NGROK_CONFIG")
-    if cfg_env and os.path.exists(cfg_env):
-        token = _parse_ngrok_yml_for_token(cfg_env)
-        if token:
-            return token
-
-    # Typical paths (v3 and legacy v2)
-    candidates = []
-    if os.name == "nt":
-        local_app = os.environ.get("LOCALAPPDATA")
-        user_profile = os.environ.get(
-            "USERPROFILE") or os.environ.get("HOMEPATH")
-        if local_app:
-            candidates.append(os.path.join(
-                local_app, "ngrok", "ngrok.yml"))      # v3
-        if user_profile:
-            candidates.append(os.path.join(
-                user_profile, ".ngrok2", "ngrok.yml"))  # v2
-    else:
-        home = os.path.expanduser("~")
-        candidates.append(os.path.join(
-            home, ".config", "ngrok", "ngrok.yml"))    # v3
-        candidates.append(os.path.join(
-            home, ".ngrok2", "ngrok.yml"))             # v2
-
-    for p in candidates:
-        if os.path.exists(p):
-            token = _parse_ngrok_yml_for_token(p)
-            if token:
-                logging.info(f"ngrok token loaded from {p}")
-                return token
-    return None
-
-
-def _get_ngrok_token() -> str | None:
-    # 1) .env (if available), 2) environment variables, 3) YAML
-    _load_dotenv()
-    token = os.getenv("NGROK_AUTHTOKEN") or os.getenv("NGROK_TOKEN")
-    if token:
-        return token.strip()
-    return _find_ngrok_token_from_yml()
-
 
 app = Flask(__name__)
 
@@ -123,25 +35,13 @@ STATUS_PENDING = "PENDING"
 STATUS_SERVED = "SERVED"
 STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
+STATUS_DELETED = "DELETED"
 
 # Initialize database connection
 db = None
 
 # Load configuration
 
-
-def load_config():
-    """Load configuration from config.json"""
-    config_path = os.path.join(BASE_DIR, "config.json")
-    try:
-        with open(config_path, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        logging.error(f"Error loading config: {e}")
-        return {"status_change_pin": "1234"}  # Default fallback
-
-
-config = load_config()
 
 # --------------------- HELPER FUNCTIONS -----------------------
 
@@ -291,16 +191,9 @@ def change_job_status():
         job_id = data.get('job_id')
         new_status = data.get('new_status')
         reason = data.get('reason', '')
-        pin = data.get('pin', '')
 
         if job_id is None or new_status is None:
             return jsonify({"success": False, "error": "Missing job_id or new_status"}), 400
-
-        # Validate PIN
-        config_pin = config.get('status_change_pin',
-                                '1234')  # Default fallback
-        if pin != config_pin:
-            return jsonify({"success": False, "error": "Invalid PIN"}), 401
 
         success = db.change_job_status(job_id, new_status, reason)
 
@@ -311,6 +204,68 @@ def change_job_status():
 
     except Exception as e:
         logging.error(f"Error changing job status: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/delete_job", methods=["POST"])
+def delete_job():
+    """Delete a PENDING job by setting its status to DELETED."""
+    db.track_api_request("Delete Job", "POST")
+
+    try:
+        data = request.get_json()
+        job_id = data.get('job_id')
+        reason = data.get('reason', '')
+
+        if job_id is None:
+            return jsonify({"success": False, "error": "Missing job_id"}), 400
+
+        job = db.get_job_by_id(job_id)
+        if not job:
+            return jsonify({"success": False, "error": "Job not found"}), 404
+
+        if job['status'] != STATUS_PENDING:
+            return jsonify({"success": False, "error": f"Only PENDING jobs can be deleted. Current status: {job['status']}"}), 400
+
+        success = db.delete_job(job_id, reason)
+        if success:
+            return jsonify({"success": True, "message": f"Job {job_id} deleted successfully"})
+        else:
+            return jsonify({"success": False, "error": "Failed to delete job"}), 400
+
+    except Exception as e:
+        logging.error(f"Error deleting job: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/restore_job", methods=["POST"])
+def restore_job():
+    """Restore a DELETED job back to PENDING."""
+    db.track_api_request("Restore Job", "POST")
+
+    try:
+        data = request.get_json()
+        job_id = data.get('job_id')
+        reason = data.get('reason', '')
+
+        if job_id is None:
+            return jsonify({"success": False, "error": "Missing job_id"}), 400
+
+        job = db.get_job_by_id(job_id)
+        if not job:
+            return jsonify({"success": False, "error": "Job not found"}), 404
+
+        if job['status'] != STATUS_DELETED:
+            return jsonify({"success": False, "error": f"Only DELETED jobs can be restored. Current status: {job['status']}"}), 400
+
+        success = db.restore_deleted_job(job_id, reason)
+        if success:
+            return jsonify({"success": True, "message": f"Job {job_id} restored to PENDING successfully"})
+        else:
+            return jsonify({"success": False, "error": "Failed to restore job"}), 400
+
+    except Exception as e:
+        logging.error(f"Error restoring job: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -364,6 +319,7 @@ def dashboard():
     total_jobs_served = job_counts.get(STATUS_SERVED, 0)
     total_jobs_completed = job_counts.get(STATUS_DONE, 0)
     total_jobs_aborted = job_counts.get(STATUS_ABORTED, 0)
+    total_jobs_deleted = job_counts.get(STATUS_DELETED, 0)
 
     # Get machine names efficiently (only from completed jobs for stats)
     completed_jobs = db.get_jobs_by_status(STATUS_DONE)
@@ -1780,7 +1736,7 @@ def dashboard():
             // Load initial data when page loads
             document.addEventListener('DOMContentLoaded', function() {
                 // Load jobs for all tabs initially
-                const statuses = ['SERVED', 'DONE', 'ABORTED', 'PENDING'];
+                const statuses = ['SERVED', 'DONE', 'ABORTED', 'PENDING', 'DELETED'];
                 statuses.forEach(status => {
                     loadJobs(status, 1);
                     
@@ -1806,15 +1762,15 @@ def dashboard():
                 const toggleMetricsBtn = document.getElementById("toggleMetricsBtn");
                 const statusChangeSection = document.getElementById("statusChangeSection");
                 const statusChangeTitle = document.getElementById("statusChangeTitle");
+                const deleteSection = document.getElementById("deleteSection");
+                const restoreSection = document.getElementById("restoreSection");
 
                 // Set Job ID
                 jobIdSpan.textContent = jobId;
 
-                // Only show status change for DONE, ABORTED, or PENDING jobs
+                // Status change section: DONE and ABORTED → PENDING; PENDING → DONE
                 if (currentStatus === 'DONE' || currentStatus === 'ABORTED' || currentStatus === 'PENDING') {
                     statusChangeSection.style.display = 'block';
-                    
-                    // Set title based on current status
                     if (currentStatus === 'DONE') {
                         statusChangeTitle.textContent = 'Change Job Status to PENDING';
                     } else if (currentStatus === 'ABORTED') {
@@ -1825,6 +1781,12 @@ def dashboard():
                 } else {
                     statusChangeSection.style.display = 'none';
                 }
+
+                // Delete section: only for PENDING jobs
+                deleteSection.style.display = (currentStatus === 'PENDING') ? 'block' : 'none';
+
+                // Restore section: only for DELETED jobs
+                restoreSection.style.display = (currentStatus === 'DELETED') ? 'block' : 'none';
 
                 // Clear old contents
                 messageTimeline.innerHTML = "";
@@ -1956,7 +1918,6 @@ def dashboard():
             function changeJobStatus() {
                 const jobId = document.getElementById("jobId").textContent;
                 const reason = document.getElementById("statusChangeReason").value;
-                const pin = document.getElementById("statusChangePin").value;
                 const title = document.getElementById("statusChangeTitle").textContent;
                 
                 // Determine new status from title
@@ -1969,16 +1930,6 @@ def dashboard():
                 
                 if (!newStatus) {
                     showNotification("Unable to determine target status", "error");
-                    return;
-                }
-                
-                if (!pin) {
-                    showNotification("Please enter the 4-digit PIN", "warning");
-                    return;
-                }
-                
-                if (pin.length !== 4 || !/^'\'d{4}$/.test(pin)) {
-                    showNotification("PIN must be exactly 4 digits", "warning");
                     return;
                 }
                 
@@ -1996,8 +1947,7 @@ def dashboard():
                     body: JSON.stringify({
                         job_id: parseInt(jobId),
                         new_status: newStatus,
-                        reason: reason,
-                        pin: pin
+                        reason: reason
                     })
                 })
                 .then(response => response.json())
@@ -2006,7 +1956,6 @@ def dashboard():
                         showNotification("Status changed successfully!", "success");
                         // Reset form
                         document.getElementById("statusChangeReason").value = "";
-                        document.getElementById("statusChangePin").value = "";
                         // Close modal after a short delay
                         setTimeout(() => {
                             closeMessageModal();
@@ -2024,6 +1973,72 @@ def dashboard():
                     // Reset button state
                     changeBtn.textContent = originalText;
                     changeBtn.disabled = false;
+                });
+            }
+
+            function deleteJob() {
+                const jobId = document.getElementById("jobId").textContent;
+                const reason = document.getElementById("deleteReason").value;
+
+                const btn = document.getElementById("deleteJobBtn");
+                const originalText = btn.textContent;
+                btn.textContent = "Deleting...";
+                btn.disabled = true;
+
+                fetch('/delete_job', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ job_id: parseInt(jobId), reason: reason })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification("Job deleted successfully.", "success");
+                        document.getElementById("deleteReason").value = "";
+                        setTimeout(() => { closeMessageModal(); location.reload(); }, 1500);
+                    } else {
+                        showNotification("Error: " + (data.error || "Failed to delete job"), "error");
+                    }
+                })
+                .catch(error => {
+                    showNotification("Error deleting job: " + error.message, "error");
+                })
+                .finally(() => {
+                    btn.textContent = originalText;
+                    btn.disabled = false;
+                });
+            }
+
+            function restoreJob() {
+                const jobId = document.getElementById("jobId").textContent;
+                const reason = document.getElementById("restoreReason").value;
+
+                const btn = document.getElementById("restoreJobBtn");
+                const originalText = btn.textContent;
+                btn.textContent = "Restoring...";
+                btn.disabled = true;
+
+                fetch('/restore_job', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ job_id: parseInt(jobId), reason: reason })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showNotification("Job restored to PENDING successfully.", "success");
+                        document.getElementById("restoreReason").value = "";
+                        setTimeout(() => { closeMessageModal(); location.reload(); }, 1500);
+                    } else {
+                        showNotification("Error: " + (data.error || "Failed to restore job"), "error");
+                    }
+                })
+                .catch(error => {
+                    showNotification("Error restoring job: " + error.message, "error");
+                })
+                .finally(() => {
+                    btn.textContent = originalText;
+                    btn.disabled = false;
                 });
             }
 
@@ -2242,7 +2257,12 @@ def dashboard():
                                 <div class="stat-item">
                                     <div class="stat-icon" style="color: #95a5a6;"><i class="fas fa-pause-circle"></i></div>
                                     <div class="stat-label">Pending</div>
-                                    <div class="stat-value">{{ total_jobs - total_jobs_completed - total_jobs_served - total_jobs_aborted }}</div>
+                                    <div class="stat-value">{{ total_jobs - total_jobs_completed - total_jobs_served - total_jobs_aborted - total_jobs_deleted }}</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-icon" style="color: #6c757d;"><i class="fas fa-trash"></i></div>
+                                    <div class="stat-label">Deleted</div>
+                                    <div class="stat-value">{{ total_jobs_deleted }}</div>
                                 </div>
                             </div>
                             
@@ -2338,10 +2358,15 @@ def dashboard():
                                 PENDING
                                 <span class="tab-count">{{ job_counts.get('PENDING', 0) }}</span>
                             </button>
+                            <button class="tab-button" onclick="openTab(event, 'DELETED')">
+                                <i class="fas fa-trash"></i>
+                                DELETED
+                                <span class="tab-count">{{ total_jobs_deleted }}</span>
+                            </button>
                         </div>
                         
                         <!-- Tab Contents -->
-                        {% for status in ['SERVED', 'DONE', 'ABORTED', 'PENDING'] %}
+                        {% for status in ['SERVED', 'DONE', 'ABORTED', 'PENDING', 'DELETED'] %}
                             <div id="{{ status }}" class="tabcontent {% if status == 'SERVED' %}active{% endif %}">
                                 <div class="table-container">
                                     <!-- Table Header with Search -->
@@ -2485,8 +2510,27 @@ def dashboard():
                     <h4 id="statusChangeTitle" style="margin: 0 0 10px 0; color: #495057;">Change Job Status</h4>
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <input type="text" id="statusChangeReason" placeholder="Reason (optional)" style="flex: 1; padding: 8px; border: 1px solid #ced4da; border-radius: 4px;">
-                        <input type="password" id="statusChangePin" placeholder="PIN" style="padding: 8px; border: 1px solid #ced4da; border-radius: 4px; width: 80px;" maxlength="4" pattern="[0-9]{4}">
                         <button id="changeStatusBtn" onclick="changeJobStatus()" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;">Change Status</button>
+                    </div>
+                </div>
+
+                <!-- Delete Section (PENDING jobs only) -->
+                <div id="deleteSection" style="display:none; margin: 15px 0; padding: 15px; background: #fff5f5; border-radius: 8px; border: 1px solid #f5c6cb;">
+                    <h4 style="margin: 0 0 10px 0; color: #721c24;"><i class="fas fa-trash"></i> Delete Job</h4>
+                    <p style="margin: 0 0 10px 0; font-size: 0.85em; color: #856404;">Deleted jobs will not be assigned to any worker. You can restore them later.</p>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="deleteReason" placeholder="Reason (optional)" style="flex: 1; padding: 8px; border: 1px solid #f5c6cb; border-radius: 4px;">
+                        <button id="deleteJobBtn" onclick="deleteJob()" style="padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;">Delete Job</button>
+                    </div>
+                </div>
+
+                <!-- Restore Section (DELETED jobs only) -->
+                <div id="restoreSection" style="display:none; margin: 15px 0; padding: 15px; background: #f0fff4; border-radius: 8px; border: 1px solid #c3e6cb;">
+                    <h4 style="margin: 0 0 10px 0; color: #155724;"><i class="fas fa-undo"></i> Restore Job</h4>
+                    <p style="margin: 0 0 10px 0; font-size: 0.85em; color: #155724;">This will restore the job to PENDING so it can be assigned to a worker again.</p>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="restoreReason" placeholder="Reason (optional)" style="flex: 1; padding: 8px; border: 1px solid #c3e6cb; border-radius: 4px;">
+                        <button id="restoreJobBtn" onclick="restoreJob()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;">Restore to PENDING</button>
                     </div>
                 </div>
 
@@ -2587,8 +2631,6 @@ if __name__ == "__main__":
                         help="IP address to bind to")
     parser.add_argument("--jobDB", default="jobs.db",
                         help="SQLite database file (<filename>.db) placed in the same directory as server.py")
-    parser.add_argument("--enableNgrok", action="store_true",
-                        help="Enable ngrok for external access")
     parser.add_argument("--port", type=int, default=5050,
                         help="Port number to listen on")
     parser.add_argument("--expId", type=str, default="sim1",
@@ -2604,25 +2646,6 @@ if __name__ == "__main__":
     # Initialize database connection
     db = JobDatabase(DB_FILE)
 
-    # Start ngrok only if requested and authtoken is set
-    if args.enableNgrok:
-        # token = os.getenv("NGROK_AUTHTOKEN") or os.getenv("NGROK_TOKEN")
-        token = _get_ngrok_token()
-
-        if not token:
-            logging.warning(
-                "enableNgrok=True but NGROK_AUTHTOKEN is not set. Skipping ngrok.")
-        else:
-            try:
-                from pyngrok import ngrok
-                ngrok.set_auth_token(token)
-                public_url = ngrok.connect(args.port).public_url
-                print(f" >> dashboard : {public_url}")
-                logging.info(f"ngrok tunnel established at {public_url}")
-            except Exception as e:
-                logging.error(f"Failed to start ngrok: {e}")
-
-    # Start the Flask app
     app.run(host=args.host, port=args.port)
 
 # python dashboard.py --expId=sim1 --jobDB=jobs.db --host=0.0.0.0 --port=5050

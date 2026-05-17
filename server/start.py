@@ -78,14 +78,10 @@ def main():
         f"--parameters={params_arg}"
     )
 
-    enable_flag = "--enableNgrok" if str(config.get(
-        "enable_ngork", False)).lower() in ("true", "1", "yes", "on") else ""
-
     server_cmd = (
         f"{sys.executable} src/server.py "
         f"--expId={config['expId']} "
         f"--jobDB={config['jobDB']} "
-        f"{enable_flag} "
         f"--host={config['host']} "
         f"--port={config['server_port']}"
     )
@@ -94,7 +90,6 @@ def main():
         f"{sys.executable} src/dashboard.py "
         f"--expId={config['expId']} "
         f"--jobDB={config['jobDB']} "
-        f"{enable_flag} "
         f"--host={config['host']} "
         f"--port={config['dashboard_port']}"
     )

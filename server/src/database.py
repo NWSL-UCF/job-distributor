@@ -11,6 +11,7 @@ STATUS_PENDING = "PENDING"
 STATUS_SERVED = "SERVED"
 STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
+STATUS_DELETED = "DELETED"
 
 class JobDatabase:
     """SQLite database handler for job distribution system."""
@@ -378,7 +379,6 @@ class JobDatabase:
                         (job_id, STATUS_PENDING)
                     )
                 else:
-                    # Get first PENDING job (will be overridden by bandit selection)
                     cursor.execute(
                         "SELECT * FROM jobs WHERE status = ? ORDER BY id LIMIT 1",
                         (STATUS_PENDING,)
@@ -680,6 +680,73 @@ class JobDatabase:
                 conn.commit()
                 return count
     
+    def delete_job(self, job_id: int, reason: str = "") -> bool:
+        """Delete a PENDING job by setting its status to DELETED. Only works on PENDING jobs."""
+        with self.lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT * FROM jobs WHERE id = ? AND status = ?",
+                    (job_id, STATUS_PENDING)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return False
+
+                job = dict(row)
+                now = time.time()
+                try:
+                    messages = json.loads(job['message'])
+                except json.JSONDecodeError:
+                    messages = []
+
+                messages.append({
+                    "reason": f"Job Deleted: {reason if reason else 'No reason provided'}. Job will not be assigned to any worker.",
+                    "timestamp": now
+                })
+
+                cursor.execute(
+                    "UPDATE jobs SET status = ?, message = ? WHERE id = ?",
+                    (STATUS_DELETED, json.dumps(messages), job_id)
+                )
+                conn.commit()
+                return True
+
+    def restore_deleted_job(self, job_id: int, reason: str = "") -> bool:
+        """Restore a DELETED job back to PENDING. Only works on DELETED jobs."""
+        with self.lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT * FROM jobs WHERE id = ? AND status = ?",
+                    (job_id, STATUS_DELETED)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return False
+
+                job = dict(row)
+                now = time.time()
+                try:
+                    messages = json.loads(job['message'])
+                except json.JSONDecodeError:
+                    messages = []
+
+                messages.append({
+                    "reason": f"Job Restored to PENDING: {reason if reason else 'No reason provided'}. Job is now available for assignment.",
+                    "timestamp": now
+                })
+
+                cursor.execute('''
+                    UPDATE jobs
+                    SET status = ?, message = ?, requested_by = '', request_timestamp = 0,
+                        completion_timestamp = 0, required_time = 0,
+                        last_ping_timestamp = 0, initialization_timestamp = 0
+                    WHERE id = ?
+                ''', (STATUS_PENDING, json.dumps(messages), job_id))
+                conn.commit()
+                return True
+
     def get_job_counts_by_status(self) -> Dict[str, int]:
         """Get job counts by status efficiently."""
         with self.get_connection() as conn:
@@ -691,7 +758,7 @@ class JobDatabase:
             """)
             rows = cursor.fetchall()
             
-            counts = {STATUS_PENDING: 0, STATUS_SERVED: 0, STATUS_DONE: 0, STATUS_ABORTED: 0}
+            counts = {STATUS_PENDING: 0, STATUS_SERVED: 0, STATUS_DONE: 0, STATUS_ABORTED: 0, STATUS_DELETED: 0}
             for row in rows:
                 counts[row['status']] = row['count']
             

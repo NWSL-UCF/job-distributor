@@ -59,13 +59,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --------------- Constants ----------------
-if "ngrok" in job_server:
-    base_url = job_server
-else:
-    base_url = f"{job_server}:{port}"
+# Use the job_server URL as-is if it already contains an explicit port,
+# otherwise append the configured port.
+from urllib.parse import urlparse as _urlparse
+base_url = job_server if _urlparse(job_server).port else f"{job_server}:{port}"
 
 REQUEST_JOB_URL = f"{base_url}/request_job"
-GET_JOB_URL = f"{base_url}/get_job"
 UPDATE_JOB_URL = f"{base_url}/update_job_status"
 PING_URL = f"{base_url}/ping"
 
@@ -300,85 +299,35 @@ def ping_job(job_id, stop_event):
                 f"Ping exception for job {job_id}: {type(e).__name__}: {e}")
         time.sleep(heartBitInterval)
 
-# --------------- Async Job Request ----------------
+# --------------- Job Request ----------------
 
-def request_and_get_job(system_metrics, max_poll_attempts=180, poll_interval=10):
+def request_and_get_job(system_metrics):
     """
-    Request a job asynchronously and poll until it's ready.
-    
-    Args:
-        system_metrics: System metrics dictionary to send with request
-        max_poll_attempts: Maximum number of polling attempts (default 180 = 30 minutes at 10s intervals)
-        poll_interval: Seconds to wait between polling attempts (default 10)
-    
+    Request the next available job from the server.
+
     Returns:
         tuple: (success: bool, job_info: dict or None, error_message: str or None)
     """
     try:
-        # Step 1: Request job (returns immediately with 202)
         logger.info("Requesting a new job from server...")
         response = requests.post(REQUEST_JOB_URL, json={
             "requested_by": runner_id,
             "system_metrics": system_metrics
         }, timeout=30)
-        
+
         if response.status_code == 404:
             logger.info("No more jobs available.")
             return (False, None, "No available jobs")
-        
-        if response.status_code != 202:
-            error_msg = f"Failed to request job. Status: {response.status_code}, Msg: {response.text}"
-            logger.error(error_msg)
-            return (False, None, error_msg)
-        
-        logger.info("Job request accepted. Server is selecting best job. Polling for ready job...")
-        
-        # Step 2: Poll /get_job until job is ready
-        for attempt in range(max_poll_attempts):
-            try:
-                response = requests.post(GET_JOB_URL, json={
-                    "requested_by": runner_id
-                }, timeout=10)
-                
-                if response.status_code == 200:
-                    # Job is ready!
-                    job_info = response.json()
-                    if "error" in job_info:
-                        # Server returned an error (e.g., no jobs available)
-                        logger.info(f"No jobs available: {job_info.get('error')}")
-                        return (False, None, job_info.get('error'))
-                    else:
-                        logger.info("Job received successfully!")
-                        return (True, job_info, None)
-                
-                elif response.status_code == 202:
-                    # Still processing, continue polling
-                    result = response.json()
-                    if attempt % 6 == 0:  # Log every 6th attempt (every minute) to avoid spam
-                        logger.info(f"Job selection in progress... (attempt {attempt + 1}/{max_poll_attempts}, ~{attempt * poll_interval // 60} minutes elapsed)")
-                    time.sleep(poll_interval)
-                    continue
-                
-                elif response.status_code == 404:
-                    logger.info("No jobs available.")
-                    return (False, None, "No available jobs")
-                
-                else:
-                    error_msg = f"Unexpected status while polling for job: {response.status_code}, Msg: {response.text}"
-                    logger.warning(error_msg)
-                    time.sleep(poll_interval)
-                    continue
-                    
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"Error polling for job (attempt {attempt + 1}): {type(e).__name__}: {e}")
-                time.sleep(poll_interval)
-                continue
-        
-        # Max attempts reached
-        error_msg = f"Timeout waiting for job after {max_poll_attempts} attempts ({max_poll_attempts * poll_interval} seconds)"
+
+        if response.status_code == 200:
+            job_info = response.json()
+            logger.info(f"Job received: job_id={job_info.get('job_id')}")
+            return (True, job_info, None)
+
+        error_msg = f"Failed to request job. Status: {response.status_code}, Msg: {response.text}"
         logger.error(error_msg)
         return (False, None, error_msg)
-        
+
     except requests.exceptions.RequestException as e:
         error_msg = f"Error requesting job: {type(e).__name__}: {e}"
         logger.error(error_msg)
@@ -398,14 +347,8 @@ def update_status(job_id, status, message):
             "status": status,
             "message": message
         })
-        if res.status_code == 200 or res.status_code == 202:
-            # 200 = completed immediately, 202 = queued for async processing
-            if res.status_code == 202:
-                logger.info(
-                    f"Job {job_id} status update queued for async processing (status: {status}) on {runner_id}")
-            else:
-                logger.info(
-                    f"Job {job_id} status successfully updated to {status} on {runner_id}")
+        if res.status_code == 200:
+            logger.info(f"Job {job_id} status successfully updated to {status} on {runner_id}")
         else:
             logger.warning(
                 f"Failed to update status for job {job_id} on {runner_id}: HTTP {res.status_code} - {res.text}")
@@ -427,7 +370,6 @@ def main():
             # Collect system metrics to send with the job request
             system_metrics = get_averaged_system_metrics()
             
-            # Request job asynchronously and poll until ready
             success, job_info, error_message = request_and_get_job(system_metrics)
             
             if not success:
