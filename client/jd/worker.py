@@ -16,16 +16,23 @@ Required
 
 Optional
 --------
+    workspace_path=<path>   Worker-side directory root. Per job, local files
+                            belong under
+                            <workspace_path>/<expId>/<job_id>/ (passed as
+                            --base_path and JD_WORKER_JOB_DIR).
+                            (default: ./jd_workspace, env: JD_WORKER_WORKSPACE)
+                            JD_WORKSPACE_PATH is used if JD_WORKER_WORKSPACE is unset.
+                            Legacy: output_dir / JD_OUTPUT_DIR if none of the above.
     server=<url>            Job server base URL  (default: http://localhost,
                             env: JD_SERVER)
     port=<N>                Port if not included in server URL
                             (default: 5000, env: JD_PORT)
-    log_dir=<path>          Directory for worker logs
-                            (default: ./jd_logs, env: JD_LOG_DIR)
-    output_dir=<path>       Root directory passed as --base_path to the
-                            entry script; final path is
-                            <output_dir>/<expId>/<job_id>
-                            (default: ./jd_output, env: JD_OUTPUT_DIR)
+    log_dir=<path>          If set, logs go under <log_dir>/<expId>/; otherwise
+                            under <workspace_path>/<expId>/jd_worker_logs/
+                            (env: JD_LOG_DIR)
+    output_dir=<path>       Deprecated alias for workspace_path when
+                            workspace_path / JD_WORKER_WORKSPACE /
+                            JD_WORKSPACE_PATH are unset (env: JD_OUTPUT_DIR)
     machine_type=<type>     Label for this machine in the dashboard
                             (default: worker, env: JD_MACHINE_TYPE)
     process_id=<N>          Numeric ID when running multiple workers on the
@@ -39,7 +46,7 @@ Examples
 
     jd_worker expId=mnist_tune entry_script=train.py \\
               server=http://10.0.0.5 port=8000 \\
-              output_dir=/data/experiments \\
+              workspace_path=/data/experiments \\
               machine_type=gpu_node
 
     # Run exactly one job:
@@ -104,15 +111,30 @@ def _resolve(cfg: dict) -> dict:
     parsed = urlparse(server_raw)
     base_url = server_raw.rstrip('/') if parsed.port else f"{server_raw.rstrip('/')}:{port_raw}"
 
+    # Worker filesystem root → per-job dir: <workspace_path>/<expId>/<job_id>/
+    ws = get('workspace_path', 'JD_WORKER_WORKSPACE', None)
+    if not ws or not str(ws).strip():
+        alt = os.environ.get('JD_WORKSPACE_PATH', '').strip()
+        ws = alt if alt else None
+    if not ws:
+        ws = get('output_dir', 'JD_OUTPUT_DIR', './jd_workspace')
+    workspace_path = os.path.abspath(os.path.expanduser(str(ws).strip()))
+
+    log_override = None
+    if 'log_dir' in cfg:
+        log_override = os.path.expanduser(cfg['log_dir'].strip())
+    elif os.environ.get('JD_LOG_DIR', '').strip():
+        log_override = os.path.expanduser(os.environ['JD_LOG_DIR'].strip())
+
     return {
-        'exp_id':       get('expId',        'JD_EXP_ID',       None),
-        'entry_script': get('entry_script', 'JD_ENTRY_SCRIPT', None),
-        'base_url':     base_url,
-        'log_dir':      get('log_dir',      'JD_LOG_DIR',      './jd_logs'),
-        'output_dir':   get('output_dir',   'JD_OUTPUT_DIR',   './jd_output'),
-        'machine_type': get('machine_type', 'JD_MACHINE_TYPE', 'worker'),
-        'process_id':   get('process_id',   None,              '0'),
-        'once':         get('once',         'JD_ONCE',         'false').lower() == 'true',
+        'exp_id':           get('expId',        'JD_EXP_ID',       None),
+        'entry_script':     get('entry_script', 'JD_ENTRY_SCRIPT', None),
+        'base_url':         base_url,
+        'workspace_path':   workspace_path,
+        'log_dir_override': log_override,
+        'machine_type':     get('machine_type', 'JD_MACHINE_TYPE', 'worker'),
+        'process_id':       get('process_id',   None,              '0'),
+        'once':             get('once',         'JD_ONCE',         'false').lower() == 'true',
     }
 
 
@@ -332,7 +354,10 @@ def main() -> None:
     runner_id = (f"{username}@{socket.gethostname()}"
                  f"({cfg['machine_type']})_{cfg['process_id']}_{suffix}")
 
-    log_dir = os.path.join(cfg['log_dir'], cfg['exp_id'])
+    if cfg['log_dir_override'] is not None:
+        log_dir = os.path.join(cfg['log_dir_override'], cfg['exp_id'])
+    else:
+        log_dir = os.path.join(cfg['workspace_path'], cfg['exp_id'], 'jd_worker_logs')
     logger  = _setup_logger(log_dir, runner_id)
 
     urls = {
@@ -343,8 +368,9 @@ def main() -> None:
 
     logger.info(f"jd_worker v{__version__}  |  runner: {runner_id}")
     logger.info(f"Server:        {cfg['base_url']}")
-    logger.info(f"Entry script:  {cfg['entry_script']}")
-    logger.info(f"Output root:   {cfg['output_dir']}")
+    logger.info(f"Entry script:   {cfg['entry_script']}")
+    logger.info(f"Workspace path: {cfg['workspace_path']} "
+                f"(per-job: <workspace>/<expId>/<job_id>/)")
     logger.info(f"Ping interval: {PING_INTERVAL}s")
     if cfg['once']:
         logger.info("Mode: single job (once=true)")
@@ -388,16 +414,18 @@ def main() -> None:
             params = job['parameters']
             logger.info(f"Job {job_id} received  |  params: {params}")
 
-            # Build output path for this specific job
-            output_path = os.path.join(cfg['output_dir'], cfg['exp_id'], str(job_id))
-            os.makedirs(output_path, exist_ok=True)
+            # Local sandbox for this job — keep worker-side I/O under this directory
+            job_root = os.path.abspath(os.path.join(
+                cfg['workspace_path'], cfg['exp_id'], str(job_id)))
+            os.makedirs(job_root, exist_ok=True)
 
             # Build subprocess command
             # Uses the *current* Python interpreter so venv/conda is respected
             cmd = [sys.executable, cfg['entry_script']]
             for k, v in params.items():
                 cmd.extend([f"--{k}", str(v)])
-            cmd.extend(['--base_path', output_path])
+            cmd.extend(['--base_path', job_root])
+            logger.info(f"Job workspace: {job_root}")
             logger.info(f"Command: {' '.join(cmd)}")
 
             # Start heartbeat ping thread
@@ -413,9 +441,10 @@ def main() -> None:
             # so jd_upload / jd_update_checkpoint / jd_get_last_checkpoint work
             # inside the entry script without requiring explicit arguments.
             child_env = os.environ.copy()
-            child_env["JD_JOB_ID"]    = str(job_id)
-            child_env["JD_SERVER"]    = cfg["base_url"]
-            child_env["JD_EXP_ID"]   = cfg["exp_id"]
+            child_env["JD_JOB_ID"]         = str(job_id)
+            child_env["JD_SERVER"]         = cfg["base_url"]
+            child_env["JD_EXP_ID"]         = cfg["exp_id"]
+            child_env["JD_WORKER_JOB_DIR"] = job_root
 
             # Launch the entry script
             popen_kw = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE,

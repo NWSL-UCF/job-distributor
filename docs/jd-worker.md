@@ -63,22 +63,25 @@ Arguments are **`key=value`** tokens (and optional bare flags such as `once=true
 
 | Argument | Default | Env fallback |
 |----------|---------|----------------|
+| `workspace_path=<path>` | `./jd_workspace` | `JD_WORKER_WORKSPACE`, then `JD_WORKSPACE_PATH`, then legacy `JD_OUTPUT_DIR` / `output_dir=` |
 | `server=<url>` | `http://localhost` | `JD_SERVER` |
 | `port=<N>` | `5000` | `JD_PORT` (used if `server` has no port) |
-| `log_dir=<path>` | `./jd_logs` | `JD_LOG_DIR` |
-| `output_dir=<path>` | `./jd_output` | `JD_OUTPUT_DIR` |
+| `log_dir=<path>` | (derived) | `JD_LOG_DIR` — if unset, logs use `<workspace_path>/<expId>/jd_worker_logs/` |
+| `output_dir=<path>` | — | `JD_OUTPUT_DIR` — **legacy only**: treated like `workspace_path` when no workspace env/CLI is set |
 | `machine_type=<label>` | `worker` | `JD_MACHINE_TYPE` |
 | `process_id=<N>` | `0` | — |
 | `once=true` | off | `JD_ONCE=true` |
+
+Resolution order for the worker filesystem root: **`workspace_path=` → `JD_WORKER_WORKSPACE` → `JD_WORKSPACE_PATH` → `output_dir=` / `JD_OUTPUT_DIR` → `./jd_workspace`**.
 
 ### Behaviour
 
 1. **Request job** — `POST /request_job` with runner id and system metrics.  
 2. **Run entry script** — For each key/value in the job’s `parameters`, the worker appends `--<key> <value>` (stringified). It always appends `--base_path <dir>` where:
 
-   `<dir> = <output_dir>/<expId>/<job_id>`
+   `<dir> = <workspace_path>/<expId>/<job_id>` (absolute path on the worker)
 
-   The directory is created before launch.
+   The directory is created before launch. Treat this directory as the sandbox for local reads/writes/deletes for that job.
 
 3. **Heartbeat** — Background thread: `POST /ping` every **57** seconds with `{"id": <job_id>}`.
 
@@ -89,11 +92,11 @@ Arguments are **`key=value`** tokens (and optional bare flags such as `once=true
 ### Examples
 
 ```bash
-jd_worker expId=my_exp entry_script=train.py
+jd_worker expId=my_exp entry_script=train.py workspace_path=/scratch/jd
 ```
 
 ```bash
-jd_worker expId=my_exp entry_script=train.py server=http://192.168.1.10 port=8000 output_dir=/scratch/runs machine_type=gpu_a
+jd_worker expId=my_exp entry_script=train.py server=http://192.168.1.10 port=8000 workspace_path=/scratch/runs machine_type=gpu_a
 ```
 
 ```bash
@@ -102,7 +105,7 @@ jd_worker expId=my_exp entry_script=train.py once=true
 
 ### Logs
 
-Logs go under `<log_dir>/<expId>/jd_worker_<runner_id>.log` plus stdout.
+If **`log_dir`** / **`JD_LOG_DIR`** is set: **`<log_dir>/<expId>/jd_worker_<runner_id>.log`**. Otherwise: **`<workspace_path>/<expId>/jd_worker_logs/jd_worker_<runner_id>.log`**. Logs also mirror to stdout.
 
 ---
 
@@ -111,12 +114,12 @@ Logs go under `<log_dir>/<expId>/jd_worker_<runner_id>.log` plus stdout.
 Your script **must** accept:
 
 - One `--<param>` flag per job parameter (names and values come from the dashboard / DB).  
-- **`--base_path`** — workspace directory for this job on the worker (already created).
+- **`--base_path`** — Absolute job workspace on the worker (`<workspace_path>/<expId>/<job_id>/`, created before launch).
 
 Example: if parameters are `lr=0.01` and `epochs=10`, the worker runs approximately:
 
 ```bash
-python train.py --lr 0.01 --epochs 10 --base_path ./jd_output/my_exp/42
+python train.py --lr 0.01 --epochs 10 --base_path /scratch/jd/my_exp/42
 ```
 
 ### Environment injected by `jd_worker` (for library calls)
@@ -126,6 +129,7 @@ python train.py --lr 0.01 --epochs 10 --base_path ./jd_output/my_exp/42
 | `JD_JOB_ID` | Current job id (string). |
 | `JD_SERVER` | Job server base URL (e.g. `http://host:5000`). |
 | `JD_EXP_ID` | Experiment id (same as `expId`). |
+| `JD_WORKER_JOB_DIR` | Absolute path to the job workspace (same as `--base_path`). |
 
 These are set **only** for the entry-script subprocess so `jd_upload` / checkpoint helpers work without extra arguments.
 

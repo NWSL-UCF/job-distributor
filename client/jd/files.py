@@ -23,11 +23,13 @@ Quick-start
 
 Environment variables (set automatically by jd_worker)
 -------------------------------------------------------
-    JD_SERVER   — job server base URL, e.g. http://10.0.0.1:8000
-    JD_JOB_ID   — integer job ID assigned by the server
-    JD_EXP_ID   — experiment identifier
+    JD_SERVER          — job server base URL, e.g. http://10.0.0.1:8000
+    JD_JOB_ID          — integer job ID assigned by the server
+    JD_EXP_ID          — experiment identifier
+    JD_WORKER_JOB_DIR  — absolute path to this job's local workspace on the worker
+                         (same directory as --base_path); use for all local I/O
 
-You can override any of them via the function's keyword arguments.
+You can override server/job_id via the function's keyword arguments.
 """
 
 import io
