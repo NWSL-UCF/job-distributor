@@ -61,6 +61,23 @@ STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
 STATUS_DELETED = "DELETED"
 
+
+@app.after_request
+def track_traffic(response):
+    """Record request/response byte counts for the traffic dashboard."""
+    if db is None:
+        return response
+    try:
+        bytes_in  = request.content_length or 0
+        bytes_out = response.content_length
+        if bytes_out is None:
+            bytes_out = len(response.get_data(as_text=False))
+        db.add_traffic('dashboard', int(bytes_in), int(bytes_out))
+    except Exception:
+        pass
+    return response
+
+
 # --------------------- HELPER FUNCTIONS -----------------------
 
 
@@ -410,6 +427,16 @@ def update_server_config():
     except Exception as e:
         logging.error(f"Error updating server config: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/traffic_stats", methods=["GET"])
+def traffic_stats():
+    """Return cumulative HTTP traffic byte counts for both services."""
+    try:
+        return jsonify(db.get_traffic_stats())
+    except Exception as e:
+        logging.error(f"Error fetching traffic stats: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/jobs_paginated", methods=["GET"])

@@ -82,7 +82,13 @@ class JobDatabase:
             # Seed defaults only when the rows do not yet exist
             cursor.execute('''
                 INSERT OR IGNORE INTO server_config (key, value)
-                VALUES ('idle_timeout', '600'), ('aborted_job_reset_timeout', '1200')
+                VALUES
+                    ('idle_timeout',              '600'),
+                    ('aborted_job_reset_timeout', '1200'),
+                    ('traffic_server_in',    '0'),
+                    ('traffic_server_out',   '0'),
+                    ('traffic_dashboard_in', '0'),
+                    ('traffic_dashboard_out','0')
             ''')
             
             # Create indexes for optimal query performance
@@ -246,6 +252,39 @@ class JobDatabase:
             cursor = conn.cursor()
             cursor.execute("SELECT key, value FROM server_config")
             return {row['key']: row['value'] for row in cursor.fetchall()}
+
+    def add_traffic(self, source: str, bytes_in: int, bytes_out: int) -> None:
+        """Atomically add bytes_in / bytes_out to the named source counters.
+        source should be 'server' or 'dashboard'.
+        Uses a single SQL upsert per counter so the increment is atomic
+        even when multiple threads write concurrently.
+        """
+        if bytes_in <= 0 and bytes_out <= 0:
+            return
+        with self.lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                for key, delta in [
+                    (f"traffic_{source}_in",  bytes_in),
+                    (f"traffic_{source}_out", bytes_out),
+                ]:
+                    if delta > 0:
+                        cursor.execute(
+                            "INSERT INTO server_config (key, value) VALUES (?, ?) "
+                            "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?",
+                            (key, str(delta), delta)
+                        )
+                conn.commit()
+
+    def get_traffic_stats(self) -> Dict[str, int]:
+        """Return cumulative byte counters for both services."""
+        cfg = self.get_all_config()
+        return {
+            'server_in':     int(cfg.get('traffic_server_in',    '0')),
+            'server_out':    int(cfg.get('traffic_server_out',   '0')),
+            'dashboard_in':  int(cfg.get('traffic_dashboard_in', '0')),
+            'dashboard_out': int(cfg.get('traffic_dashboard_out','0')),
+        }
 
     def track_api_request(self, endpoint: str, method: str):
         """Track an API request by incrementing the counter."""

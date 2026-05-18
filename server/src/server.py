@@ -20,6 +20,23 @@ STATUS_SERVED = "SERVED"
 STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
 
+
+@app.after_request
+def track_traffic(response):
+    """Record request/response byte counts for the traffic dashboard."""
+    if db is None:
+        return response
+    try:
+        bytes_in  = request.content_length or 0
+        bytes_out = response.content_length
+        if bytes_out is None:
+            bytes_out = len(response.get_data(as_text=False))
+        db.add_traffic('server', int(bytes_in), int(bytes_out))
+    except Exception:
+        pass
+    return response
+
+
 # ── Gunicorn worker init ──────────────────────────────────────────────────
 # When gunicorn imports this module it runs the block below.
 # start.py sets JD_WORKSPACE_PATH and JD_EXP_ID in the subprocess environment

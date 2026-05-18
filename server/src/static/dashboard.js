@@ -1180,4 +1180,56 @@ let chart;
                         }
                     })
                     .catch(() => {});
+
+                // Load traffic stats on page open, then refresh every 30 s
+                loadTrafficStats();
+                setInterval(loadTrafficStats, 30000);
             });
+
+            function formatBytes(bytes) {
+                if (bytes === 0) return '0 B';
+                const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(1024));
+                const val = bytes / Math.pow(1024, i);
+                return val.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+            }
+
+            function loadTrafficStats() {
+                fetch('/traffic_stats')
+                    .then(r => r.json())
+                    .then(data => {
+                        const el = document.getElementById('trafficStats');
+                        if (!el) return;
+                        el.innerHTML = `
+                            <div style="display:flex; flex-direction:column; gap:7px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="font-size:0.78rem; font-weight:700; color:#495057;">Job Server</span>
+                                    <span></span>
+                                </div>
+                                <div style="display:flex; gap:6px;">
+                                    <span style="flex:1; background:#e8f8ef; color:#1a7a3c; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center;">
+                                        <i class="fas fa-arrow-down"></i> ${formatBytes(data.server_in)}
+                                    </span>
+                                    <span style="flex:1; background:#e8f0ff; color:#2e4db5; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center;">
+                                        <i class="fas fa-arrow-up"></i> ${formatBytes(data.server_out)}
+                                    </span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                                    <span style="font-size:0.78rem; font-weight:700; color:#495057;">Dashboard</span>
+                                    <span></span>
+                                </div>
+                                <div style="display:flex; gap:6px;">
+                                    <span style="flex:1; background:#e8f8ef; color:#1a7a3c; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center;">
+                                        <i class="fas fa-arrow-down"></i> ${formatBytes(data.dashboard_in)}
+                                    </span>
+                                    <span style="flex:1; background:#e8f0ff; color:#2e4db5; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center;">
+                                        <i class="fas fa-arrow-up"></i> ${formatBytes(data.dashboard_out)}
+                                    </span>
+                                </div>
+                            </div>`;
+                    })
+                    .catch(() => {
+                        const el = document.getElementById('trafficStats');
+                        if (el) el.innerHTML = '<div style="color:#adb5bd; font-size:0.78rem; text-align:center; padding:8px 0;">Unavailable</div>';
+                    });
+            }
