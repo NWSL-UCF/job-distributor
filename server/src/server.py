@@ -8,6 +8,12 @@ from datetime import datetime
 
 from database import JobDatabase
 from flask import Flask, jsonify, request, send_file
+from workspace_layout import (
+    ensure_exp_layout,
+    exp_meta_dir,
+    job_worker_data_dir,
+    jobs_db_path,
+)
 
 app = Flask(__name__)
 
@@ -54,14 +60,14 @@ _jd_workspace = os.environ.get("JD_WORKSPACE_PATH", "")
 _jd_exp_id    = os.environ.get("JD_EXP_ID", "")
 if _jd_workspace and _jd_exp_id:
     BASE_DIR = os.path.abspath(_jd_workspace)
-    _exp_dir = os.path.join(BASE_DIR, _jd_exp_id)
-    os.makedirs(_exp_dir, exist_ok=True)
+    ensure_exp_layout(BASE_DIR, _jd_exp_id)
+    _meta = exp_meta_dir(BASE_DIR, _jd_exp_id)
     logging.basicConfig(
-        filename=os.path.join(_exp_dir, LOG_FILENAME),
+        filename=os.path.join(_meta, LOG_FILENAME),
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
-    DB_FILE = os.path.join(BASE_DIR, _jd_exp_id, "jobs.db")
+    DB_FILE = jobs_db_path(BASE_DIR, _jd_exp_id)
     EXP_ID  = _jd_exp_id
     db = JobDatabase(DB_FILE)
     logging.info(
@@ -71,11 +77,11 @@ if _jd_workspace and _jd_exp_id:
 
 
 def createExpBaseDirectory(args):
-    os.makedirs(os.path.join(BASE_DIR, args.expId), exist_ok=True)
+    ensure_exp_layout(args.workspacePath, args.expId)
 
 
 def setup_log(args):
-    LOG_FILE = os.path.join(BASE_DIR, args.expId, LOG_FILENAME)
+    LOG_FILE = os.path.join(exp_meta_dir(args.workspacePath, args.expId), LOG_FILENAME)
     logging.basicConfig(
         filename=LOG_FILE,
         level=logging.INFO,
@@ -221,8 +227,8 @@ def reset_stale_served_jobs():
 
 
 def _job_dir(job_id: str) -> str:
-    """Return (and create) the per-job directory under the experiment folder."""
-    path = os.path.join(BASE_DIR, EXP_ID, str(job_id))
+    """Return (and create) the per-job directory for worker uploads/checkpoints."""
+    path = job_worker_data_dir(BASE_DIR, EXP_ID, str(job_id))
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -314,7 +320,7 @@ def get_latest_checkpoint():
     if not job_id:
         return jsonify({"error": "job_id is required"}), 400
 
-    job_directory = os.path.join(BASE_DIR, EXP_ID, str(job_id))
+    job_directory = job_worker_data_dir(BASE_DIR, EXP_ID, str(job_id))
     if not os.path.isdir(job_directory):
         return jsonify({"error": f"No data found for job {job_id}"}), 404
 
@@ -353,7 +359,7 @@ if __name__ == "__main__":
     createExpBaseDirectory(args)
     setup_log(args)
 
-    DB_FILE = os.path.join(args.workspacePath, args.expId, "jobs.db")
+    DB_FILE = jobs_db_path(args.workspacePath, args.expId)
     logging.info(f"Starting Flask job server on 0.0.0.0:{args.port}, DB: {DB_FILE}")
 
     db = JobDatabase(DB_FILE)

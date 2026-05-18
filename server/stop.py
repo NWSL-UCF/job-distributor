@@ -14,7 +14,7 @@ def setup_logger():
     )
 
 def stop_processes():
-    # Load config.json to get expId
+    # Load config.json for expId (optional workspace_path for PID file location).
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
     if not os.path.exists(config_path):
         logging.error("config.json not found.")
@@ -28,10 +28,20 @@ def stop_processes():
         logging.error("expId not found in config.json.")
         return
 
-    pid_file = os.path.join(os.path.dirname(__file__), exp_id, "pids.json")
+    workspace_path = (config.get("workspace_path") or os.environ.get("JD_WORKSPACE_PATH", "")).strip()
 
-    if not os.path.exists(pid_file):
-        logging.warning(f"No PID file found at {pid_file}. Nothing to stop.")
+    pid_candidates = []
+    if workspace_path:
+        pid_candidates.append(os.path.join(workspace_path, exp_id, "meta", "pids.json"))
+    pid_candidates.append(os.path.join(os.path.dirname(__file__), exp_id, "meta", "pids.json"))
+    pid_candidates.append(os.path.join(os.path.dirname(__file__), exp_id, "pids.json"))
+
+    pid_file = next((p for p in pid_candidates if os.path.isfile(p)), None)
+
+    if not pid_file:
+        logging.warning(
+            "No PID file found (checked: %s). Nothing to stop.", "; ".join(pid_candidates)
+        )
         return
 
     with open(pid_file, "r") as f:

@@ -24,10 +24,9 @@ Environment variables (set automatically by jd_worker)
     JD_SERVER                   — job server base URL, e.g. http://10.0.0.1:8000
     JD_JOB_ID                   — integer job ID assigned by the server
     JD_EXP_ID                   — experiment identifier
-    JD_WORKER_JOB_DIR           — absolute …/<workspace>/<expId>/<job_id>/
+    JD_WORKER_JOB_DIR           — absolute …/<parent>/jd_data/<expId>/<job_id>/
                                   (same as ``--base_path``); prefer ``jd_job_dir()``
-    JD_WORKER_WORKSPACE_ROOT    — absolute workspace root from ``workspace_path=``
-                                  (same as ``jd_worker_workspace()``)
+    JD_WORKER_WORKSPACE_ROOT    — absolute ``<parent>/jd_data`` (same as ``jd_worker_workspace()``)
 
 You can override server/job_id via the upload/checkpoint function keyword arguments.
 """

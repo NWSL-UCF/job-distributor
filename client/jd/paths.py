@@ -1,11 +1,12 @@
 """
 Paths injected by jd_worker for entry scripts
 ==============================================
-Use these instead of hard-coding directories. Layout on the worker::
+Layout on the worker::
 
-    <workspace_root>/<expId>/<job_id>/   ← save job outputs here (jd_job_dir)
+    <parent>/jd_data/<expId>/<job_id>/   ← save job outputs here (jd_job_dir)
 
-``workspace_root`` is the absolute path passed as ``workspace_path=`` to ``jd_worker``.
+``parent`` is ``JD_WORKSPACE_PATH`` if set, otherwise your home directory.
+``jd_worker_workspace()`` returns the resolved ``…/jd_data`` directory.
 """
 
 from __future__ import annotations
@@ -32,12 +33,12 @@ def jd_job_dir() -> Path:
 
 def jd_worker_workspace() -> Path:
     """
-    Absolute **workspace root** from ``jd_worker workspace_path=…`` (before
-    ``expId`` / ``job_id`` segments).
+    Absolute **jd_data root**: ``<parent>/jd_data`` where ``parent`` is
+    ``JD_WORKSPACE_PATH`` or ``~``.
 
-    Equivalent to ``JD_WORKER_WORKSPACE_ROOT`` when set by current jd_worker.
-    If only ``JD_WORKER_JOB_DIR`` is present (older workers), derives
-    ``…/<workspace>/<expId>/<job_id>`` → parent.parent as the workspace root.
+    Set by ``JD_WORKER_WORKSPACE_ROOT`` for the entry-script process.
+    If only ``JD_WORKER_JOB_DIR`` is present, derives
+    ``…/jd_data/<expId>/<job_id>`` → parent.parent as that root.
     """
     raw = os.environ.get("JD_WORKER_WORKSPACE_ROOT", "").strip()
     if raw:
@@ -53,5 +54,5 @@ def jd_worker_workspace() -> Path:
 
 
 def jd_exp_dir() -> Path:
-    """Absolute ``<workspace>/<expId>/`` for this run (parent of ``jd_job_dir()``)."""
+    """Absolute ``<parent>/jd_data/<expId>/`` for this run (parent of ``jd_job_dir()``)."""
     return jd_job_dir().parent

@@ -1,8 +1,10 @@
 {
   "_comment": "config.json is no longer read by start.py. Pass all settings as CLI arguments.",
   "_example": "python start.py --expId mnist_tune --server_port 5000 --dashboard_port 5050 --workspace_path /data/experiments",
+  "_stop_py_optional": "Add \"expId\" and \"workspace_path\" (same as --workspace_path) so server/stop.py can find meta/pids.json.",
   "_notes": {
-    "jobDB": "Always jobs.db (fixed)",
+    "layout": "<workspace>/<expId>/meta/ holds jobs.db and logs; <workspace>/<expId>/data/<job_id>/ holds worker uploads/checkpoints",
+    "jobDB": "Always jobs.db (fixed), stored under meta/",
     "host": "Always localhost (fixed)",
     "parameters": "Configured from the dashboard UI after startup",
     "idleTimeout": "Configured from the dashboard UI after startup",

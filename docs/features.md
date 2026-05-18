@@ -18,7 +18,7 @@ server/start.py
 client/runner.py             (runs on each worker machine)
 ```
 
-All four server processes are launched and supervised by `start.py`. The database file (`jobs.db`) is shared between `server.py`, `dashboard.py`, and `create_job_db.py` via `database.py`.
+All four server processes are launched and supervised by `start.py`. The database file (`jobs.db`) lives under **`<workspace>/<expId>/meta/`** and is shared between `server.py`, `dashboard.py`, and `job_cleaner.py` via `database.py`.
 
 ---
 

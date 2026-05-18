@@ -11,6 +11,7 @@ from pathlib import Path
 import pytz
 from database import JobDatabase
 from flask import Flask, jsonify, make_response, redirect, render_template, request
+from workspace_layout import ensure_exp_layout, exp_meta_dir, jobs_db_path
 
 app = Flask(__name__)
 
@@ -24,11 +25,11 @@ EXP_ID = "sim100"
 db = None
 
 def createExpBaseDirectory(args):
-    os.makedirs(os.path.join(BASE_DIR, args.expId), exist_ok=True)
+    ensure_exp_layout(args.workspacePath, args.expId)
 
 
 def setup_log(args):
-    LOG_FILE = os.path.join(BASE_DIR, args.expId, LOG_FILENAME)
+    LOG_FILE = os.path.join(exp_meta_dir(args.workspacePath, args.expId), LOG_FILENAME)
     logging.basicConfig(
         filename=LOG_FILE,
         level=logging.INFO,
@@ -78,16 +79,16 @@ def _init_pin_and_token() -> None:
 _jd_workspace = os.environ.get("JD_WORKSPACE_PATH", "")
 _jd_exp_id    = os.environ.get("JD_EXP_ID", "")
 if _jd_workspace and _jd_exp_id:
-    _exp_dir = os.path.join(_jd_workspace, _jd_exp_id)
-    os.makedirs(_exp_dir, exist_ok=True)
+    BASE_DIR = _jd_workspace
+    EXP_ID   = _jd_exp_id
+    ensure_exp_layout(BASE_DIR, EXP_ID)
+    _meta = exp_meta_dir(BASE_DIR, EXP_ID)
     logging.basicConfig(
-        filename=os.path.join(_exp_dir, LOG_FILENAME),
+        filename=os.path.join(_meta, LOG_FILENAME),
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
-    BASE_DIR = _jd_workspace
-    EXP_ID   = _jd_exp_id
-    DB_FILE  = os.path.join(_jd_workspace, _jd_exp_id, "jobs.db")
+    DB_FILE  = jobs_db_path(BASE_DIR, EXP_ID)
     db = JobDatabase(DB_FILE)
     _init_pin_and_token()
     logging.info(f"[gunicorn] Dashboard initialised. DB: {DB_FILE}")
@@ -707,7 +708,7 @@ if __name__ == "__main__":
     createExpBaseDirectory(args)
     setup_log(args)
 
-    DB_FILE = os.path.join(args.workspacePath, args.expId, "jobs.db")
+    DB_FILE = jobs_db_path(args.workspacePath, args.expId)
     logging.info(f"Starting Flask Dashboard on 0.0.0.0:{args.port}, DB: {DB_FILE}")
 
     db = JobDatabase(DB_FILE)

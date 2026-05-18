@@ -63,23 +63,32 @@ Arguments are **`key=value`** tokens (and optional bare flags such as `once=true
 
 | Argument | Default | Env fallback |
 |----------|---------|----------------|
-| `workspace_path=<path>` | `./jd_workspace` | `JD_WORKER_WORKSPACE`, then `JD_WORKSPACE_PATH`, then legacy `JD_OUTPUT_DIR` / `output_dir=` |
+| *(no workspace CLI)* | — | Worker storage is **never** chosen via `key=value`. See **Local storage** below. |
 | `server=<url>` | `http://localhost` | `JD_SERVER` — host-only values get `http://` prepended automatically |
 | `port=<N>` | `5000` | `JD_PORT` (used if `server` has no port) |
-| `log_dir=<path>` | (derived) | `JD_LOG_DIR` — if unset, logs use `<workspace_path>/<expId>/jd_worker_logs/` |
-| `output_dir=<path>` | — | `JD_OUTPUT_DIR` — **legacy only**: treated like `workspace_path` when no workspace env/CLI is set |
+| `log_dir=<path>` | (derived) | `JD_LOG_DIR` — if unset, logs use `<jd_data>/<expId>/jd_worker_logs/` |
 | `machine_type=<label>` | `worker` | `JD_MACHINE_TYPE` |
 | `process_id=<N>` | `0` | — |
 | `once=true` | off | `JD_ONCE=true` |
 
-Resolution order for the worker filesystem root: **`workspace_path=` → `JD_WORKER_WORKSPACE` → `JD_WORKSPACE_PATH` → `output_dir=` / `JD_OUTPUT_DIR` → `./jd_workspace`**.
+### Local storage (worker)
+
+All job files live under:
+
+`<parent>/jd_data/<expId>/<job_id>/` (absolute paths)
+
+- **`parent`** = **`JD_WORKSPACE_PATH`** if set, otherwise **`~`** (home).
+- So the default **`jd_data`** root is **`~/jd_data/`**.
+
+There is **no** `workspace_path=…` CLI argument.  
+**Note:** The job server **`start.py`** also uses an env var named **`JD_WORKSPACE_PATH`** for **server** paths — use separate shells or unset between server and worker so they don’t pick up each other’s value.
 
 ### Behaviour
 
 1. **Request job** — `POST /request_job` with runner id and system metrics.  
 2. **Run entry script** — For each key/value in the job’s `parameters`, the worker appends `--<key> <value>` (stringified). It always appends `--base_path <dir>` where:
 
-   `<dir> = <workspace_path>/<expId>/<job_id>` (absolute path on the worker)
+   `<dir> = <parent>/jd_data/<expId>/<job_id>` (absolute path on the worker)
 
    The directory is created before launch. Treat this directory as the sandbox for local reads/writes/deletes for that job.
 
@@ -92,11 +101,17 @@ Resolution order for the worker filesystem root: **`workspace_path=` → `JD_WOR
 ### Examples
 
 ```bash
-jd_worker expId=my_exp entry_script=train.py workspace_path=/scratch/jd
+# Default: ~/jd_data/<expId>/<job_id>/
+jd_worker expId=my_exp entry_script=train.py
 ```
 
 ```bash
-jd_worker expId=my_exp entry_script=train.py server=http://192.168.1.10 port=8000 workspace_path=/scratch/runs machine_type=gpu_a
+jd_worker expId=my_exp entry_script=train.py server=http://192.168.1.10 port=8000 machine_type=gpu_a
+```
+
+```bash
+# Put jd_data under /scratch/jd_data (parent=/scratch)
+JD_WORKSPACE_PATH=/scratch jd_worker expId=my_exp entry_script=train.py
 ```
 
 ```bash
@@ -105,7 +120,7 @@ jd_worker expId=my_exp entry_script=train.py once=true
 
 ### Logs
 
-If **`log_dir`** / **`JD_LOG_DIR`** is set: **`<log_dir>/<expId>/jd_worker_<runner_id>.log`**. Otherwise: **`<workspace_path>/<expId>/jd_worker_logs/jd_worker_<runner_id>.log`**. Logs also mirror to stdout.
+If **`log_dir`** / **`JD_LOG_DIR`** is set: **`<log_dir>/<expId>/jd_worker_<runner_id>.log`**. Otherwise: **`<parent>/jd_data/<expId>/jd_worker_logs/jd_worker_<runner_id>.log`**. Logs also mirror to stdout.
 
 ---
 
@@ -114,12 +129,12 @@ If **`log_dir`** / **`JD_LOG_DIR`** is set: **`<log_dir>/<expId>/jd_worker_<runn
 Your script **must** accept:
 
 - One `--<param>` flag per job parameter (names and values come from the dashboard / DB).  
-- **`--base_path`** — Absolute job workspace on the worker (`<workspace_path>/<expId>/<job_id>/`, created before launch).
+- **`--base_path`** — Absolute job workspace (`<parent>/jd_data/<expId>/<job_id>/`, created before launch).
 
 Example: if parameters are `lr=0.01` and `epochs=10`, the worker runs approximately:
 
 ```bash
-python train.py --lr 0.01 --epochs 10 --base_path /scratch/jd/my_exp/42
+python train.py --lr 0.01 --epochs 10 --base_path /Users/you/jd_data/my_exp/42
 ```
 
 ### Environment injected by `jd_worker` (for library calls)
@@ -130,7 +145,7 @@ python train.py --lr 0.01 --epochs 10 --base_path /scratch/jd/my_exp/42
 | `JD_SERVER` | Job server base URL (e.g. `http://host:5000`). |
 | `JD_EXP_ID` | Experiment id (same as `expId`). |
 | `JD_WORKER_JOB_DIR` | Absolute path to the job workspace (same as `--base_path`). |
-| `JD_WORKER_WORKSPACE_ROOT` | Absolute `workspace_path=` root (before `expId` / `job_id`). |
+| `JD_WORKER_WORKSPACE_ROOT` | Absolute `<parent>/jd_data` (see **Local storage** above). |
 
 These are set **only** for the entry-script subprocess so `jd_upload` / checkpoint helpers work without extra arguments.
 
@@ -157,9 +172,9 @@ from jd import (
 
 | Function | Meaning |
 |----------|---------|
-| `jd_job_dir()` | `<workspace_path>/<expId>/<job_id>/` — **default place for local outputs** (matches `--base_path`). |
-| `jd_worker_workspace()` | The absolute `workspace_path=` directory passed to `jd_worker`. |
-| `jd_exp_dir()` | `<workspace_path>/<expId>/` (parent of `jd_job_dir()`). |
+| `jd_job_dir()` | `<parent>/jd_data/<expId>/<job_id>/` — **default place for local outputs** (matches `--base_path`). |
+| `jd_worker_workspace()` | Absolute `<parent>/jd_data` (parent from `JD_WORKSPACE_PATH` or `~`). |
+| `jd_exp_dir()` | `<parent>/jd_data/<expId>/` (parent of `jd_job_dir()`). |
 
 Example:
 
@@ -209,16 +224,18 @@ Downloads the **latest** checkpoint for the job (by **version number** embedded 
 
 ## Server-side storage layout
 
-The job server writes under:
+Under **`<workspace_path>/<expId>/`**:
 
-`<workspace_path>/<expId>/<job_id>/`
+| Subfolder | Contents |
+|-----------|----------|
+| **`meta/`** | `jobs.db`, Flask/Gunicorn-related logs (`server.log`, `dashboard.log`, `job_cleaner.log`, …), `start.py` log (`__start__.log`), `pids.json`, Gunicorn access/stderr logs (`server_access.log`, `server.stderr.log`, …). |
+| **`data/`** | Worker payloads only: **`<job_id>/`** with `result_*` uploads and `checkpoint_*` files. |
 
-(`workspace_path` is the `--workspace_path` argument to **`server/start.py`**, passed to Gunicorn as **`JD_WORKSPACE_PATH`**; **`BASE_DIR`** in `server.py` is set to that value so **`jobs.db`**, uploads, and checkpoints all live under the same **`workspace_path/<expId>/`** tree.)
+(`workspace_path` is **`--workspace_path`** on **`server/start.py`**, exported as **`JD_WORKSPACE_PATH`** to Gunicorn; **`BASE_DIR`** in `server.py` is that workspace root. This is **independent** from the **worker** env var of the same name, which sets the **parent** of `jd_data/` on worker machines.)
 
-- **Uploads:** `result_v{version}_{timestamp}.{ext}`  
-- **Checkpoints:** `checkpoint_v{version}_{timestamp}.pt`
+If you run **`python server/src/server.py`** directly, pass **`--workspacePath`** (same **`meta/`** + **`data/`** layout; default workspace is the parent of `src/` when omitted).
 
-If you run **`python server/src/server.py`** directly, pass **`--workspacePath`** so `BASE_DIR` matches where you want data stored (defaults to the parent of `src/` only when unset in that mode).
+**Migrating from older layouts:** if `jobs.db` or worker files previously lived directly under `<expId>/`, move them into **`meta/jobs.db`** and **`data/<job_id>/`** respectively before restarting.
 
 ---
 

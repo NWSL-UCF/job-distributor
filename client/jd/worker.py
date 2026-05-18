@@ -16,26 +16,25 @@ Required
 
 Optional
 --------
-    workspace_path=<path>   Worker-side directory root. Per job, local files
-                            belong under
-                            <workspace_path>/<expId>/<job_id>/ (passed as
-                            --base_path and ``JD_WORKER_JOB_DIR``; also
-                            ``JD_WORKER_WORKSPACE_ROOT`` for the library helpers
-                            ``jd_worker_workspace()`` / ``jd_job_dir()``).
-                            (default: ./jd_workspace, env: JD_WORKER_WORKSPACE)
-                            JD_WORKSPACE_PATH is used if JD_WORKER_WORKSPACE is unset.
-                            Legacy: output_dir / JD_OUTPUT_DIR if none of the above.
+    (no workspace CLI)      Local data lives under ``<parent>/jd_data/<expId>/<job_id>/``.
+                            ``parent`` is ``JD_WORKSPACE_PATH`` if set, otherwise
+                            ``~`` (your home directory). So the default root is
+                            ``~/jd_data/``. Passed to the entry script as
+                            ``--base_path``, ``JD_WORKER_JOB_DIR``, and
+                            ``JD_WORKER_WORKSPACE_ROOT`` (= ``.../jd_data``).
+
+                            Note: ``JD_WORKSPACE_PATH`` here is **worker-only**
+                            (parent of ``jd_data``). The job server uses the same
+                            variable name for its own layout — avoid exporting one
+                            value for both in the same shell.
     server=<url>            Job server base URL or host (default: http://localhost,
                             env: JD_SERVER). If you omit ``http://`` or ``https://``,
                             ``http://`` is assumed.
     port=<N>                Port if not included in server URL
                             (default: 5000, env: JD_PORT)
     log_dir=<path>          If set, logs go under <log_dir>/<expId>/; otherwise
-                            under <workspace_path>/<expId>/jd_worker_logs/
+                            under <jd_data>/<expId>/jd_worker_logs/
                             (env: JD_LOG_DIR)
-    output_dir=<path>       Deprecated alias for workspace_path when
-                            workspace_path / JD_WORKER_WORKSPACE /
-                            JD_WORKSPACE_PATH are unset (env: JD_OUTPUT_DIR)
     machine_type=<type>     Label for this machine in the dashboard
                             (default: worker, env: JD_MACHINE_TYPE)
     process_id=<N>          Numeric ID when running multiple workers on the
@@ -47,9 +46,9 @@ Examples
 --------
     jd_worker expId=mnist_tune entry_script=train.py
 
-    jd_worker expId=mnist_tune entry_script=train.py \\
+    # Optional: put jd_data under /scratch/jd_data (parent=/scratch)
+    JD_WORKSPACE_PATH=/scratch jd_worker expId=mnist_tune entry_script=train.py \\
               server=http://10.0.0.5 port=8000 \\
-              workspace_path=/data/experiments \\
               machine_type=gpu_node
 
     # Run exactly one job:
@@ -80,6 +79,9 @@ from jd import __version__
 
 IS_WINDOWS = platform.system() == "Windows"
 PING_INTERVAL = 57  # seconds — intentionally not 60 to avoid racing the idle timeout
+
+# Fixed subdirectory under JD_WORKSPACE_PATH (or home): …/jd_data/<expId>/<job_id>/
+_WORKER_JD_DATA_DIRNAME = "jd_data"
 
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -137,14 +139,13 @@ def _resolve(cfg: dict) -> dict:
 
     base_url = _normalize_server_base_url(server_raw, port_raw)
 
-    # Worker filesystem root → per-job dir: <workspace_path>/<expId>/<job_id>/
-    ws = get('workspace_path', 'JD_WORKER_WORKSPACE', None)
-    if not ws or not str(ws).strip():
-        alt = os.environ.get('JD_WORKSPACE_PATH', '').strip()
-        ws = alt if alt else None
-    if not ws:
-        ws = get('output_dir', 'JD_OUTPUT_DIR', './jd_workspace')
-    workspace_path = os.path.abspath(os.path.expanduser(str(ws).strip()))
+    # …/<parent>/jd_data/<expId>/<job_id>/  — parent from env or ~
+    parent = os.environ.get("JD_WORKSPACE_PATH", "").strip()
+    if not parent:
+        parent = os.path.expanduser("~")
+    parent = os.path.abspath(os.path.expanduser(parent))
+    workspace_path = os.path.join(parent, _WORKER_JD_DATA_DIRNAME)
+    os.makedirs(workspace_path, exist_ok=True)
 
     log_override = None
     if 'log_dir' in cfg:
@@ -395,8 +396,8 @@ def main() -> None:
     logger.info(f"jd_worker v{__version__}  |  runner: {runner_id}")
     logger.info(f"Server:        {cfg['base_url']}")
     logger.info(f"Entry script:   {cfg['entry_script']}")
-    logger.info(f"Workspace path: {cfg['workspace_path']} "
-                f"(per-job: <workspace>/<expId>/<job_id>/)")
+    logger.info(f"Local jd_data root: {cfg['workspace_path']} "
+                f"(each job: …/jd_data/<expId>/<job_id>/)")
     logger.info(f"Ping interval: {PING_INTERVAL}s")
     if cfg['once']:
         logger.info("Mode: single job (once=true)")

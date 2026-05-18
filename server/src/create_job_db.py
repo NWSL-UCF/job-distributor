@@ -6,16 +6,18 @@ import shutil
 from datetime import datetime
 from itertools import product
 from database import JobDatabase
+from workspace_layout import ensure_exp_layout, exp_meta_dir
 
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 DB_FILE = ""
 LOG_FILENAME = "create_job_db.log"
 
 def createExpBaseDirectory(args):
-    os.makedirs(os.path.join(BASE_DIR, args.expId), exist_ok=True)
+    ensure_exp_layout(BASE_DIR, args.expId)
+
 
 def setup_log(args):
-    LOG_FILE = os.path.join(BASE_DIR, args.expId, LOG_FILENAME)
+    LOG_FILE = os.path.join(exp_meta_dir(BASE_DIR, args.expId), LOG_FILENAME)
     logging.basicConfig(
         filename=LOG_FILE,
         level=logging.INFO,
@@ -54,7 +56,8 @@ def generate_db(db_path, parameters_dict):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate job SQLite database")
-    parser.add_argument("--jobDB", default="jobs.db", help="SQLite database file (<filename>.db) placed in the same directory as server.py")
+    parser.add_argument("--jobDB", default="jobs.db",
+                        help="SQLite DB filename (stored under <expId>/meta/)")
     parser.add_argument("--expId", type=str, default="sim1", help="Give a unique name")
     parser.add_argument('--parameters', type=str, required=True)
     args = parser.parse_args()
@@ -63,7 +66,7 @@ if __name__ == "__main__":
     setup_log(args)
 
     parameters_dict = json.loads(args.parameters)
-    DB_FILE = os.path.join(BASE_DIR, args.expId, args.jobDB)
+    DB_FILE = os.path.join(exp_meta_dir(BASE_DIR, args.expId), args.jobDB)
     generate_db(DB_FILE, parameters_dict)
 
     logging.info("Job database setup complete.")

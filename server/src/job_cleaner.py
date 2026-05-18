@@ -6,6 +6,7 @@ import argparse
 import requests
 
 from database import JobDatabase
+from workspace_layout import ensure_exp_layout, exp_meta_dir, jobs_db_path
 
 LOG_FILENAME = "job_cleaner.log"
 POLLING_INTERVAL = 60  # seconds between each loop tick
@@ -15,11 +16,11 @@ DEFAULT_ABORTED_RESET_TIMEOUT = 1200
 
 
 def createExpBaseDirectory(workspace_path, exp_id):
-    os.makedirs(os.path.join(workspace_path, exp_id), exist_ok=True)
+    ensure_exp_layout(workspace_path, exp_id)
 
 
 def setup_log(workspace_path, exp_id):
-    LOG_FILE = os.path.join(workspace_path, exp_id, LOG_FILENAME)
+    LOG_FILE = os.path.join(exp_meta_dir(workspace_path, exp_id), LOG_FILENAME)
     logging.basicConfig(
         filename=LOG_FILE,
         level=logging.INFO,
@@ -116,7 +117,7 @@ if __name__ == "__main__":
     createExpBaseDirectory(args.workspacePath, args.expId)
     setup_log(args.workspacePath, args.expId)
 
-    db_path = os.path.join(args.workspacePath, args.expId, "jobs.db")
+    db_path = jobs_db_path(args.workspacePath, args.expId)
     db = JobDatabase(db_path)
 
     logging.info(f"Job cleaner started. Server: localhost:{args.serverPort}, DB: {db_path}")

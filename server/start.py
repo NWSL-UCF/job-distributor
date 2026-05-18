@@ -7,6 +7,11 @@ import signal
 import subprocess
 import sys
 
+_SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+from workspace_layout import ensure_exp_layout, exp_meta_dir  # noqa: E402
+
 LOG_FILENAME = "__start__.log"
 processes = {}
 
@@ -57,8 +62,10 @@ def main():
 
     exp_dir = os.path.join(args.workspace_path, args.expId)
     os.makedirs(exp_dir, exist_ok=True)
+    ensure_exp_layout(args.workspace_path, args.expId)
+    meta_dir = exp_meta_dir(args.workspace_path, args.expId)
 
-    LOG_FILE = os.path.join(exp_dir, LOG_FILENAME)
+    LOG_FILE = os.path.join(meta_dir, LOG_FILENAME)
     logging.basicConfig(
         filename=LOG_FILE,
         level=logging.INFO,
@@ -87,8 +94,8 @@ def main():
         "--threads",       str(args.threads),
         "--timeout",       "120",
         "--chdir",         src_dir,
-        "--access-logfile", os.path.join(exp_dir, "server_access.log"),
-        "--error-logfile",  os.path.join(exp_dir, "server.log"),
+        "--access-logfile", os.path.join(meta_dir, "server_access.log"),
+        "--error-logfile",  os.path.join(meta_dir, "server.stderr.log"),
     ]
 
     # ── Dashboard ─────────────────────────────────────────────────────────
@@ -101,8 +108,8 @@ def main():
         "--threads",       str(args.threads),
         "--timeout",       "120",
         "--chdir",         src_dir,
-        "--access-logfile", os.path.join(exp_dir, "dashboard_access.log"),
-        "--error-logfile",  os.path.join(exp_dir, "dashboard.log"),
+        "--access-logfile", os.path.join(meta_dir, "dashboard_access.log"),
+        "--error-logfile",  os.path.join(meta_dir, "dashboard.stderr.log"),
     ]
 
     # ── Job cleaner ───────────────────────────────────────────────────────
@@ -125,7 +132,7 @@ def main():
         processes[name] = popen_cmd(cmd, env=env)
         logging.info(f"{name} started with PID {processes[name].pid}")
 
-    pid_file = os.path.join(exp_dir, "pids.json")
+    pid_file = os.path.join(meta_dir, "pids.json")
     with open(pid_file, "w", encoding="utf-8") as f:
         json.dump({name: proc.pid for name, proc in processes.items()}, f, indent=2)
     logging.info(f"PIDs written to {pid_file}")
