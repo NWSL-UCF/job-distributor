@@ -30,9 +30,13 @@ This installs the distribution named **`jd-worker`** and registers the console s
 
 ### From GitHub (no clone)
 
+The installable client (`pyproject.toml`, `jd/` package) is on branch **`v2`** (default **`main`** may not include it yet). Pin the branch in the URL:
+
 ```bash
-pip install "git+https://github.com/NWSL-UCF/job-distributor.git#subdirectory=client"
+pip install "git+https://github.com/NWSL-UCF/job-distributor.git@v2#subdirectory=client"
 ```
+
+After `v2` is merged into `main`, you can omit `@v2`.
 
 Verify:
 
