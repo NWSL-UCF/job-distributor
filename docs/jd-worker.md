@@ -64,7 +64,7 @@ Arguments are **`key=value`** tokens (and optional bare flags such as `once=true
 | Argument | Default | Env fallback |
 |----------|---------|----------------|
 | `workspace_path=<path>` | `./jd_workspace` | `JD_WORKER_WORKSPACE`, then `JD_WORKSPACE_PATH`, then legacy `JD_OUTPUT_DIR` / `output_dir=` |
-| `server=<url>` | `http://localhost` | `JD_SERVER` |
+| `server=<url>` | `http://localhost` | `JD_SERVER` — host-only values get `http://` prepended automatically |
 | `port=<N>` | `5000` | `JD_PORT` (used if `server` has no port) |
 | `log_dir=<path>` | (derived) | `JD_LOG_DIR` — if unset, logs use `<workspace_path>/<expId>/jd_worker_logs/` |
 | `output_dir=<path>` | — | `JD_OUTPUT_DIR` — **legacy only**: treated like `workspace_path` when no workspace env/CLI is set |
@@ -130,8 +130,11 @@ python train.py --lr 0.01 --epochs 10 --base_path /scratch/jd/my_exp/42
 | `JD_SERVER` | Job server base URL (e.g. `http://host:5000`). |
 | `JD_EXP_ID` | Experiment id (same as `expId`). |
 | `JD_WORKER_JOB_DIR` | Absolute path to the job workspace (same as `--base_path`). |
+| `JD_WORKER_WORKSPACE_ROOT` | Absolute `workspace_path=` root (before `expId` / `job_id`). |
 
 These are set **only** for the entry-script subprocess so `jd_upload` / checkpoint helpers work without extra arguments.
+
+Use **`jd_job_dir()`** / **`jd_worker_workspace()`** from the `jd` package instead of reading env vars directly when building paths.
 
 ---
 
@@ -140,10 +143,35 @@ These are set **only** for the entry-script subprocess so `jd_upload` / checkpoi
 Import:
 
 ```python
-from jd import jd_upload, jd_update_checkpoint, jd_get_last_checkpoint
+from jd import (
+    jd_upload,
+    jd_update_checkpoint,
+    jd_get_last_checkpoint,
+    jd_job_dir,
+    jd_worker_workspace,
+    jd_exp_dir,
+)
 ```
 
-All three resolve **`job_id`** and **`server`** from `JD_JOB_ID` and `JD_SERVER` when omitted. Override with keyword arguments only if you must (e.g. tests).
+### Worker paths (`pathlib.Path`)
+
+| Function | Meaning |
+|----------|---------|
+| `jd_job_dir()` | `<workspace_path>/<expId>/<job_id>/` — **default place for local outputs** (matches `--base_path`). |
+| `jd_worker_workspace()` | The absolute `workspace_path=` directory passed to `jd_worker`. |
+| `jd_exp_dir()` | `<workspace_path>/<expId>/` (parent of `jd_job_dir()`). |
+
+Example:
+
+```python
+csv_path = jd_job_dir() / "metrics.csv"
+```
+
+Older `jd_worker` builds without `JD_WORKER_WORKSPACE_ROOT` still work: `jd_worker_workspace()` falls back to deriving the root from `JD_WORKER_JOB_DIR`.
+
+### Uploads and checkpoints
+
+All upload/checkpoint helpers resolve **`job_id`** and **`server`** from `JD_JOB_ID` and `JD_SERVER` when omitted. Override with keyword arguments only if you must (e.g. tests).
 
 ### Limits
 
@@ -183,12 +211,14 @@ Downloads the **latest** checkpoint for the job (by **version number** embedded 
 
 The job server writes under:
 
-`<BASE_DIR>/<expId>/<job_id>/`
+`<workspace_path>/<expId>/<job_id>/`
+
+(`workspace_path` is the `--workspace_path` argument to **`server/start.py`**, passed to Gunicorn as **`JD_WORKSPACE_PATH`**; **`BASE_DIR`** in `server.py` is set to that value so **`jobs.db`**, uploads, and checkpoints all live under the same **`workspace_path/<expId>/`** tree.)
 
 - **Uploads:** `result_v{version}_{timestamp}.{ext}`  
 - **Checkpoints:** `checkpoint_v{version}_{timestamp}.pt`
 
-With the recommended **`server/start.py`** launcher and **default** `--workspace_path` (the `server/` directory containing `start.py`), `BASE_DIR` resolves to that same `server/` directory, so artifacts sit next to `jobs.db` under `server/<expId>/`. If you use a **custom** `--workspace_path`, confirm your deployment’s job server `BASE_DIR` matches where you expect files (see `server/src/server.py`).
+If you run **`python server/src/server.py`** directly, pass **`--workspacePath`** so `BASE_DIR` matches where you want data stored (defaults to the parent of `src/` only when unset in that mode).
 
 ---
 

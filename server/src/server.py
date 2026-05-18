@@ -53,17 +53,20 @@ def track_traffic(response):
 _jd_workspace = os.environ.get("JD_WORKSPACE_PATH", "")
 _jd_exp_id    = os.environ.get("JD_EXP_ID", "")
 if _jd_workspace and _jd_exp_id:
-    _exp_dir = os.path.join(_jd_workspace, _jd_exp_id)
+    BASE_DIR = os.path.abspath(_jd_workspace)
+    _exp_dir = os.path.join(BASE_DIR, _jd_exp_id)
     os.makedirs(_exp_dir, exist_ok=True)
     logging.basicConfig(
         filename=os.path.join(_exp_dir, LOG_FILENAME),
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
-    DB_FILE = os.path.join(_jd_workspace, _jd_exp_id, "jobs.db")
+    DB_FILE = os.path.join(BASE_DIR, _jd_exp_id, "jobs.db")
     EXP_ID  = _jd_exp_id
     db = JobDatabase(DB_FILE)
-    logging.info(f"[gunicorn] Job server initialised. DB: {DB_FILE}")
+    logging.info(
+        f"[gunicorn] Job server initialised. DB: {DB_FILE}  BASE_DIR: {BASE_DIR}"
+    )
 # ─────────────────────────────────────────────────────────────────────────
 
 

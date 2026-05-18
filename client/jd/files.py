@@ -8,28 +8,28 @@ you normally do not need to pass those arguments explicitly.
 
 Quick-start
 -----------
-    from jd import jd_upload, jd_update_checkpoint, jd_get_last_checkpoint
+    from jd import jd_upload, jd_job_dir, jd_update_checkpoint, jd_get_last_checkpoint
 
-    # Save a result file (any format, ≤ 100 MB)
-    jd_upload("metrics.csv")
+    out = jd_job_dir() / "metrics.csv"
+    # … write to out …
+    jd_upload(str(out))
 
-    # Save a checkpoint (any Python / PyTorch object, ≤ 100 MB)
     jd_update_checkpoint({"epoch": 5, "state_dict": model.state_dict()})
-
-    # Restore the latest checkpoint into memory (returns the Python object)
     ckpt = jd_get_last_checkpoint()
     if ckpt:
         model.load_state_dict(ckpt["state_dict"])
 
 Environment variables (set automatically by jd_worker)
 -------------------------------------------------------
-    JD_SERVER          — job server base URL, e.g. http://10.0.0.1:8000
-    JD_JOB_ID          — integer job ID assigned by the server
-    JD_EXP_ID          — experiment identifier
-    JD_WORKER_JOB_DIR  — absolute path to this job's local workspace on the worker
-                         (same directory as --base_path); use for all local I/O
+    JD_SERVER                   — job server base URL, e.g. http://10.0.0.1:8000
+    JD_JOB_ID                   — integer job ID assigned by the server
+    JD_EXP_ID                   — experiment identifier
+    JD_WORKER_JOB_DIR           — absolute …/<workspace>/<expId>/<job_id>/
+                                  (same as ``--base_path``); prefer ``jd_job_dir()``
+    JD_WORKER_WORKSPACE_ROOT    — absolute workspace root from ``workspace_path=``
+                                  (same as ``jd_worker_workspace()``)
 
-You can override server/job_id via the function's keyword arguments.
+You can override server/job_id via the upload/checkpoint function keyword arguments.
 """
 
 import io

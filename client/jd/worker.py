@@ -19,12 +19,15 @@ Optional
     workspace_path=<path>   Worker-side directory root. Per job, local files
                             belong under
                             <workspace_path>/<expId>/<job_id>/ (passed as
-                            --base_path and JD_WORKER_JOB_DIR).
+                            --base_path and ``JD_WORKER_JOB_DIR``; also
+                            ``JD_WORKER_WORKSPACE_ROOT`` for the library helpers
+                            ``jd_worker_workspace()`` / ``jd_job_dir()``).
                             (default: ./jd_workspace, env: JD_WORKER_WORKSPACE)
                             JD_WORKSPACE_PATH is used if JD_WORKER_WORKSPACE is unset.
                             Legacy: output_dir / JD_OUTPUT_DIR if none of the above.
-    server=<url>            Job server base URL  (default: http://localhost,
-                            env: JD_SERVER)
+    server=<url>            Job server base URL or host (default: http://localhost,
+                            env: JD_SERVER). If you omit ``http://`` or ``https://``,
+                            ``http://`` is assumed.
     port=<N>                Port if not included in server URL
                             (default: 5000, env: JD_PORT)
     log_dir=<path>          If set, logs go under <log_dir>/<expId>/; otherwise
@@ -68,7 +71,7 @@ import subprocess
 import sys
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import psutil
 import requests
@@ -93,6 +96,30 @@ def _parse_kv(argv: list) -> dict:
     return cfg
 
 
+def _normalize_server_base_url(server_raw: str, port_raw: str) -> str:
+    """
+    Build a base URL that requests/lib can open.
+
+    Host-only values like ``localhost`` must become ``http://localhost:<port>``.
+    Without a scheme, Python requests raises "No connection adapters were found".
+    """
+    s = (server_raw or "").strip().rstrip("/")
+    if not s:
+        s = "http://localhost"
+    if not urlparse(s).scheme:
+        s = "http://" + s.lstrip("/")
+    parsed = urlparse(s)
+    if parsed.port is not None:
+        return s
+    host = parsed.hostname
+    if not host:
+        host = "localhost"
+    netloc = f"{host}:{port_raw}"
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path or "", "", "", "")
+    ).rstrip("/")
+
+
 def _resolve(cfg: dict) -> dict:
     """Merge CLI key=value pairs with environment variables and defaults."""
 
@@ -106,10 +133,9 @@ def _resolve(cfg: dict) -> dict:
         return default
 
     server_raw = get('server', 'JD_SERVER', 'http://localhost')
-    port_raw   = get('port',   'JD_PORT',   '5000')
+    port_raw   = str(get('port', 'JD_PORT', '5000')).strip()
 
-    parsed = urlparse(server_raw)
-    base_url = server_raw.rstrip('/') if parsed.port else f"{server_raw.rstrip('/')}:{port_raw}"
+    base_url = _normalize_server_base_url(server_raw, port_raw)
 
     # Worker filesystem root → per-job dir: <workspace_path>/<expId>/<job_id>/
     ws = get('workspace_path', 'JD_WORKER_WORKSPACE', None)
@@ -441,10 +467,11 @@ def main() -> None:
             # so jd_upload / jd_update_checkpoint / jd_get_last_checkpoint work
             # inside the entry script without requiring explicit arguments.
             child_env = os.environ.copy()
-            child_env["JD_JOB_ID"]         = str(job_id)
-            child_env["JD_SERVER"]         = cfg["base_url"]
-            child_env["JD_EXP_ID"]         = cfg["exp_id"]
-            child_env["JD_WORKER_JOB_DIR"] = job_root
+            child_env["JD_JOB_ID"]                  = str(job_id)
+            child_env["JD_SERVER"]                  = cfg["base_url"]
+            child_env["JD_EXP_ID"]                  = cfg["exp_id"]
+            child_env["JD_WORKER_JOB_DIR"]          = job_root
+            child_env["JD_WORKER_WORKSPACE_ROOT"]   = cfg["workspace_path"]
 
             # Launch the entry script
             popen_kw = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE,
