@@ -1,0 +1,21 @@
+[build-system]
+requires      = ["setuptools>=61.0"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name            = "jd-worker"
+version         = "1.0.0"
+description     = "Job Distributor worker CLI"
+readme          = "README.md"
+requires-python = ">=3.8"
+dependencies    = [
+    "requests",
+    "psutil",
+]
+
+[project.scripts]
+jd_worker = "jd.worker:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jd*"]

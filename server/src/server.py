@@ -1,19 +1,28 @@
 import argparse
+import io
 import logging
 import os
+import re
 import time
 from datetime import datetime
 
 from database import JobDatabase
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 
 app = Flask(__name__)
 
-BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-DB_FILE = ""
+# Hard limit: reject uploads larger than 100 MB at the WSGI layer
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
+
+BASE_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+DB_FILE    = ""
+EXP_ID     = ""
 LOG_FILENAME = "server.log"
 
 db = None
+
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB (also checked in routes)
+_VERSION_RE = re.compile(r'_v(\d+)_')
 
 STATUS_PENDING = "PENDING"
 STATUS_SERVED = "SERVED"
@@ -52,6 +61,7 @@ if _jd_workspace and _jd_exp_id:
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
     DB_FILE = os.path.join(_jd_workspace, _jd_exp_id, "jobs.db")
+    EXP_ID  = _jd_exp_id
     db = JobDatabase(DB_FILE)
     logging.info(f"[gunicorn] Job server initialised. DB: {DB_FILE}")
 # ─────────────────────────────────────────────────────────────────────────
@@ -207,6 +217,123 @@ def reset_stale_served_jobs():
         return jsonify({"error": str(e)}), 500
 
 
+def _job_dir(job_id: str) -> str:
+    """Return (and create) the per-job directory under the experiment folder."""
+    path = os.path.join(BASE_DIR, EXP_ID, str(job_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _next_version(directory: str, prefix: str) -> int:
+    """Scan *directory* for files named <prefix>_v{N}_* and return N+1."""
+    versions = []
+    for fname in os.listdir(directory):
+        if fname.startswith(prefix):
+            m = _VERSION_RE.search(fname)
+            if m:
+                versions.append(int(m.group(1)))
+    return (max(versions) + 1) if versions else 0
+
+
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    """Accept a result file (≤100 MB) from a worker and store it versioned."""
+    db.track_api_request("Upload File", "POST")
+
+    job_id = request.form.get("job_id")
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file attached (field name: 'file')"}), 400
+
+    # Enforce size limit in case WSGI layer is bypassed
+    data = f.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "File exceeds the 100 MB limit"}), 413
+
+    original_name = f.filename or "upload"
+    _, ext = os.path.splitext(original_name)
+    ext = ext.lower() or ".bin"
+
+    job_directory = _job_dir(job_id)
+    version       = _next_version(job_directory, "result_v")
+    timestamp     = int(time.time())
+    filename      = f"result_v{version}_{timestamp}{ext}"
+    save_path     = os.path.join(job_directory, filename)
+
+    with open(save_path, "wb") as out:
+        out.write(data)
+
+    logging.info(f"Upload saved: job={job_id}  file={filename}  bytes={len(data)}")
+    return jsonify({"success": True, "filename": filename, "version": version,
+                    "size_bytes": len(data)})
+
+
+@app.route("/checkpoint", methods=["POST"])
+def save_checkpoint():
+    """Accept a serialised checkpoint (≤100 MB) and store it versioned."""
+    db.track_api_request("Save Checkpoint", "POST")
+
+    job_id = request.form.get("job_id")
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+
+    ckpt_file = request.files.get("checkpoint")
+    if not ckpt_file:
+        return jsonify({"error": "No checkpoint attached (field name: 'checkpoint')"}), 400
+
+    data = ckpt_file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "Checkpoint exceeds the 100 MB limit"}), 413
+
+    job_directory = _job_dir(job_id)
+    version       = _next_version(job_directory, "checkpoint_v")
+    timestamp     = int(time.time())
+    filename      = f"checkpoint_v{version}_{timestamp}.pt"
+    save_path     = os.path.join(job_directory, filename)
+
+    with open(save_path, "wb") as out:
+        out.write(data)
+
+    logging.info(f"Checkpoint saved: job={job_id}  file={filename}  bytes={len(data)}")
+    return jsonify({"success": True, "filename": filename, "version": version,
+                    "size_bytes": len(data)})
+
+
+@app.route("/checkpoint/latest", methods=["GET"])
+def get_latest_checkpoint():
+    """Return the highest-versioned checkpoint for a job as raw bytes."""
+    db.track_api_request("Get Latest Checkpoint", "GET")
+
+    job_id = request.args.get("job_id")
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+
+    job_directory = os.path.join(BASE_DIR, EXP_ID, str(job_id))
+    if not os.path.isdir(job_directory):
+        return jsonify({"error": f"No data found for job {job_id}"}), 404
+
+    candidates = [
+        f for f in os.listdir(job_directory)
+        if f.startswith("checkpoint_v") and f.endswith(".pt")
+    ]
+    if not candidates:
+        return jsonify({"error": f"No checkpoints found for job {job_id}"}), 404
+
+    def _version(fname):
+        m = _VERSION_RE.search(fname)
+        return int(m.group(1)) if m else -1
+
+    latest    = max(candidates, key=_version)
+    ckpt_path = os.path.join(job_directory, latest)
+
+    logging.info(f"Checkpoint served: job={job_id}  file={latest}")
+    return send_file(ckpt_path, mimetype="application/octet-stream",
+                     as_attachment=True, download_name=latest)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start the Flask job server")
     parser.add_argument("--expId", type=str, required=True,
@@ -218,8 +345,8 @@ if __name__ == "__main__":
                         help="Port number to listen on (default: 5000)")
     args = parser.parse_args()
 
-    # Override BASE_DIR with the workspace path so logs go to the right place
     BASE_DIR = args.workspacePath
+    EXP_ID   = args.expId
     createExpBaseDirectory(args)
     setup_log(args)
 
