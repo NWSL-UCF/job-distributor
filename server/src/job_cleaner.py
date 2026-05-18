@@ -1,32 +1,31 @@
 import time
 import os
+import sys
 import logging
 import argparse
 import requests
 
-# ---------------- Constants ----------------
-BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+from database import JobDatabase
+
 LOG_FILENAME = "job_cleaner.log"
+POLLING_INTERVAL = 60  # seconds between each loop tick
 
-ABORTED_JOB_RESET_TIMEOUT = 30 * 60  # seconds between aborted-job resets
-IDLE_TIMEOUT = 60                     # seconds of silence before a SERVED job is considered stale
-POLLING_INTERVAL = 60                 # how often the cleaner loop runs
-
-# ---------------- Setup ----------------
-
-def createExpBaseDirectory(args):
-    os.makedirs(os.path.join(BASE_DIR, args.expId), exist_ok=True)
+DEFAULT_IDLE_TIMEOUT = 600
+DEFAULT_ABORTED_RESET_TIMEOUT = 1200
 
 
-def setup_log(args):
-    LOG_FILE = os.path.join(BASE_DIR, args.expId, LOG_FILENAME)
+def createExpBaseDirectory(workspace_path, exp_id):
+    os.makedirs(os.path.join(workspace_path, exp_id), exist_ok=True)
+
+
+def setup_log(workspace_path, exp_id):
+    LOG_FILE = os.path.join(workspace_path, exp_id, LOG_FILENAME)
     logging.basicConfig(
         filename=LOG_FILE,
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
-# ---------------- Cleanup Logic ----------------
 
 def reset_aborted_jobs(base_url):
     try:
@@ -36,16 +35,15 @@ def reset_aborted_jobs(base_url):
             timeout=10
         )
         if response.status_code == 200:
-            result = response.json()
-            count = result.get("jobs_reset", 0)
+            count = response.json().get("jobs_reset", 0)
             if count > 0:
                 logging.info(f"Reset {count} ABORTED jobs to PENDING.")
             else:
                 logging.info("No aborted jobs to reset.")
         else:
-            logging.error(f"Failed to reset aborted jobs. Status: {response.status_code}, Response: {response.text}")
+            logging.error(f"reset_aborted_jobs failed. Status: {response.status_code}")
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error calling reset_aborted_jobs API: {e}")
+        logging.error(f"Error calling reset_aborted_jobs: {e}")
 
 
 def reset_stale_served_jobs(base_url, idle_timeout):
@@ -56,61 +54,70 @@ def reset_stale_served_jobs(base_url, idle_timeout):
             timeout=10
         )
         if response.status_code == 200:
-            result = response.json()
-            count = result.get("jobs_reset", 0)
+            count = response.json().get("jobs_reset", 0)
             if count > 0:
-                logging.info(f"Reset {count} stale SERVED jobs to PENDING (timeout: {idle_timeout}s).")
+                logging.info(f"Reset {count} stale SERVED jobs (timeout: {idle_timeout}s).")
             else:
                 logging.info("No stale SERVED jobs to reset.")
         else:
-            logging.error(f"Failed to reset stale served jobs. Status: {response.status_code}, Response: {response.text}")
+            logging.error(f"reset_stale_served_jobs failed. Status: {response.status_code}")
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error calling reset_stale_served_jobs API: {e}")
+        logging.error(f"Error calling reset_stale_served_jobs: {e}")
 
-# ---------------- Main Cleanup Loop ----------------
 
-def cleanup_loop(server_url, server_port):
+def cleanup_loop(server_url, server_port, db):
+    # Give the job server a moment to finish binding its port before the
+    # first cleanup request goes out.
+    time.sleep(5)
+
     last_aborted_reset_time = 0
     last_idle_check_time = 0
 
     base_url = f"http://{server_url}:{server_port}"
+    logging.info(f"Job cleaner connected to {base_url}")
 
     while True:
         now = time.time()
 
-        if now - last_aborted_reset_time >= ABORTED_JOB_RESET_TIMEOUT:
-            logging.info("Running aborted job cleanup...")
+        # Re-read settings from DB on every tick so dashboard changes take effect immediately
+        idle_timeout = int(db.get_config_value("idle_timeout", str(DEFAULT_IDLE_TIMEOUT)))
+        aborted_reset_timeout = int(
+            db.get_config_value("aborted_job_reset_timeout", str(DEFAULT_ABORTED_RESET_TIMEOUT))
+        )
+
+        if now - last_aborted_reset_time >= aborted_reset_timeout:
+            logging.info(f"Running aborted job cleanup (timeout={aborted_reset_timeout}s)...")
             reset_aborted_jobs(base_url)
             last_aborted_reset_time = now
 
-        if now - last_idle_check_time >= IDLE_TIMEOUT:
-            logging.info("Running stale SERVED job cleanup...")
-            reset_stale_served_jobs(base_url, IDLE_TIMEOUT)
+        if now - last_idle_check_time >= idle_timeout:
+            logging.info(f"Running stale SERVED job cleanup (idle_timeout={idle_timeout}s)...")
+            reset_stale_served_jobs(base_url, idle_timeout)
             last_idle_check_time = now
 
         time.sleep(POLLING_INTERVAL)
 
-# ---------------- Entry Point ----------------
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start job_cleaner background service")
-    parser.add_argument("--expId", type=str, default="sim1", help="Give a unique name of your experiment")
-    parser.add_argument("--serverUrl", type=str, default="localhost", help="Server URL or hostname")
-    parser.add_argument("--serverPort", type=int, default=5000, help="Server port number")
-    parser.add_argument("--abortedJobResetTimeout", type=int, default=1800, help="How often to reset aborted jobs (in seconds)")
-    parser.add_argument("--idleTimeout", type=int, default=60, help="Max silence period for SERVED jobs (in seconds)")
-    parser.add_argument("--pollingInterval", type=int, default=60, help="How often to poll for cleanup (in seconds)")
+    parser.add_argument("--expId", type=str, required=True,
+                        help="Unique experiment name")
+    parser.add_argument("--workspacePath",
+                        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."),
+                        help="Directory where experiment data lives")
+    parser.add_argument("--serverPort", type=int, default=5000,
+                        help="Job server port (default: 5000)")
+    parser.add_argument("--pollingInterval", type=int, default=60,
+                        help="Seconds between loop ticks (default: 60)")
     args = parser.parse_args()
 
-    createExpBaseDirectory(args)
-    setup_log(args)
-
-    ABORTED_JOB_RESET_TIMEOUT = args.abortedJobResetTimeout
-    IDLE_TIMEOUT = args.idleTimeout
     POLLING_INTERVAL = args.pollingInterval
 
-    logging.info(f"Job cleaner started. Connecting to server at {args.serverUrl}:{args.serverPort}")
-    logging.info(f"Configuration: abortedJobResetTimeout={ABORTED_JOB_RESET_TIMEOUT}s, "
-                 f"idleTimeout={IDLE_TIMEOUT}s, pollingInterval={POLLING_INTERVAL}s")
+    createExpBaseDirectory(args.workspacePath, args.expId)
+    setup_log(args.workspacePath, args.expId)
 
-    cleanup_loop(args.serverUrl, args.serverPort)
+    db_path = os.path.join(args.workspacePath, args.expId, "jobs.db")
+    db = JobDatabase(db_path)
+
+    logging.info(f"Job cleaner started. Server: localhost:{args.serverPort}, DB: {db_path}")
+    cleanup_loop("localhost", args.serverPort, db)

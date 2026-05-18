@@ -1,0 +1,497 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{{ expId }} — Job Dashboard</title>
+        <link rel="icon"             type="image/png" sizes="32x32"   href="{{ url_for('static', filename='favicon.png') }}">
+        <link rel="icon"             type="image/png" sizes="192x192" href="{{ url_for('static', filename='favicon-192.png') }}">
+        <link rel="apple-touch-icon"                  sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+        <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        <link rel="stylesheet" href="https://cdn.datatables.net/2.3.1/css/dataTables.dataTables.min.css">
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.datatables.net/2.3.1/js/dataTables.min.js"></script>
+        <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <div class="header-left">
+                    <h1><i class="fas fa-chart-line"></i> Job Dashboard</h1>
+                    <span class="header-exp-badge" title="Experiment ID">{{ expId }}</span>
+                </div>
+                <button class="header-add-btn" onclick="openSetupOverlay()">
+                    <i class="fas fa-plus-circle"></i> Add Jobs
+                </button>
+            </div>
+            
+            <div class="main-content">
+        
+        <div id="statsModal" class="modal-2">
+            <div class="modal-content-2">
+                <span class="close" onclick="closeModal()">&times;</span>
+                <h2>Machine Specific Stats</h2>
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div style="display: inline-block; position: relative; width: 80px; height: 80px;">
+                        <svg width="80" height="80" style="transform: rotate(-90deg);">
+                            <circle cx="40" cy="40" r="35" stroke="#e0e0e0" stroke-width="6" fill="none"></circle>
+                            <circle cx="40" cy="40" r="35" stroke="#4CAF50" stroke-width="6" fill="none" 
+                                stroke-dasharray="{{ 2 * 3.14159 * 35 }}" 
+                                stroke-dashoffset="{{ 2 * 3.14159 * 35 * (1 - (total_jobs_completed / total_jobs if total_jobs > 0 else 0)) }}"
+                                style="transition: stroke-dashoffset 0.5s ease;"></circle>
+                        </svg>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold; font-size: 12px;">
+                            {{ "%.0f"|format((total_jobs_completed / total_jobs * 100) if total_jobs > 0 else 0) }}%
+                        </div>
+                    </div>
+                    <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">Overall Progress</p>
+                </div>
+                <table class="stats-table">
+                    <tr style="position:sticky; top:-17px; z-index:2;">
+                        <th>Name</th>
+                        <th>Instances</th>
+                        <th>Jobs Done</th>
+                        <th>Avg Completion Time</th>
+                        <th>Percentage of Share</th>
+                    </tr>
+                    {% for machine, data in machine_stats.items() %}
+                    <tr>
+                        <td>{{ machine }}</td>
+                        <td>{{ data.instance_count }}</td>
+                        <td>{{ data.count }}</td>
+                        <td>{{ data.average_time }}</td>
+                        <td>{{ data.percentage }}%</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+                <div class="dashboard-grid">
+                    <div class="sidebar">
+
+                        <!-- ACTIONS -->
+                        <div class="sb-section">
+                            <p class="sb-section-title">Actions</p>
+
+                            <button class="sb-action-btn" onclick="openSettingsModal()">
+                                <div class="sb-action-icon" style="background:#eef2ff; color:#4f6ef7;">
+                                    <i class="fas fa-sliders-h"></i>
+                                </div>
+                                <div>
+                                    <span class="sb-action-label">Settings</span>
+                                    <span class="sb-action-sub">Idle &amp; reset timeouts</span>
+                                </div>
+                            </button>
+
+                            <button class="sb-action-btn" onclick="openModal()">
+                                <div class="sb-action-icon" style="background:#fff4e6; color:#fd7e14;">
+                                    <i class="fas fa-chart-bar"></i>
+                                </div>
+                                <div>
+                                    <span class="sb-action-label">Machine Statistics</span>
+                                    <span class="sb-action-sub">Worker performance breakdown</span>
+                                </div>
+                            </button>
+                        </div>
+
+                        <!-- JOB STATUS -->
+                        <div class="sb-section">
+                            <p class="sb-section-title">Job Status</p>
+                            <div class="sb-stat-grid">
+                                <div class="sb-stat-tile" style="border-left-color:#27ae60;">
+                                    <div class="sb-stat-tile-val" style="color:#27ae60;">{{ total_jobs_completed }}</div>
+                                    <div class="sb-stat-tile-lbl">Completed</div>
+                                </div>
+                                <div class="sb-stat-tile" style="border-left-color:#3498db;">
+                                    <div class="sb-stat-tile-val" style="color:#3498db;">{{ total_jobs_served }}</div>
+                                    <div class="sb-stat-tile-lbl">Running</div>
+                                </div>
+                                <div class="sb-stat-tile" style="border-left-color:#95a5a6;">
+                                    <div class="sb-stat-tile-val" style="color:#95a5a6;">{{ total_jobs - total_jobs_completed - total_jobs_served - total_jobs_aborted - total_jobs_deleted }}</div>
+                                    <div class="sb-stat-tile-lbl">Pending</div>
+                                </div>
+                                <div class="sb-stat-tile" style="border-left-color:#e74c3c;">
+                                    <div class="sb-stat-tile-val" style="color:#e74c3c;">{{ total_jobs_aborted }}</div>
+                                    <div class="sb-stat-tile-lbl">Aborted</div>
+                                </div>
+                                <div class="sb-stat-tile" style="border-left-color:#6c757d; grid-column: span 2;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <div>
+                                            <div class="sb-stat-tile-val" style="color:#6c757d;">{{ total_jobs }}</div>
+                                            <div class="sb-stat-tile-lbl">Total Jobs</div>
+                                        </div>
+                                        <div style="text-align:right;">
+                                            <div class="sb-stat-tile-val" style="font-size:1rem; color:#6c757d;">{{ total_jobs_deleted }}</div>
+                                            <div class="sb-stat-tile-lbl">Deleted</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Progress bar -->
+                            <div style="margin-top:12px;">
+                                <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:#6c757d; margin-bottom:4px;">
+                                    <span>Completion</span>
+                                    <span>{{ "%.1f"|format((total_jobs_completed / total_jobs * 100) if total_jobs > 0 else 0) }}%</span>
+                                </div>
+                                <div class="sb-progress-track">
+                                    <div class="sb-progress-fill" style="width:{{ (total_jobs_completed / total_jobs * 100) if total_jobs > 0 else 0 }}%;"></div>
+                                </div>
+                                <div class="sb-progress-meta">
+                                    <span>{{ total_jobs_completed }} done</span>
+                                    <span>{{ total_jobs - total_jobs_completed }} remaining</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SUMMARY -->
+                        <div class="sb-section">
+                            <p class="sb-section-title">Summary</p>
+                            <div class="sb-meta-row">
+                                <span class="sb-meta-key">Avg Completion</span>
+                                <span class="sb-meta-val">{{ avg_completion_time if avg_completion_time else "—" }}</span>
+                            </div>
+                            <div class="sb-meta-row">
+                                <span class="sb-meta-key">Chart Interval Total</span>
+                                <span class="sb-meta-val" id="totalJobs">0</span>
+                            </div>
+                        </div>
+
+                        <!-- CHART CONTROLS -->
+                        <div class="sb-section">
+                            <p class="sb-section-title">Chart Controls</p>
+                            <div class="form-group" style="margin-bottom:10px;">
+                                <label class="form-label" for="machineFilter" style="font-size:0.78rem;">Machine</label>
+                                <select class="form-select" id="machineFilter" onchange="updateChart()">
+                                    <option value="all">All Machines</option>
+                                    {% for machine in machine_names %}
+                                        <option value="{{ machine }}">{{ machine }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="timeInterval" style="font-size:0.78rem;">Interval</label>
+                                <select class="form-select" id="timeInterval" onchange="updateChart()">
+                                    <option value="hourly">Hourly</option>
+                                    <option value="minutely">Minutely</option>
+                                    <option value="daily">Daily</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- API STATS -->
+                        <div class="sb-section" style="flex:1;">
+                            <p class="sb-section-title">API Requests</p>
+                            <div class="api-stats">
+                                {% for stat in api_stats %}
+                                <div class="api-stat-item">
+                                    <div>
+                                        <div class="api-endpoint">{{ stat.endpoint }}</div>
+                                        <div class="api-method">{{ stat.method }}</div>
+                                    </div>
+                                    <div class="api-count">{{ stat.request_count }}</div>
+                                </div>
+                                {% endfor %}
+                                {% if not api_stats %}
+                                <div style="text-align:center; color:#9ba3b8; font-size:0.8rem; padding:16px 0;">
+                                    No requests tracked yet
+                                </div>
+                                {% endif %}
+                                {% if api_stats %}
+                                <div class="api-stat-item" style="border-top:2px solid #e2e8f0; margin-top:8px; padding-top:8px;">
+                                    <div>
+                                        <div class="api-endpoint" style="font-weight:bold; color:#1e293b;">Total</div>
+                                        <div class="api-method">All Endpoints</div>
+                                    </div>
+                                    <div class="api-count" style="background:#3b82f6; color:white; font-weight:bold;">{{ total_api_requests }}</div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                    </div>
+                    
+                    <div class="chart-container">
+                        <div class="chart-wrapper">
+                            <canvas id="jobChart"></canvas>
+                        </div>
+                        
+                        <!-- Tab Buttons -->
+                        <div class="tabs">
+                            <button class="tab-button active" onclick="openTab(event, 'SERVED')">
+                                <i class="fas fa-play-circle"></i>
+                                SERVED
+                                <span class="tab-count">{{ total_jobs_served }}</span>
+                            </button>
+                            <button class="tab-button" onclick="openTab(event, 'DONE')">
+                                <i class="fas fa-check-circle"></i>
+                                DONE
+                                <span class="tab-count">{{ total_jobs_completed }}</span>
+                            </button>
+                            <button class="tab-button" onclick="openTab(event, 'ABORTED')">
+                                <i class="fas fa-times-circle"></i>
+                                ABORTED
+                                <span class="tab-count">{{ total_jobs_aborted }}</span>
+                            </button>
+                            <button class="tab-button" onclick="openTab(event, 'PENDING')">
+                                <i class="fas fa-pause-circle"></i>
+                                PENDING
+                                <span class="tab-count">{{ job_counts.get('PENDING', 0) }}</span>
+                            </button>
+                            <button class="tab-button" onclick="openTab(event, 'DELETED')">
+                                <i class="fas fa-trash"></i>
+                                DELETED
+                                <span class="tab-count">{{ total_jobs_deleted }}</span>
+                            </button>
+                        </div>
+                        
+                        <!-- Tab Contents -->
+                        {% for status in ['SERVED', 'DONE', 'ABORTED', 'PENDING', 'DELETED'] %}
+                            <div id="{{ status }}" class="tabcontent {% if status == 'SERVED' %}active{% endif %}">
+                                <div class="table-container">
+                                    <!-- Table Header with Search -->
+                                    <div class="table-header">
+                                        <div class="table-title">
+                                            <h3>{{ status }} Jobs</h3>
+                                            <span id="paginationInfo-{{ status }}" class="pagination-info">Loading...</span>
+                                        </div>
+                                        <div class="search-section">
+                                            <div class="search-input-group">
+                                                <input type="text" id="jobSearch-{{ status }}" placeholder="Search by Job ID..." class="search-input">
+                                                <button onclick="searchJobs('{{ status }}')" class="search-btn" title="Search">
+                                                    <i class="fas fa-search"></i>
+                                                </button>
+                                                <button onclick="clearSearch('{{ status }}')" class="clear-btn" title="Clear">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="table-wrapper">
+                                        <table class="myTable" id="table-{{ status }}">
+                                            <thead>
+                                                <tr>
+                                                    <th>ID <span class="sort-icon" onclick="sortTable(this, 0, 'number')">↕</span></th>
+                                                    <th>Machine <span class="sort-icon" onclick="sortTable(this, 1, 'string')">↕</span></th>
+                                                    <th>Requested At <span class="sort-icon" onclick="sortTable(this, 2, 'number')">↕</span></th>
+                                                    <th>Completed At <span class="sort-icon" onclick="sortTable(this, 3, 'number')">↕</span></th>
+                                                    <th>Duration <span class="sort-icon" onclick="sortTable(this, 4, 'number')">↕</span></th>
+                                                    <th>Job Details</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="tbody-{{ status }}">
+                                                <tr>
+                                                    <td colspan="6" class="loading-message">
+                                                        <i class="fas fa-spinner fa-spin"></i> Loading jobs...
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <!-- Pagination Controls -->
+                                    <div class="pagination-controls">
+                                        <button id="prev-{{ status }}" onclick="changePage('{{ status }}', -1)" class="pagination-btn" disabled>
+                                            <i class="fas fa-chevron-left"></i> Previous
+                                        </button>
+                                        <span id="page-info-{{ status }}" class="page-info">Page 1</span>
+                                        <button id="next-{{ status }}" onclick="changePage('{{ status }}', 1)" class="pagination-btn">
+                                            <i class="fas fa-chevron-right"></i> Next
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                        
+
+                    </div>
+                </div>
+        
+        <!-- Setup / Add Jobs Overlay -->
+        <div id="setupOverlay">
+            <div class="setup-box">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:22px;">
+                    <h2><i class="fas fa-flask"></i> Setup Experiment</h2>
+                    <button id="setupOverlayCloseBtn" onclick="closeSetupOverlay()" style="display:none; background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1;">&times;</button>
+                </div>
+
+                <!-- Parameter Builder -->
+                <div class="setup-section">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h4 style="margin:0;"><i class="fas fa-sliders-h"></i> Parameters</h4>
+                        <span id="jobCountPreview"></span>
+                    </div>
+                    <div style="display:flex; gap:6px; font-size:0.78em; color:#6c757d; margin-bottom:8px; padding:0 2px;">
+                        <span style="width:160px; flex-shrink:0;">Name</span>
+                        <span style="flex:1;">Values &mdash; JSON array, e.g. <code>[1, 2, 4]</code> or <code>["adam","sgd"]</code></span>
+                    </div>
+                    <div id="parameterRows" style="display:flex; flex-direction:column; gap:8px;"></div>
+                    <button id="addParamBtn" onclick="addParameterRow()">
+                        <i class="fas fa-plus"></i> Add Parameter
+                    </button>
+                </div>
+
+                <!-- Actions -->
+                <div id="replaceRow" style="display:none; margin-bottom:14px; padding:11px 14px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px;">
+                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.88em; color:#7a5c00;">
+                        <input type="checkbox" id="replaceExistingJobs" style="width:16px; height:16px; cursor:pointer;">
+                        <span><strong>Replace all existing jobs</strong> — deletes every current job and starts fresh. Leave unchecked to append the new combinations to the existing list.</span>
+                    </label>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:12px; align-items:center;">
+                    <span id="setupError" style="color:#dc3545; font-size:0.88em;"></span>
+                    <button id="createJobsBtn" onclick="submitCreateJobs()">
+                        <i class="fas fa-rocket"></i> Create Jobs
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal">
+            <div class="modal-content" style="max-width:500px;">
+                <div class="modal-header-row" style="margin-bottom:14px;">
+                    <h2 style="margin:0; font-size:1.15rem;"><i class="fas fa-sliders-h"></i> Settings</h2>
+                    <button class="close" onclick="closeSettingsModal()" title="Close">&times;</button>
+                </div>
+
+                <!-- Lock banner — shown when SERVED jobs exist -->
+                <div id="settingsLockBanner" style="display:none; margin-bottom:16px; padding:11px 14px; background:#fff3cd; border:1px solid #ffc107; border-radius:7px; display:none; align-items:center; gap:10px;">
+                    <i class="fas fa-lock" style="color:#e6a800; font-size:1rem; flex-shrink:0;"></i>
+                    <span style="font-size:0.84em; color:#7a5c00;">Settings are locked while jobs are running. Wait for all SERVED jobs to finish or be reset before making changes.</span>
+                </div>
+
+                <p style="margin:0 0 16px 0; color:#6c757d; font-size:0.83em;">
+                    Changes take effect on the job cleaner's next polling cycle (within 60 seconds).
+                </p>
+                <div class="setup-settings-grid" style="margin-bottom:20px;">
+                    <div class="setup-field">
+                        <label>Idle Timeout</label>
+                        <select id="settingsIdleTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <option value="1">1 minute</option>
+                            <option value="2">2 minutes</option>
+                            <option value="3">3 minutes</option>
+                            <option value="4">4 minutes</option>
+                            <option value="5">5 minutes</option>
+                        </select>
+                        <div class="hint">SERVED jobs silent for this long are reset to PENDING.</div>
+                    </div>
+                    <div class="setup-field">
+                        <label>Aborted Reset Timeout</label>
+                        <select id="settingsAbortedTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <option value="1">1 minute</option>
+                            <option value="5">5 minutes</option>
+                            <option value="10">10 minutes</option>
+                            <option value="20">20 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60">60 minutes</option>
+                        </select>
+                        <div class="hint">How often ABORTED jobs are recycled back to PENDING.</div>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:10px; align-items:center;">
+                    <span id="settingsError" style="color:#dc3545; font-size:0.85em;"></span>
+                    <button id="settingsSaveBtn" onclick="saveSettings()" style="padding:9px 22px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
+                        <i class="fas fa-save"></i> Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Details Modal -->
+        <div id="messageModal" class="modal">
+            <div class="modal-content">
+
+                <!-- Header -->
+                <div class="modal-header-row">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <h2 style="margin:0; font-size:1.15rem;">Job <span id="jobId"></span></h2>
+                        <span id="jobStatusBadge" class="job-status-badge"></span>
+                    </div>
+                    <button class="close" onclick="closeMessageModal()" title="Close">&times;</button>
+                </div>
+
+                <!-- Tabs -->
+                <div class="modal-tabs">
+                    <button class="modal-tab-btn active" id="tab-btn-history"    onclick="switchModalTab('history',    this)"><i class="fas fa-history"></i>    History</button>
+                    <button class="modal-tab-btn"        id="tab-btn-parameters" onclick="switchModalTab('parameters', this)"><i class="fas fa-sliders-h"></i> Parameters</button>
+                    <button class="modal-tab-btn"        id="tab-btn-metrics"    onclick="switchModalTab('metrics',   this)"><i class="fas fa-microchip"></i>  Metrics</button>
+                    <button class="modal-tab-btn"        id="tab-btn-actions"    onclick="switchModalTab('actions',   this)"><i class="fas fa-tools"></i>       Actions <span id="actionsTabBadge" class="tab-badge" style="display:none;"></span></button>
+                </div>
+
+                <!-- Tab: History -->
+                <div id="modalTab-history" class="modal-tab-content active">
+                    <div class="timeline" id="messageTimeline"></div>
+                </div>
+
+                <!-- Tab: Parameters -->
+                <div id="modalTab-parameters" class="modal-tab-content">
+                    <div id="parametersTable" style="margin-bottom:16px;"></div>
+
+                    <!-- Update Parameters Section (PENDING only) -->
+                    <div id="updateParamsSection" style="display:none; padding:16px; background:#fffbe6; border-radius:8px; border:1px solid #ffe066;">
+                        <h4 style="margin:0 0 8px 0; color:#7a5c00;"><i class="fas fa-edit"></i> Update Parameters</h4>
+                        <p style="margin:0 0 10px 0; font-size:0.83em; color:#7a5c00;">Edit values below. Every change is appended to the audit history.</p>
+                        <div id="updateParamsFields" style="margin-bottom:10px;"></div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <input type="text" id="updateParamsReason" placeholder="Reason (optional)" style="flex:1; padding:8px; border:1px solid #ffe066; border-radius:4px;">
+                            <button id="updateParamsBtn" onclick="updateJobParameters()" style="padding:8px 16px; background:#e6ac00; color:white; border:none; border-radius:4px; cursor:pointer; white-space:nowrap; font-weight:bold;">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Metrics -->
+                <div id="modalTab-metrics" class="modal-tab-content">
+                    <div id="systemMetricsTable"></div>
+                </div>
+
+                <!-- Tab: Actions -->
+                <div id="modalTab-actions" class="modal-tab-content">
+                    <!-- Status Change -->
+                    <div id="statusChangeSection" style="margin-bottom:12px; padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #dee2e6;">
+                        <h4 id="statusChangeTitle" style="margin:0 0 10px 0; color:#495057;">Change Job Status</h4>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <input type="text" id="statusChangeReason" placeholder="Reason (optional)" style="flex:1; padding:8px; border:1px solid #ced4da; border-radius:4px;">
+                            <button id="changeStatusBtn" onclick="changeJobStatus()" style="padding:8px 16px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer; white-space:nowrap;">Change Status</button>
+                        </div>
+                    </div>
+
+                    <!-- Delete Section (PENDING only) -->
+                    <div id="deleteSection" style="display:none; margin-bottom:12px; padding:15px; background:#fff5f5; border-radius:8px; border:1px solid #f5c6cb;">
+                        <h4 style="margin:0 0 8px 0; color:#721c24;"><i class="fas fa-trash"></i> Delete Job</h4>
+                        <p style="margin:0 0 10px 0; font-size:0.83em; color:#856404;">Deleted jobs will not be assigned to any worker. You can restore them later.</p>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <input type="text" id="deleteReason" placeholder="Reason (optional)" style="flex:1; padding:8px; border:1px solid #f5c6cb; border-radius:4px;">
+                            <button id="deleteJobBtn" onclick="deleteJob()" style="padding:8px 16px; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer; white-space:nowrap;">Delete Job</button>
+                        </div>
+                    </div>
+
+                    <!-- Restore Section (DELETED only) -->
+                    <div id="restoreSection" style="display:none; margin-bottom:12px; padding:15px; background:#f0fff4; border-radius:8px; border:1px solid #c3e6cb;">
+                        <h4 style="margin:0 0 8px 0; color:#155724;"><i class="fas fa-undo"></i> Restore Job</h4>
+                        <p style="margin:0 0 10px 0; font-size:0.83em; color:#155724;">Restores the job to PENDING so it can be assigned to a worker again.</p>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <input type="text" id="restoreReason" placeholder="Reason (optional)" style="flex:1; padding:8px; border:1px solid #c3e6cb; border-radius:4px;">
+                            <button id="restoreJobBtn" onclick="restoreJob()" style="padding:8px 16px; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer; white-space:nowrap;">Restore to PENDING</button>
+                        </div>
+                    </div>
+
+                    <!-- No-actions placeholder -->
+                    <div id="noActionsMsg" style="display:none; text-align:center; padding:24px; color:#adb5bd;">
+                        <i class="fas fa-lock" style="font-size:1.8rem; display:block; margin-bottom:8px;"></i>
+                        No actions available for this job status.
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+
+
+            </div> <!-- End main-content -->
+        </div> <!-- End container -->
+            <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+    </body>
+    </html>
+    

@@ -1,19 +1,11 @@
 {
-  "expId": "mnist_param_tune",
-  "jobDB": "jobs.db",
-  "host": "localhost",
-  "dashboard_port": 5050,
-  "server_port": 5000,
-  "idleTimeout": 600,
-  "abortedJobResetTimeout": 1200,
-  "fresh_start": true,
-  "parameters": {
-    "epochs": [1, 2, 4, 8, 16, 32],
-    "optimizer": ["adam", "sgd", "lbfgs"],
-    "hidden_layers": [1, 2, 4, 8, 16],
-    "nodes_per_layer": [10, 20, 30, 40, 50],
-    "batch_size": [4, 8, 16, 32, 64, 128]
+  "_comment": "config.json is no longer read by start.py. Pass all settings as CLI arguments.",
+  "_example": "python start.py --expId mnist_tune --server_port 5000 --dashboard_port 5050 --workspace_path /data/experiments",
+  "_notes": {
+    "jobDB": "Always jobs.db (fixed)",
+    "host": "Always localhost (fixed)",
+    "parameters": "Configured from the dashboard UI after startup",
+    "idleTimeout": "Configured from the dashboard UI after startup",
+    "abortedJobResetTimeout": "Configured from the dashboard UI after startup"
   }
 }
-
-  

@@ -20,6 +20,25 @@ STATUS_SERVED = "SERVED"
 STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
 
+# ── Gunicorn worker init ──────────────────────────────────────────────────
+# When gunicorn imports this module it runs the block below.
+# start.py sets JD_WORKSPACE_PATH and JD_EXP_ID in the subprocess environment
+# so every worker process can reach the database independently.
+_jd_workspace = os.environ.get("JD_WORKSPACE_PATH", "")
+_jd_exp_id    = os.environ.get("JD_EXP_ID", "")
+if _jd_workspace and _jd_exp_id:
+    _exp_dir = os.path.join(_jd_workspace, _jd_exp_id)
+    os.makedirs(_exp_dir, exist_ok=True)
+    logging.basicConfig(
+        filename=os.path.join(_exp_dir, LOG_FILENAME),
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+    DB_FILE = os.path.join(_jd_workspace, _jd_exp_id, "jobs.db")
+    db = JobDatabase(DB_FILE)
+    logging.info(f"[gunicorn] Job server initialised. DB: {DB_FILE}")
+# ─────────────────────────────────────────────────────────────────────────
+
 
 def createExpBaseDirectory(args):
     os.makedirs(os.path.join(BASE_DIR, args.expId), exist_ok=True)
@@ -172,23 +191,25 @@ def reset_stale_served_jobs():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Start the Flask server")
-    parser.add_argument("--host", default="0.0.0.0",
-                        help="IP address to bind to")
-    parser.add_argument("--jobDB", default="jobs.db",
-                        help="SQLite database file (<filename>.db) placed in the same directory as server.py")
+    parser = argparse.ArgumentParser(description="Start the Flask job server")
+    parser.add_argument("--expId", type=str, required=True,
+                        help="Unique experiment name")
+    parser.add_argument("--workspacePath",
+                        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."),
+                        help="Directory where experiment data lives (default: parent of src/)")
     parser.add_argument("--port", type=int, default=5000,
-                        help="Port number to listen on")
-    parser.add_argument("--expId", type=str, default="sim1",
-                        help="Give an unique name")
+                        help="Port number to listen on (default: 5000)")
     args = parser.parse_args()
+
+    # Override BASE_DIR with the workspace path so logs go to the right place
+    BASE_DIR = args.workspacePath
     createExpBaseDirectory(args)
     setup_log(args)
-    logging.info(f"Starting Flask server on {args.host}:{args.port}...")
-    DB_FILE = os.path.join(BASE_DIR, args.expId, args.jobDB)
+
+    DB_FILE = os.path.join(args.workspacePath, args.expId, "jobs.db")
+    logging.info(f"Starting Flask job server on 0.0.0.0:{args.port}, DB: {DB_FILE}")
 
     db = JobDatabase(DB_FILE)
+    app.run(host="0.0.0.0", port=args.port, threaded=True)
 
-    app.run(host=args.host, port=args.port, threaded=True)
-
-# python server.py --expId=sim1 --jobDB=jobs.db --host=0.0.0.0 --port=5000
+# python src/server.py --expId=mnist_tune --workspacePath=/data/experiments --port=5000

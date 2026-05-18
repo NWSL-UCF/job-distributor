@@ -71,6 +71,19 @@ class JobDatabase:
                     UNIQUE(endpoint, method)
                 )
             ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS server_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            ''')
+
+            # Seed defaults only when the rows do not yet exist
+            cursor.execute('''
+                INSERT OR IGNORE INTO server_config (key, value)
+                VALUES ('idle_timeout', '600'), ('aborted_job_reset_timeout', '1200')
+            ''')
             
             # Create indexes for optimal query performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)')
@@ -102,7 +115,7 @@ class JobDatabase:
                 conn.close()
     
     def create_jobs(self, parameters_list: List[str], clear_api_stats: bool = True) -> int:
-        """Create multiple jobs from a list of parameter strings."""
+        """Replace ALL existing jobs with a fresh set. Also clears API stats by default."""
         with self.lock:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -144,7 +157,42 @@ class JobDatabase:
                 total_jobs = len(parameters_list)
                 logging.info(f"Created {total_jobs} jobs in database")
                 return total_jobs
-    
+
+    def append_jobs(self, parameters_list: List[str]) -> int:
+        """Append new PENDING jobs without touching existing ones. IDs continue from the current maximum."""
+        with self.lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("SELECT COALESCE(MAX(id), -1) AS max_id FROM jobs")
+                start_id = cursor.fetchone()['max_id'] + 1
+
+                jobs_data = [
+                    (
+                        start_id + i,
+                        '', 0, 0, 0, 0, 0,
+                        STATUS_PENDING,
+                        '[]',
+                        params,
+                        '{}',
+                        0
+                    )
+                    for i, params in enumerate(parameters_list)
+                ]
+
+                cursor.executemany('''
+                    INSERT INTO jobs
+                    (id, requested_by, request_timestamp, completion_timestamp,
+                     required_time, predicted_runtime, last_ping_timestamp,
+                     status, message, parameters, system_metrics, initialization_timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', jobs_data)
+
+                conn.commit()
+                total_new = len(parameters_list)
+                logging.info(f"Appended {total_new} jobs (starting at id={start_id})")
+                return total_new
+
     def get_all_jobs(self) -> List[Dict[str, Any]]:
         """Get all jobs from the database."""
         with self.get_connection() as conn:
@@ -172,6 +220,33 @@ class JobDatabase:
             
             return jobs
     
+    def get_config_value(self, key: str, default: str = "") -> str:
+        """Read a value from server_config. Returns default if key is absent."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM server_config WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row['value'] if row else default
+
+    def set_config_value(self, key: str, value: str) -> None:
+        """Insert or update a key in server_config."""
+        with self.lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO server_config (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (key, value)
+                )
+                conn.commit()
+
+    def get_all_config(self) -> Dict[str, str]:
+        """Return the full server_config table as a dict."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key, value FROM server_config")
+            return {row['key']: row['value'] for row in cursor.fetchall()}
+
     def track_api_request(self, endpoint: str, method: str):
         """Track an API request by incrementing the counter."""
         with self.lock:
@@ -744,6 +819,59 @@ class JobDatabase:
                         last_ping_timestamp = 0, initialization_timestamp = 0
                     WHERE id = ?
                 ''', (STATUS_PENDING, json.dumps(messages), job_id))
+                conn.commit()
+                return True
+
+    def update_job_parameters(self, job_id: int, updates: Dict[str, Any], reason: str = "") -> bool:
+        """Update parameters of a PENDING job. Only works on PENDING jobs."""
+        with self.lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT * FROM jobs WHERE id = ? AND status = ?",
+                    (job_id, STATUS_PENDING)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return False
+
+                job = dict(row)
+                now = time.time()
+
+                try:
+                    current_params = json.loads(job['parameters'])
+                except json.JSONDecodeError:
+                    current_params = {}
+
+                try:
+                    messages = json.loads(job['message'])
+                except json.JSONDecodeError:
+                    messages = []
+
+                changed_parts = []
+                for key, new_value in updates.items():
+                    old_value = current_params.get(key, "<not set>")
+                    changed_parts.append(
+                        f"{key}: {json.dumps(old_value)} \u2192 {json.dumps(new_value)}"
+                    )
+                    current_params[key] = new_value
+
+                if not changed_parts:
+                    return True
+
+                audit_reason = "Parameters Updated: " + ", ".join(changed_parts)
+                if reason:
+                    audit_reason += f" | Reason: {reason}"
+
+                messages.append({
+                    "reason": audit_reason,
+                    "timestamp": now
+                })
+
+                cursor.execute(
+                    "UPDATE jobs SET parameters = ?, message = ? WHERE id = ?",
+                    (json.dumps(current_params), json.dumps(messages), job_id)
+                )
                 conn.commit()
                 return True
 
