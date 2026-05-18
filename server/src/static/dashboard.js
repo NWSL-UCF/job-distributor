@@ -733,6 +733,11 @@ function openModal() {
 
                 errEl.textContent = "";
 
+                // Always clear PIN fields and their error — prevent browser autofill residue
+                document.getElementById("currentPin").value     = "";
+                document.getElementById("newPin").value         = "";
+                document.getElementById("pinUpdateError").textContent = "";
+
                 // Load current values (idle_timeout stored as seconds, dropdown shows minutes)
                 fetch('/server_config')
                     .then(r => r.json())
@@ -1194,39 +1199,164 @@ let chart;
                 return val.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
             }
 
+            function trafficRow(labelIn, labelOut, bytesIn, bytesOut) {
+                return `<div style="display:flex; gap:6px;">
+                    <span data-tooltip="${labelIn}" style="flex:1; background:#e8f8ef; color:#1a7a3c; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center; cursor:default;">
+                        <i class="fas fa-arrow-down"></i> ${formatBytes(bytesIn)}
+                    </span>
+                    <span data-tooltip="${labelOut}" style="flex:1; background:#e8f0ff; color:#2e4db5; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center; cursor:default;">
+                        <i class="fas fa-arrow-up"></i> ${formatBytes(bytesOut)}
+                    </span>
+                </div>`;
+            }
+
+            // ── Auth helpers ─────────────────────────────────────────────────────────
+
+            function logout() {
+                fetch('/auth/logout', { method: 'POST' })
+                    .then(() => { window.location.href = '/auth'; })
+                    .catch(() => { window.location.href = '/auth'; });
+            }
+
+            function updatePin() {
+                const currentEl = document.getElementById('currentPin');
+                const newEl     = document.getElementById('newPin');
+                const errEl     = document.getElementById('pinUpdateError');
+                const current   = currentEl.value.trim();
+                const newPin    = newEl.value.trim();
+                errEl.textContent = '';
+
+                if (!/^\d{6}$/.test(current)) {
+                    errEl.textContent = 'Current PIN must be exactly 6 digits.';
+                    currentEl.focus(); return;
+                }
+                if (!/^\d{6}$/.test(newPin)) {
+                    errEl.textContent = 'New PIN must be exactly 6 digits.';
+                    newEl.focus(); return;
+                }
+                if (current === newPin) {
+                    errEl.textContent = 'New PIN must be different from the current PIN.';
+                    newEl.focus(); return;
+                }
+
+                // Use _origFetch so the global 401 interceptor doesn't interfere
+                _origFetch('/update_pin', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({current_pin: current, new_pin: newPin})
+                })
+                .then(r => r.json().then(d => ({ok: r.ok, data: d})))
+                .then(({ok, data}) => {
+                    if (ok && data.success) {
+                        showNotification('PIN updated successfully.', 'success');
+                        currentEl.value = '';
+                        newEl.value     = '';
+                        errEl.textContent = '';
+                        closeSettingsModal();
+                    } else {
+                        errEl.textContent = data.error || 'Failed to update PIN.';
+                        if (data.error && data.error.includes('Current')) currentEl.focus();
+                        else newEl.focus();
+                    }
+                })
+                .catch(e => { errEl.textContent = 'Network error: ' + e.message; });
+            }
+
+            // Redirect to /auth on any 401 response from API calls
+            const _origFetch = window.fetch;
+            window.fetch = function(...args) {
+                return _origFetch(...args).then(resp => {
+                    if (resp.status === 401) {
+                        window.location.href = '/auth';
+                    }
+                    return resp;
+                });
+            };
+
+            // ─────────────────────────────────────────────────────────────────────────
+
+            // ── Global JS tooltip engine ────────────────────────────────────────────
+            // Creates a single #js-tooltip div appended to <body> so it is never
+            // clipped by overflow:hidden/auto on any ancestor (sidebar, modals, etc.)
+            (function () {
+                const tip = document.createElement('div');
+                tip.id = 'js-tooltip';
+                document.body.appendChild(tip);
+
+                const MARGIN = 12; // px gap between cursor and tooltip box
+
+                function show(el, e) {
+                    const text = el.getAttribute('data-tooltip');
+                    if (!text) return;
+                    tip.textContent = text;
+                    tip.classList.add('visible');
+                    position(e);
+                }
+
+                function position(e) {
+                    const tw = tip.offsetWidth;
+                    const th = tip.offsetHeight;
+                    let x = e.clientX - tw / 2;
+                    let y = e.clientY - th - MARGIN;
+
+                    // Keep inside viewport
+                    x = Math.max(6, Math.min(x, window.innerWidth  - tw - 6));
+                    y = Math.max(6, Math.min(y, window.innerHeight - th - 6));
+                    // If tooltip would go above viewport, show it below cursor instead
+                    if (y < 6) y = e.clientY + MARGIN;
+
+                    tip.style.left = x + 'px';
+                    tip.style.top  = y + 'px';
+                }
+
+                function hide() { tip.classList.remove('visible'); }
+
+                document.addEventListener('mouseover', e => {
+                    const el = e.target.closest('[data-tooltip]');
+                    if (el) show(el, e);
+                });
+                document.addEventListener('mousemove', e => {
+                    if (tip.classList.contains('visible')) position(e);
+                });
+                document.addEventListener('mouseout', e => {
+                    if (!e.relatedTarget || !e.relatedTarget.closest('[data-tooltip]')) hide();
+                });
+            })();
+            // ───────────────────────────────────────────────────────────────────────
+
             function loadTrafficStats() {
                 fetch('/traffic_stats')
                     .then(r => r.json())
                     .then(data => {
                         const el = document.getElementById('trafficStats');
                         if (!el) return;
-                        el.innerHTML = `
-                            <div style="display:flex; flex-direction:column; gap:7px;">
-                                <div style="display:flex; justify-content:space-between; align-items:center;">
-                                    <span style="font-size:0.78rem; font-weight:700; color:#495057;">Job Server</span>
-                                    <span></span>
-                                </div>
-                                <div style="display:flex; gap:6px;">
-                                    <span style="flex:1; background:#e8f8ef; color:#1a7a3c; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center;">
-                                        <i class="fas fa-arrow-down"></i> ${formatBytes(data.server_in)}
-                                    </span>
-                                    <span style="flex:1; background:#e8f0ff; color:#2e4db5; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center;">
-                                        <i class="fas fa-arrow-up"></i> ${formatBytes(data.server_out)}
-                                    </span>
-                                </div>
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-                                    <span style="font-size:0.78rem; font-weight:700; color:#495057;">Dashboard</span>
-                                    <span></span>
-                                </div>
-                                <div style="display:flex; gap:6px;">
-                                    <span style="flex:1; background:#e8f8ef; color:#1a7a3c; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center;">
-                                        <i class="fas fa-arrow-down"></i> ${formatBytes(data.dashboard_in)}
-                                    </span>
-                                    <span style="flex:1; background:#e8f0ff; color:#2e4db5; border-radius:5px; padding:4px 8px; font-size:0.75rem; text-align:center;">
-                                        <i class="fas fa-arrow-up"></i> ${formatBytes(data.dashboard_out)}
-                                    </span>
-                                </div>
-                            </div>`;
+
+                        const totalIn  = data.server_in  + data.dashboard_in;
+                        const totalOut = data.server_out + data.dashboard_out;
+
+                        const sectionLabel = (text) =>
+                            `<div style="font-size:0.78rem; font-weight:700; color:#495057; margin-top:6px; margin-bottom:3px;">${text}</div>`;
+
+                        el.innerHTML =
+                            sectionLabel('Job Server') +
+                            trafficRow(
+                                'Bytes received by the job server from workers and clients',
+                                'Bytes sent out by the job server to workers and clients',
+                                data.server_in, data.server_out
+                            ) +
+                            sectionLabel('Dashboard') +
+                            trafficRow(
+                                'Bytes received by the dashboard from your browser',
+                                'Bytes sent out by the dashboard to your browser',
+                                data.dashboard_in, data.dashboard_out
+                            ) +
+                            `<div style="border-top:1px solid #e3e7f0; margin:8px 0 4px;"></div>` +
+                            sectionLabel('Total') +
+                            trafficRow(
+                                'Total bytes received across both services',
+                                'Total bytes sent out across both services',
+                                totalIn, totalOut
+                            );
                     })
                     .catch(() => {
                         const el = document.getElementById('trafficStats');

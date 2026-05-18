@@ -1,3 +1,6 @@
+import hashlib
+import os
+import secrets
 import sqlite3
 import json
 import logging
@@ -90,6 +93,17 @@ class JobDatabase:
                     ('traffic_dashboard_in', '0'),
                     ('traffic_dashboard_out','0')
             ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token      TEXT PRIMARY KEY,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)'
+            )
             
             # Create indexes for optimal query performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)')
@@ -252,6 +266,93 @@ class JobDatabase:
             cursor = conn.cursor()
             cursor.execute("SELECT key, value FROM server_config")
             return {row['key']: row['value'] for row in cursor.fetchall()}
+
+    # ── PIN ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _hash_pin(pin: str, salt: bytes = None) -> str:
+        """Return '<salt_hex>:<hash_hex>' using PBKDF2-SHA256."""
+        if salt is None:
+            salt = os.urandom(16)
+        elif isinstance(salt, str):
+            salt = bytes.fromhex(salt)
+        h = hashlib.pbkdf2_hmac('sha256', pin.encode(), salt, 100_000)
+        return f"{salt.hex()}:{h.hex()}"
+
+    def set_pin(self, pin: str) -> None:
+        """Hash and store a new dashboard PIN."""
+        self.set_config_value('dashboard_pin', self._hash_pin(pin))
+
+    def verify_pin(self, pin: str) -> bool:
+        """Return True if pin matches the stored hash."""
+        stored = self.get_config_value('dashboard_pin', '')
+        if ':' not in stored:
+            return False
+        salt_hex, _ = stored.split(':', 1)
+        return self._hash_pin(pin, salt_hex) == stored
+
+    def pin_is_set(self) -> bool:
+        return ':' in self.get_config_value('dashboard_pin', '')
+
+    # ── Admin token ───────────────────────────────────────────────────────────
+
+    def get_or_create_admin_token(self) -> str:
+        """Return the admin override token, creating it on first call."""
+        token = self.get_config_value('admin_token', '')
+        if not token:
+            token = secrets.token_urlsafe(32)
+            self.set_config_value('admin_token', token)
+        return token
+
+    # ── Sessions ─────────────────────────────────────────────────────────────
+
+    SESSION_DURATION = 7 * 24 * 3600  # 7 days
+
+    def create_session(self) -> str:
+        """Create a new session token and persist it. Returns the token."""
+        token = secrets.token_hex(32)
+        now = time.time()
+        with self.lock:
+            with self.get_connection() as conn:
+                conn.execute(
+                    'INSERT INTO sessions (token, created_at, expires_at) VALUES (?, ?, ?)',
+                    (token, now, now + self.SESSION_DURATION)
+                )
+                conn.commit()
+        return token
+
+    def validate_session(self, token: str) -> bool:
+        """Return True if the token exists and has not expired."""
+        if not token:
+            return False
+        with self.get_connection() as conn:
+            row = conn.execute(
+                'SELECT expires_at FROM sessions WHERE token = ?', (token,)
+            ).fetchone()
+        return bool(row and time.time() < row['expires_at'])
+
+    def delete_session(self, token: str) -> None:
+        """Delete a single session (logout)."""
+        with self.lock:
+            with self.get_connection() as conn:
+                conn.execute('DELETE FROM sessions WHERE token = ?', (token,))
+                conn.commit()
+
+    def clear_all_sessions(self) -> None:
+        """Invalidate every active session (used after PIN override)."""
+        with self.lock:
+            with self.get_connection() as conn:
+                conn.execute('DELETE FROM sessions')
+                conn.commit()
+
+    def cleanup_expired_sessions(self) -> None:
+        """Prune expired sessions from the table."""
+        with self.lock:
+            with self.get_connection() as conn:
+                conn.execute('DELETE FROM sessions WHERE expires_at < ?', (time.time(),))
+                conn.commit()
+
+    # ─────────────────────────────────────────────────────────────────────────
 
     def add_traffic(self, source: str, bytes_in: int, bytes_out: int) -> None:
         """Atomically add bytes_in / bytes_out to the named source counters.

@@ -3,13 +3,14 @@ import itertools
 import json
 import logging
 import os
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytz
 from database import JobDatabase
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, make_response, redirect, render_template, request
 
 app = Flask(__name__)
 
@@ -21,26 +22,6 @@ EXP_ID = "sim100"
 
 # Initialize database connection
 db = None
-
-# ── Gunicorn worker init ──────────────────────────────────────────────────
-# start.py sets JD_WORKSPACE_PATH and JD_EXP_ID in the subprocess environment.
-_jd_workspace = os.environ.get("JD_WORKSPACE_PATH", "")
-_jd_exp_id    = os.environ.get("JD_EXP_ID", "")
-if _jd_workspace and _jd_exp_id:
-    _exp_dir = os.path.join(_jd_workspace, _jd_exp_id)
-    os.makedirs(_exp_dir, exist_ok=True)
-    logging.basicConfig(
-        filename=os.path.join(_exp_dir, LOG_FILENAME),
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-    )
-    BASE_DIR = _jd_workspace
-    EXP_ID   = _jd_exp_id
-    DB_FILE  = os.path.join(_jd_workspace, _jd_exp_id, "jobs.db")
-    db = JobDatabase(DB_FILE)
-    logging.info(f"[gunicorn] Dashboard initialised. DB: {DB_FILE}")
-# ─────────────────────────────────────────────────────────────────────────
-
 
 def createExpBaseDirectory(args):
     os.makedirs(os.path.join(BASE_DIR, args.expId), exist_ok=True)
@@ -60,6 +41,76 @@ STATUS_SERVED = "SERVED"
 STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
 STATUS_DELETED = "DELETED"
+
+# ── Auth / PIN constants ──────────────────────────────────────────────────
+SESSION_COOKIE = 'jd_session'
+MAX_ATTEMPTS   = 3
+BLOCK_DURATION = 5 * 60  # seconds
+
+# In-memory rate limiter: {ip: {'attempts': int, 'blocked_until': float}}
+_rate_limit: dict = {}
+
+# Paths that do not require authentication
+_AUTH_EXEMPT = frozenset([
+    '/auth', '/auth/login', '/auth/logout', '/admin/override_pin',
+])
+
+
+def _init_pin_and_token() -> None:
+    """Seed default PIN (000000) and admin token on first startup."""
+    if db is None:
+        return
+    if not db.pin_is_set():
+        db.set_pin('000000')
+        logging.warning("=" * 60)
+        logging.warning("DEFAULT DASHBOARD PIN SET TO: 000000")
+        logging.warning("Change it via Settings → Change PIN after first login.")
+        logging.warning("=" * 60)
+    token = db.get_or_create_admin_token()
+    logging.info("=" * 60)
+    logging.info(f"ADMIN OVERRIDE TOKEN: {token}")
+    logging.info("Use this token with POST /admin/override_pin to reset the PIN.")
+    logging.info("=" * 60)
+
+
+# ── Gunicorn worker init ──────────────────────────────────────────────────
+# start.py sets JD_WORKSPACE_PATH and JD_EXP_ID in the subprocess environment.
+_jd_workspace = os.environ.get("JD_WORKSPACE_PATH", "")
+_jd_exp_id    = os.environ.get("JD_EXP_ID", "")
+if _jd_workspace and _jd_exp_id:
+    _exp_dir = os.path.join(_jd_workspace, _jd_exp_id)
+    os.makedirs(_exp_dir, exist_ok=True)
+    logging.basicConfig(
+        filename=os.path.join(_exp_dir, LOG_FILENAME),
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+    BASE_DIR = _jd_workspace
+    EXP_ID   = _jd_exp_id
+    DB_FILE  = os.path.join(_jd_workspace, _jd_exp_id, "jobs.db")
+    db = JobDatabase(DB_FILE)
+    _init_pin_and_token()
+    logging.info(f"[gunicorn] Dashboard initialised. DB: {DB_FILE}")
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@app.before_request
+def require_auth():
+    if db is None:
+        return
+    path = request.path
+    if path.startswith('/static') or path in _AUTH_EXEMPT:
+        return
+    token = request.cookies.get(SESSION_COOKIE, '')
+    if db.validate_session(token):
+        return
+    # API calls: return JSON 401; page navigations: redirect
+    if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+        return jsonify({'error': 'Not authenticated', 'redirect': '/auth'}), 401
+    return redirect('/auth')
+
+
+# ─────────────────────────────────────────────────────────────────────────
 
 
 @app.after_request
@@ -429,6 +480,115 @@ def update_server_config():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/auth", methods=["GET"])
+def auth_page():
+    token = request.cookies.get(SESSION_COOKIE, '')
+    if db and db.validate_session(token):
+        return redirect('/')
+    return render_template('pin_entry.html', expId=EXP_ID)
+
+
+@app.route("/auth/login", methods=["POST"])
+def auth_login():
+    ip  = request.remote_addr or '0.0.0.0'
+    now = time.time()
+
+    rl  = _rate_limit.get(ip, {'attempts': 0, 'blocked_until': 0.0})
+
+    if now < rl.get('blocked_until', 0.0):
+        remaining = int(rl['blocked_until'] - now)
+        return jsonify({
+            'success': False,
+            'error': f'Too many failed attempts. Try again in {remaining} seconds.',
+            'blocked_seconds': remaining,
+        }), 429
+
+    data = request.get_json(silent=True) or {}
+    pin  = str(data.get('pin', ''))
+
+    if not pin.isdigit() or len(pin) != 6:
+        return jsonify({'success': False, 'error': 'PIN must be exactly 6 digits.'}), 400
+
+    if db.verify_pin(pin):
+        _rate_limit.pop(ip, None)
+        token = db.create_session()
+        resp  = make_response(jsonify({'success': True}))
+        resp.set_cookie(SESSION_COOKIE, token,
+                        max_age=7 * 24 * 3600, httponly=True, samesite='Lax')
+        return resp
+
+    # Wrong PIN — increment counter
+    rl['attempts'] = rl.get('attempts', 0) + 1
+    if rl['attempts'] >= MAX_ATTEMPTS:
+        rl['blocked_until'] = now + BLOCK_DURATION
+        rl['attempts']      = 0
+        _rate_limit[ip]     = rl
+        return jsonify({
+            'success': False,
+            'error': f'Too many failed attempts. Blocked for {BLOCK_DURATION // 60} minutes.',
+            'blocked_seconds': BLOCK_DURATION,
+        }), 429
+
+    _rate_limit[ip] = rl
+    left = MAX_ATTEMPTS - rl['attempts']
+    return jsonify({
+        'success': False,
+        'error': f'Incorrect PIN. {left} attempt{"s" if left != 1 else ""} remaining.',
+    }), 401
+
+
+@app.route("/auth/logout", methods=["POST"])
+def auth_logout():
+    token = request.cookies.get(SESSION_COOKIE, '')
+    if token:
+        db.delete_session(token)
+    resp = make_response(jsonify({'success': True}))
+    resp.delete_cookie(SESSION_COOKIE)
+    return resp
+
+
+@app.route("/update_pin", methods=["POST"])
+def update_pin():
+    """Change PIN — requires valid session (enforced by before_request) + current PIN."""
+    data        = request.get_json(silent=True) or {}
+    current_pin = str(data.get('current_pin', ''))
+    new_pin     = str(data.get('new_pin', ''))
+
+    if not new_pin.isdigit() or len(new_pin) != 6:
+        return jsonify({'success': False, 'error': 'New PIN must be exactly 6 digits.'}), 400
+    if current_pin == new_pin:
+        return jsonify({'success': False, 'error': 'New PIN must differ from the current PIN.'}), 400
+    if not db.verify_pin(current_pin):
+        return jsonify({'success': False, 'error': 'Current PIN is incorrect.'}), 400
+
+    db.set_pin(new_pin)
+    logging.info("Dashboard PIN changed via Settings.")
+    return jsonify({'success': True, 'message': 'PIN updated successfully.'})
+
+
+@app.route("/admin/override_pin", methods=["POST"])
+def admin_override_pin():
+    """Override PIN without knowing the current one. Requires the admin token.
+    This endpoint is intentionally excluded from session auth (before_request exempt).
+    The dashboard /update_pin route does NOT have this capability.
+    """
+    data           = request.get_json(silent=True) or {}
+    provided_token = (request.headers.get('X-Admin-Token') or data.get('admin_token', '')).strip()
+    expected_token = db.get_config_value('admin_token', '')
+
+    if not provided_token or provided_token != expected_token:
+        return jsonify({'success': False, 'error': 'Invalid or missing admin token.'}), 403
+
+    new_pin = str(data.get('new_pin', ''))
+    if not new_pin.isdigit() or len(new_pin) != 6:
+        return jsonify({'success': False, 'error': 'new_pin must be exactly 6 digits.'}), 400
+
+    db.set_pin(new_pin)
+    db.clear_all_sessions()   # force re-authentication for all active browsers
+    logging.warning(f"PIN overridden via admin API. All sessions invalidated.")
+    return jsonify({'success': True, 'message': 'PIN overridden and all sessions cleared.'})
+
+
 @app.route("/traffic_stats", methods=["GET"])
 def traffic_stats():
     """Return cumulative HTTP traffic byte counts for both services."""
@@ -551,6 +711,7 @@ if __name__ == "__main__":
     logging.info(f"Starting Flask Dashboard on 0.0.0.0:{args.port}, DB: {DB_FILE}")
 
     db = JobDatabase(DB_FILE)
+    _init_pin_and_token()
 
     app.run(host="0.0.0.0", port=args.port)
 

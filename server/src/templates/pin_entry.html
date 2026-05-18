@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ expId }} — Dashboard Access</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            min-height: 100vh;
+            background: #0f1322;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: Arial, sans-serif;
+        }
+        .card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 44px 40px 36px;
+            width: 360px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+            text-align: center;
+        }
+        .icon {
+            width: 56px; height: 56px;
+            background: #1a1f2e;
+            border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 1.5rem; color: #6c8fef;
+        }
+        h2 { font-size: 1.25rem; color: #1a1f2e; margin-bottom: 4px; }
+        .exp-badge {
+            display: inline-block;
+            background: #f0f4ff; color: #4f6ef7;
+            border-radius: 6px; padding: 3px 10px;
+            font-size: 0.78rem; font-family: monospace;
+            margin-bottom: 24px; font-weight: 600;
+        }
+        .pin-label {
+            font-size: 0.82rem; color: #6c757d;
+            margin-bottom: 14px;
+        }
+        .pin-row {
+            display: flex; gap: 8px;
+            justify-content: center;
+            margin-bottom: 18px;
+        }
+        .pin-digit {
+            width: 44px; height: 54px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 1.6rem;
+            text-align: center;
+            color: #1a1f2e;
+            outline: none;
+            transition: border-color 0.15s;
+            caret-color: transparent;
+            letter-spacing: 0;
+        }
+        .pin-digit:focus { border-color: #4f6ef7; background: #f5f7ff; }
+        .pin-digit.error  { border-color: #dc3545; background: #fff5f5; }
+        .pin-digit.filled { border-color: #adb5bd; }
+
+        #pinError {
+            min-height: 20px;
+            font-size: 0.82rem;
+            color: #dc3545;
+            margin-bottom: 18px;
+        }
+        #pinCountdown {
+            font-size: 0.82rem;
+            color: #856404;
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 18px;
+        }
+        .submit-btn {
+            width: 100%;
+            padding: 12px;
+            background: #1a1f2e;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .submit-btn:hover:not(:disabled) { background: #2d3650; }
+        .submit-btn:disabled { background: #adb5bd; cursor: not-allowed; }
+        .attempts-hint {
+            font-size: 0.75rem; color: #9ba3b8; margin-top: 14px;
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="icon"><i class="fas fa-chart-line"></i></div>
+    <h2>Dashboard Access</h2>
+    <div class="exp-badge">{{ expId }}</div>
+
+    <p class="pin-label">Enter your 6-digit PIN</p>
+
+    <div class="pin-row" id="pinRow">
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="new-password" data-idx="0">
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="new-password" data-idx="1">
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="new-password" data-idx="2">
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="new-password" data-idx="3">
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="new-password" data-idx="4">
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="new-password" data-idx="5">
+    </div>
+
+    <div id="pinError"></div>
+    <div id="pinCountdown" style="display:none;"></div>
+
+    <button class="submit-btn" id="submitBtn" onclick="submitPin()">
+        <i class="fas fa-unlock"></i> Unlock
+    </button>
+    <p class="attempts-hint" id="attemptsHint">3 attempts before a 5-minute block</p>
+</div>
+
+<script>
+    const digits  = Array.from(document.querySelectorAll('.pin-digit'));
+    const errorEl = document.getElementById('pinError');
+    const cntdEl  = document.getElementById('pinCountdown');
+    const submitBtn = document.getElementById('submitBtn');
+    let countdownTimer = null;
+
+    digits.forEach((el, i) => {
+        el.addEventListener('keydown', e => {
+            if (e.key === 'Backspace') {
+                e.preventDefault();
+                if (el.value) { el.value = ''; el.classList.remove('filled'); }
+                else if (i > 0) { digits[i-1].focus(); digits[i-1].value = ''; digits[i-1].classList.remove('filled'); }
+            } else if (e.key === 'Enter') {
+                submitPin();
+            } else if (!/^\d$/.test(e.key)) {
+                e.preventDefault();
+            }
+        });
+        el.addEventListener('input', e => {
+            const v = e.target.value.replace(/\D/g, '');
+            el.value = v ? v[v.length-1] : '';
+            el.classList.toggle('filled', !!el.value);
+            if (el.value && i < 5) digits[i+1].focus();
+        });
+        el.addEventListener('paste', e => {
+            e.preventDefault();
+            const txt = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g,'').slice(0,6);
+            txt.split('').forEach((ch, j) => {
+                if (digits[i+j]) { digits[i+j].value = ch; digits[i+j].classList.add('filled'); }
+            });
+            const next = Math.min(i + txt.length, 5);
+            digits[next].focus();
+        });
+    });
+
+    // Auto-focus first digit
+    digits[0].focus();
+
+    function getPin() { return digits.map(d => d.value).join(''); }
+
+    function setError(msg) {
+        errorEl.textContent = msg;
+        digits.forEach(d => d.classList.add('error'));
+        setTimeout(() => digits.forEach(d => d.classList.remove('error')), 600);
+    }
+
+    function clearError() { errorEl.textContent = ''; }
+
+    function lockForm(seconds) {
+        submitBtn.disabled = true;
+        digits.forEach(d => { d.disabled = true; d.value = ''; d.classList.remove('filled'); });
+        cntdEl.style.display = 'block';
+        document.getElementById('attemptsHint').style.display = 'none';
+
+        let remaining = seconds;
+        function tick() {
+            const m = Math.floor(remaining / 60);
+            const s = remaining % 60;
+            cntdEl.innerHTML = `<i class="fas fa-lock"></i> Blocked — try again in <strong>${m}:${String(s).padStart(2,'0')}</strong>`;
+            if (remaining <= 0) {
+                clearInterval(countdownTimer);
+                cntdEl.style.display = 'none';
+                submitBtn.disabled = false;
+                digits.forEach(d => d.disabled = false);
+                digits[0].focus();
+                document.getElementById('attemptsHint').style.display = '';
+            }
+            remaining--;
+        }
+        tick();
+        countdownTimer = setInterval(tick, 1000);
+    }
+
+    function submitPin() {
+        clearError();
+        const pin = getPin();
+        if (pin.length !== 6) { setError('Enter all 6 digits.'); return; }
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+
+        fetch('/auth/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({pin})
+        })
+        .then(r => r.json().then(d => ({status: r.status, data: d})))
+        .then(({status, data}) => {
+            if (data.success) {
+                window.location.href = '/';
+            } else if (data.blocked_seconds) {
+                lockForm(data.blocked_seconds);
+                setError(data.error);
+            } else {
+                setError(data.error || 'Incorrect PIN.');
+                digits.forEach(d => { d.value = ''; d.classList.remove('filled'); });
+                digits[0].focus();
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-unlock"></i> Unlock';
+            }
+        })
+        .catch(() => {
+            setError('Network error. Please try again.');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-unlock"></i> Unlock';
+        });
+    }
+</script>
+</body>
+</html>

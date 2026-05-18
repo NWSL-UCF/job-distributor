@@ -20,9 +20,14 @@
                     <h1><i class="fas fa-chart-line"></i> Job Dashboard</h1>
                     <span class="header-exp-badge" title="Experiment ID">{{ expId }}</span>
                 </div>
-                <button class="header-add-btn" onclick="openSetupOverlay()">
-                    <i class="fas fa-plus-circle"></i> Add Jobs
-                </button>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button class="header-add-btn" onclick="openSetupOverlay()">
+                        <i class="fas fa-plus-circle"></i> Add Jobs
+                    </button>
+                    <button onclick="logout()" style="padding:8px 14px; background:transparent; color:#a8bcf0; border:1px solid #3d4f7a; border-radius:7px; font-size:0.82rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:background 0.15s;" onmouseover="this.style.background='#2d3650'" onmouseout="this.style.background='transparent'">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </button>
+                </div>
             </div>
             
             <div class="main-content">
@@ -403,6 +408,32 @@
                     <button id="settingsSaveBtn" onclick="saveSettings()" style="padding:9px 22px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
                         <i class="fas fa-save"></i> Save Settings
                     </button>
+                </div>
+
+                <!-- Change PIN -->
+                <div style="border-top:1px solid #e9ecef; margin-top:22px; padding-top:18px;">
+                    <h4 style="margin:0 0 12px 0; font-size:0.95rem; color:#1a1f2e;"><i class="fas fa-key"></i> Change PIN</h4>
+                    <div class="setup-settings-grid" style="margin-bottom:12px;">
+                        <div class="setup-field">
+                            <label>Current PIN</label>
+                            <input type="password" id="currentPin" maxlength="6" inputmode="numeric" placeholder="••••••"
+                                   autocomplete="new-password"
+                                   style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em; letter-spacing:4px;">
+                        </div>
+                        <div class="setup-field">
+                            <label>New PIN</label>
+                            <input type="password" id="newPin" maxlength="6" inputmode="numeric" placeholder="••••••"
+                                   autocomplete="new-password"
+                                   style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em; letter-spacing:4px;">
+                            <div class="hint">Must be exactly 6 digits.</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; gap:10px; align-items:center;">
+                        <span id="pinUpdateError" style="color:#dc3545; font-size:0.85em;"></span>
+                        <button onclick="updatePin()" style="padding:9px 22px; background:#495057; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
+                            <i class="fas fa-key"></i> Change PIN
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
