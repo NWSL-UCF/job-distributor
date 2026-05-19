@@ -225,16 +225,64 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 .exp-card__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .exp-card__name   { font-weight: 600; font-size: 1rem; }
 .exp-card__urls   { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
-.exp-card__dash {
-  display: flex; flex-direction: column; gap: 8px;
-  margin-bottom: 14px;
+.exp-card__dash { margin-bottom: 12px; }
+
+.dash-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
 }
-.btn--full { width: 100%; }
-.exp-dash-actions {
-  display: flex; flex-wrap: wrap; gap: 10px;
-  margin-top: 14px;
+.dash-toolbar--panel { margin-bottom: 12px; }
+.dash-toolbar__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .875rem;
+  font-weight: 500;
+  color: var(--color-primary);
+  text-decoration: none;
+  min-width: 0;
 }
-.endpoint-item--compact { margin-bottom: 0; }
+.dash-toolbar__open:hover {
+  color: var(--color-primary-h);
+  text-decoration: none;
+}
+.dash-toolbar__copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.dash-toolbar__copy:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: var(--color-primary);
+}
+.exp-panel__foot {
+  font-size: .82rem;
+  color: var(--color-muted);
+  margin: 0;
+}
+.exp-panel__foot code {
+  font-size: .8rem;
+  background: var(--color-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
 .exp-card__meta   { display: flex; gap: 12px; font-size: .78rem; color: var(--color-muted); margin-bottom: 14px; }
 .exp-card__actions{ display: flex; gap: 8px; }
 
