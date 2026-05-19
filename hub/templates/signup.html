@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create account — JD Hub</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
+</head>
+<body class="auth-body">
+  <div class="auth-card">
+    <div class="auth-logo">⬡ JD Hub</div>
+    <h1 class="auth-title">Create account</h1>
+
+    {% if error %}
+    <div class="alert alert--error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('auth.signup') }}">
+      <div class="field">
+        <label class="field__label">Email</label>
+        <input class="field__input" type="email" name="email" required autofocus autocomplete="email">
+      </div>
+      <div class="field">
+        <label class="field__label">Password <span class="field__hint">(min 10 characters)</span></label>
+        <input class="field__input" type="password" name="password" required minlength="10" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label class="field__label">Confirm password</label>
+        <input class="field__input" type="password" name="confirm_password" required autocomplete="new-password">
+      </div>
+      <button type="submit" class="btn btn--primary btn--full">Create account</button>
+    </form>
+
+    <div class="auth-links">
+      Already have an account? <a href="{{ url_for('auth.login') }}">Sign in</a>
+    </div>
+  </div>
+</body>
+</html>

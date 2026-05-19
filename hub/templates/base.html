@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}JD Hub{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <nav class="topnav">
+    <a class="topnav__brand" href="{{ url_for('dashboard.index') }}">
+      <span class="topnav__logo">⬡</span> JD Hub
+    </a>
+    {% if user %}
+    <div class="topnav__links">
+      <a href="{{ url_for('dashboard.index') }}" class="topnav__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
+      <a href="{{ url_for('dashboard.extensions') }}" class="topnav__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">Extensions</a>
+      <a href="{{ url_for('dashboard.profile') }}" class="topnav__link {% if request.endpoint == 'dashboard.profile' %}active{% endif %}">Profile</a>
+      {% if user.is_admin %}
+      <a href="{{ url_for('admin.index') }}" class="topnav__link topnav__admin">Admin</a>
+      {% endif %}
+    </div>
+    <div class="topnav__user">
+      <span class="topnav__email">{{ user.email }}</span>
+      <form action="{{ url_for('auth.logout') }}" method="post" style="display:inline">
+        <button type="submit" class="btn btn--ghost btn--sm">Sign out</button>
+      </form>
+    </div>
+    {% endif %}
+  </nav>
+
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="{{ url_for('static', filename='hub.js') }}"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

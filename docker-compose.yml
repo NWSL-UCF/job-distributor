@@ -1,0 +1,56 @@
+version: "3.9"
+
+# ── Usage ────────────────────────────────────────────────────────────────────
+# 1. Copy how_to_run/dockerize_server.md and follow the setup steps.
+# 2. Set secrets in .env (see .env.example or dockerize_server.md).
+# 3. Save frpc.ini from the Hub experiment page alongside this file.
+# 4. Run:  docker compose up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Job server + dashboard ──────────────────────────────────────────────────
+  jd_server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: jd-server:latest
+    container_name: jd_server
+    restart: unless-stopped
+
+    # Change --expId to match your experiment name on the Hub.
+    # No port changes needed — frpc handles public routing.
+    command:
+      - "--expId=my_experiment"
+      - "--server_port=8000"
+      - "--dashboard_port=8001"
+
+    volumes:
+      # All data (DB, logs, uploads, checkpoints) is persisted here on the host.
+      - ./workspace:/workspace
+
+    environment:
+      - JD_WORKSPACE_PATH=/workspace
+      # ── Hub integration (remove the three lines below for standalone mode) ──
+      - JD_WORKER_SHARED_SECRET=${JD_WORKER_SHARED_SECRET}
+      - JD_HUB_URL=${JD_HUB_URL}
+      - JD_API_KEY=${JD_API_KEY}
+      - JD_EXP_NAME=my_experiment
+
+    # No `ports:` — frpc exposes the server via the FRP tunnel.
+    # For standalone/local access add:
+    #   ports:
+    #     - "8000:8000"
+    #     - "8001:8001"
+
+  # ── FRP client (tunnel to public subdomains) ────────────────────────────────
+  frpc:
+    image: snowdreamtech/frpc:latest
+    container_name: frpc
+    restart: unless-stopped
+    volumes:
+      - ./frpc.ini:/etc/frp/frpc.ini:ro
+    depends_on:
+      - jd_server
+    # Shares jd_server's network so frpc sees localhost:8000 and localhost:8001
+    network_mode: "service:jd_server"

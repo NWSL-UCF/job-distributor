@@ -66,6 +66,14 @@ def _ctx(job_id, server):
     return job_id, server.rstrip("/")
 
 
+def _auth_headers() -> dict:
+    """Return Authorization header if JD_WORKER_TOKEN is set (Hub mode)."""
+    token = os.environ.get("JD_WORKER_TOKEN", "").strip()
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
+
+
 def _check_size(data: bytes, label: str) -> None:
     if len(data) > _MAX_BYTES:
         mb = len(data) / (1024 ** 2)
@@ -117,6 +125,7 @@ def jd_upload(file_path: str, job_id: int = None, server: str = None) -> dict:
         f"{server}/upload",
         data={"job_id": str(job_id)},
         files={"file": (original_name, io.BytesIO(data), "application/octet-stream")},
+        headers=_auth_headers(),
         timeout=_TIMEOUT,
     )
     resp.raise_for_status()
@@ -161,6 +170,7 @@ def jd_update_checkpoint(obj, job_id: int = None, server: str = None) -> dict:
         f"{server}/checkpoint",
         data={"job_id": str(job_id)},
         files={"checkpoint": ("checkpoint.pkl", io.BytesIO(data), "application/octet-stream")},
+        headers=_auth_headers(),
         timeout=_TIMEOUT,
     )
     resp.raise_for_status()
@@ -203,6 +213,7 @@ def jd_get_last_checkpoint(job_id: int = None, server: str = None):
     resp = requests.get(
         f"{server}/checkpoint/latest",
         params={"job_id": job_id},
+        headers=_auth_headers(),
         timeout=_TIMEOUT,
         stream=True,
     )

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify email — JD Hub</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
+</head>
+<body class="auth-body">
+  <div class="auth-card">
+    <div class="auth-logo">⬡ JD Hub</div>
+
+    {% if error %}
+      <h1 class="auth-title">Verification failed</h1>
+      <div class="alert alert--error">{{ error }}</div>
+      {% if email %}
+      <form method="post" action="{{ url_for('auth.resend_verification') }}">
+        <input type="hidden" name="email" value="{{ email }}">
+        <button type="submit" class="btn btn--primary btn--full">Resend verification email</button>
+      </form>
+      {% endif %}
+    {% elif resent %}
+      <h1 class="auth-title">Email sent</h1>
+      <p class="auth-body-text">A new verification link has been sent to <strong>{{ email }}</strong>. Check your inbox.</p>
+    {% else %}
+      <h1 class="auth-title">Check your inbox</h1>
+      <p class="auth-body-text">We sent a verification link to <strong>{{ email }}</strong>. Click it to activate your account.</p>
+      <p class="auth-body-text">The link expires in 24 hours.</p>
+    {% endif %}
+
+    <div class="auth-links">
+      <a href="{{ url_for('auth.login') }}">Back to sign in</a>
+    </div>
+  </div>
+</body>
+</html>

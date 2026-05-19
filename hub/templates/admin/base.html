@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Admin — JD Hub{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+</head>
+<body class="admin-body">
+  <div class="admin-layout">
+
+    <aside class="admin-sidebar">
+      <div class="admin-sidebar__brand">
+        <a href="{{ url_for('dashboard.index') }}">⬡ JD Hub</a>
+        <span class="admin-badge">Admin</span>
+      </div>
+      <nav class="admin-nav">
+        <a href="{{ url_for('admin.users') }}"      class="admin-nav__link {% if 'user' in request.endpoint %}active{% endif %}">Users</a>
+        <a href="{{ url_for('admin.experiments') }}" class="admin-nav__link {% if 'experiment' in request.endpoint %}active{% endif %}">Experiments</a>
+        <a href="{{ url_for('admin.extensions') }}"  class="admin-nav__link {% if 'extension' in request.endpoint %}active{% endif %}">
+          Extensions
+          {% set pending = pending_ext_count if pending_ext_count is defined else 0 %}
+          {% if pending > 0 %}<span class="badge badge--warning">{{ pending }}</span>{% endif %}
+        </a>
+        <a href="{{ url_for('admin.settings') }}"   class="admin-nav__link {% if 'settings' in request.endpoint %}active{% endif %}">Settings</a>
+      </nav>
+      <div class="admin-sidebar__footer">
+        <a href="{{ url_for('dashboard.index') }}" class="admin-nav__link">← User view</a>
+        <form action="{{ url_for('auth.logout') }}" method="post">
+          <button type="submit" class="btn btn--ghost btn--sm">Sign out</button>
+        </form>
+      </div>
+    </aside>
+
+    <main class="admin-main">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='hub.js') }}"></script>
+  <script src="{{ url_for('static', filename='admin.js') }}"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

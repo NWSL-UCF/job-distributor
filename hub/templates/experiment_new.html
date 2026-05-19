@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}New Experiment — JD Hub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">New Experiment</h1>
+    <p class="page-sub">Creates public FRP tunnels for your server and dashboard</p>
+  </div>
+  <a href="{{ url_for('dashboard.index') }}" class="btn btn--outline">Cancel</a>
+</div>
+
+{% if error %}
+<div class="alert alert--error">{{ error }}</div>
+{% endif %}
+
+<div class="form-card">
+  <form method="post" action="{{ url_for('dashboard.create_experiment') }}">
+    <div class="field">
+      <label class="field__label">Experiment name</label>
+      <input class="field__input" type="text" name="name" required autofocus
+             pattern="[a-z][a-z0-9\-]{1,46}"
+             placeholder="e.g. mnist-tune"
+             title="Lowercase letters, numbers, hyphens. Must start with a letter.">
+      <span class="field__hint">
+        Lowercase, letters/numbers/hyphens only. Must start with a letter (max 48 chars).<br>
+        Your tunnels will be:
+        <code>server.&lt;name&gt;.jobdistributor.net</code> and
+        <code>dashboard.&lt;name&gt;.jobdistributor.net</code>
+      </span>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Create experiment</button>
+      <a href="{{ url_for('dashboard.index') }}" class="btn btn--ghost">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

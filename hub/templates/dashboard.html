@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — JD Hub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Experiments</h1>
+    <p class="page-sub">Manage your job distribution experiments</p>
+  </div>
+  <a href="{{ url_for('dashboard.new_experiment') }}" class="btn btn--primary">+ New Experiment</a>
+</div>
+
+{# Monthly usage bar #}
+<div class="usage-card">
+  <div class="usage-card__header">
+    <span class="usage-card__title">Monthly Data Usage</span>
+    <span class="usage-card__month">{{ now.strftime('%B %Y') if now else '' }}</span>
+  </div>
+  <div class="usage-row">
+    <span class="usage-label">↑ Upload</span>
+    <div class="usage-bar-wrap">
+      <div class="usage-bar" style="width:{{ (usage.total_bytes_in if usage else 0)|pct(limit_in) }}%"></div>
+    </div>
+    <span class="usage-val">
+      {{ (usage.total_bytes_in if usage else 0)|fmt_bytes }} / {{ limit_in|fmt_bytes }}
+    </span>
+  </div>
+  <div class="usage-row">
+    <span class="usage-label">↓ Download</span>
+    <div class="usage-bar-wrap">
+      <div class="usage-bar usage-bar--out" style="width:{{ (usage.total_bytes_out if usage else 0)|pct(limit_out) }}%"></div>
+    </div>
+    <span class="usage-val">
+      {{ (usage.total_bytes_out if usage else 0)|fmt_bytes }} / {{ limit_out|fmt_bytes }}
+    </span>
+  </div>
+  <div class="usage-card__footer">
+    Need more? <a href="{{ url_for('dashboard.extensions') }}">Request a limit extension</a>
+  </div>
+</div>
+
+{# Experiment grid #}
+{% if experiments %}
+<div class="exp-grid">
+  {% for exp in experiments %}
+  <div class="exp-card exp-card--{{ exp.status|lower }}">
+    <div class="exp-card__header">
+      <span class="exp-card__name">{{ exp.name }}</span>
+      <span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span>
+    </div>
+    <div class="exp-card__urls">
+      <div class="exp-url">
+        <span class="exp-url__label">Server</span>
+        <a href="https://{{ exp.frpc_subdomain_server }}" target="_blank" class="exp-url__link">
+          {{ exp.frpc_subdomain_server }}
+        </a>
+      </div>
+      <div class="exp-url">
+        <span class="exp-url__label">Dashboard</span>
+        <a href="https://{{ exp.frpc_subdomain_dashboard }}" target="_blank" class="exp-url__link">
+          {{ exp.frpc_subdomain_dashboard }}
+        </a>
+      </div>
+    </div>
+    <div class="exp-card__meta">
+      <span>Created {{ exp.created_at.strftime('%b %d, %Y') if exp.created_at else '—' }}</span>
+      {% if exp.last_activity_at %}
+      <span>Last active {{ exp.last_activity_at.strftime('%b %d') }}</span>
+      {% endif %}
+    </div>
+    <div class="exp-card__actions">
+      <a href="{{ url_for('dashboard.experiment_detail', name=exp.name) }}" class="btn btn--sm btn--outline">Details</a>
+      {% if exp.status == 'IDLE' %}
+      <form method="post" action="{{ url_for('dashboard.extend_experiment', name=exp.name) }}" style="display:inline">
+        <button type="submit" class="btn btn--sm btn--warning">Extend 2w</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-state__icon">⬡</div>
+  <h2 class="empty-state__title">No experiments yet</h2>
+  <p class="empty-state__text">Create your first experiment to get a public tunnel and start distributing jobs.</p>
+  <a href="{{ url_for('dashboard.new_experiment') }}" class="btn btn--primary">Create experiment</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const _now = new Date();
+document.querySelector('.usage-card__month') && (
+  document.querySelector('.usage-card__month').textContent =
+    _now.toLocaleString('default', { month: 'long', year: 'numeric' })
+);
+</script>
+{% endblock %}

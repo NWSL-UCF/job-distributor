@@ -1,0 +1,103 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ target.email }} — Admin{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ target.email }}</h1>
+    <span class="badge badge--{{ 'active' if target.is_active else 'expired' }}">
+      {{ 'Active' if target.is_active else 'Suspended' }}
+    </span>
+  </div>
+  <a href="{{ url_for('admin.users') }}" class="btn btn--outline">← Users</a>
+</div>
+
+<div class="detail-grid">
+  {# Usage #}
+  <div class="detail-card">
+    <h2 class="detail-card__title">Monthly Usage</h2>
+    <div class="usage-row">
+      <span class="usage-label">↑ Upload</span>
+      <div class="usage-bar-wrap">
+        <div class="usage-bar" style="width:{{ (usage.total_bytes_in if usage else 0)|pct(limit_in) }}%"></div>
+      </div>
+      <span class="usage-val">{{ (usage.total_bytes_in if usage else 0)|fmt_bytes }} / {{ limit_in|fmt_bytes }}</span>
+    </div>
+    <div class="usage-row">
+      <span class="usage-label">↓ Download</span>
+      <div class="usage-bar-wrap">
+        <div class="usage-bar usage-bar--out" style="width:{{ (usage.total_bytes_out if usage else 0)|pct(limit_out) }}%"></div>
+      </div>
+      <span class="usage-val">{{ (usage.total_bytes_out if usage else 0)|fmt_bytes }} / {{ limit_out|fmt_bytes }}</span>
+    </div>
+  </div>
+
+  {# Account actions #}
+  <div class="detail-card">
+    <h2 class="detail-card__title">Account actions</h2>
+    <div class="action-list">
+      {% if target.is_active %}
+      <form method="post" action="{{ url_for('admin.suspend_user', uid=target.id) }}"
+            onsubmit="return confirm('Suspend {{ target.email }}?')">
+        <button type="submit" class="btn btn--danger btn--sm">Suspend account</button>
+      </form>
+      {% else %}
+      <form method="post" action="{{ url_for('admin.activate_user', uid=target.id) }}">
+        <button type="submit" class="btn btn--primary btn--sm">Activate account</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Limit override #}
+  <div class="detail-card detail-card--wide">
+    <h2 class="detail-card__title">Set data limit override</h2>
+    <form method="post" action="{{ url_for('admin.set_user_limit', uid=target.id) }}">
+      <div class="field-row">
+        <div class="field">
+          <label class="field__label">Upload limit (GB) <span class="field__hint">blank = default</span></label>
+          <input class="field__input" type="number" name="bytes_in_gb" step="0.1" min="0"
+                 value="{{ (override.bytes_in_per_month / 1073741824)|round(1) if override and override.bytes_in_per_month else '' }}">
+        </div>
+        <div class="field">
+          <label class="field__label">Download limit (GB)</label>
+          <input class="field__input" type="number" name="bytes_out_gb" step="0.1" min="0"
+                 value="{{ (override.bytes_out_per_month / 1073741824)|round(1) if override and override.bytes_out_per_month else '' }}">
+        </div>
+        <div class="field">
+          <label class="field__label">Valid until <span class="field__hint">blank = permanent</span></label>
+          <input class="field__input" type="date" name="valid_until"
+                 value="{{ override.valid_until.isoformat() if override and override.valid_until else '' }}">
+        </div>
+      </div>
+      <div class="field">
+        <label class="field__label">Note</label>
+        <input class="field__input" type="text" name="note"
+               value="{{ override.note or '' }}" placeholder="optional note">
+      </div>
+      <button type="submit" class="btn btn--primary btn--sm">Save limit</button>
+    </form>
+  </div>
+
+  {# Experiments #}
+  <div class="detail-card detail-card--wide">
+    <h2 class="detail-card__title">Experiments</h2>
+    {% if exps %}
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Status</th><th>Last active</th></tr></thead>
+      <tbody>
+      {% for exp in exps %}
+      <tr>
+        <td>{{ exp.name }}</td>
+        <td><span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span></td>
+        <td>{{ exp.last_activity_at.strftime('%Y-%m-%d') if exp.last_activity_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text--muted">No experiments.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

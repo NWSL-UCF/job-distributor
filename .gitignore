@@ -17,4 +17,9 @@ train.csv
 test.csv
 jobs.csv
 .env
+hub/.env
 client/MNIST-parameter-tuning
+hub/venv/
+hub/__pycache__/
+hub/**/*.pyc
+hub/**/__pycache__/

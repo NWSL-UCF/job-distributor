@@ -3,9 +3,12 @@ import io
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime
 
+import jwt
+import requests as _requests
 from database import JobDatabase
 from flask import Flask, jsonify, request, send_file
 from workspace_layout import (
@@ -31,9 +34,110 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB (also checked in routes)
 _VERSION_RE = re.compile(r'_v(\d+)_')
 
 STATUS_PENDING = "PENDING"
-STATUS_SERVED = "SERVED"
-STATUS_DONE = "DONE"
+STATUS_SERVED  = "SERVED"
+STATUS_DONE    = "DONE"
 STATUS_ABORTED = "ABORTED"
+
+# ── Optional Hub integration ──────────────────────────────────────────────────
+# Set these env vars (via Docker or start.py) to enable Hub mode:
+#   JD_WORKER_SHARED_SECRET  — the secret used to verify worker JWTs
+#   JD_HUB_URL               — Hub base URL (e.g. https://hub.jobdistributor.net)
+#   JD_API_KEY               — Hub API key (used for heartbeats + revoked token poll)
+#   JD_EXP_NAME              — experiment name (for Hub API calls)
+_WORKER_SHARED_SECRET = os.environ.get("JD_WORKER_SHARED_SECRET", "").strip()
+_HUB_URL              = os.environ.get("JD_HUB_URL", "").strip().rstrip("/")
+_HUB_API_KEY          = os.environ.get("JD_API_KEY", "").strip()
+_EXP_NAME             = os.environ.get("JD_EXP_NAME", "").strip()
+
+# In-memory cache of revoked JTIs (refreshed every 5 minutes from Hub)
+_revoked_jtis: set = set()
+_revoked_lock = threading.Lock()
+
+
+def _jwt_verify(token: str) -> dict | None:
+    """Return the JWT payload if valid, None otherwise."""
+    if not _WORKER_SHARED_SECRET:
+        return {}   # Hub mode not enabled — accept all
+    try:
+        return jwt.decode(token, _WORKER_SHARED_SECRET, algorithms=["HS256"])
+    except Exception:
+        return None
+
+
+def _require_worker_token():
+    """
+    Verify the worker JWT from Authorization header.
+    Returns (payload, None) on success, (None, response) on failure.
+    """
+    if not _WORKER_SHARED_SECRET:
+        return {}, None   # standalone mode — no token required
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None, (jsonify({"error": "Missing worker token"}), 401)
+    raw = auth[7:].strip()
+    payload = _jwt_verify(raw)
+    if payload is None:
+        return None, (jsonify({"error": "Invalid or expired worker token"}), 401)
+    jti = payload.get("jti", "")
+    with _revoked_lock:
+        if jti in _revoked_jtis:
+            return None, (jsonify({"error": "Worker token has been revoked"}), 401)
+    return payload, None
+
+
+def _refresh_revoked_jtis():
+    """Poll Hub for revoked JTIs and update the in-memory set."""
+    if not (_HUB_URL and _HUB_API_KEY and _EXP_NAME):
+        return
+    try:
+        r = _requests.get(
+            f"{_HUB_URL}/api/experiments/{_EXP_NAME}/revoked-tokens",
+            headers={"Authorization": f"Bearer {_HUB_API_KEY}"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            jtis = r.json().get("revoked_jtis", [])
+            with _revoked_lock:
+                _revoked_jtis.clear()
+                _revoked_jtis.update(jtis)
+    except Exception as exc:
+        logging.warning(f"Could not refresh revoked JTIs from Hub: {exc}")
+
+
+def _hub_heartbeat():
+    """Send a periodic heartbeat to Hub to keep experiment ACTIVE."""
+    if not (_HUB_URL and _HUB_API_KEY and _EXP_NAME):
+        return
+    try:
+        _requests.post(
+            f"{_HUB_URL}/api/experiments/{_EXP_NAME}/heartbeat",
+            headers={"Authorization": f"Bearer {_HUB_API_KEY}"},
+            timeout=10,
+        )
+    except Exception as exc:
+        logging.debug(f"Hub heartbeat failed: {exc}")
+
+
+def _start_hub_threads():
+    """Start background threads for Hub integration (revoked JTI cache + heartbeat)."""
+    if not (_HUB_URL and _HUB_API_KEY):
+        return
+
+    def _loop_revoked():
+        while True:
+            time.sleep(300)   # every 5 minutes
+            _refresh_revoked_jtis()
+
+    def _loop_heartbeat():
+        while True:
+            time.sleep(270)   # every 4.5 minutes
+            _hub_heartbeat()
+
+    t1 = threading.Thread(target=_loop_revoked,   daemon=True, name="hub-revoked-poll")
+    t2 = threading.Thread(target=_loop_heartbeat, daemon=True, name="hub-heartbeat")
+    t1.start()
+    t2.start()
+    logging.info(f"Hub integration enabled: {_HUB_URL}  exp={_EXP_NAME}")
 
 
 @app.after_request
@@ -73,6 +177,7 @@ if _jd_workspace and _jd_exp_id:
     logging.info(
         f"[gunicorn] Job server initialised. DB: {DB_FILE}  BASE_DIR: {BASE_DIR}"
     )
+    _start_hub_threads()
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -104,6 +209,9 @@ def format_timestamp(timestamp):
 @app.route("/request_job", methods=["POST"])
 def request_job():
     """Assign the next available PENDING job to the requesting worker."""
+    _, err = _require_worker_token()
+    if err:
+        return err
     db.track_api_request("Job Request", "POST")
 
     data = request.json or {}
@@ -135,6 +243,9 @@ def request_job():
 @app.route("/update_job_status", methods=["POST"])
 def update_job_status():
     """Update the status of a job (DONE or ABORTED)."""
+    _, err = _require_worker_token()
+    if err:
+        return err
     db.track_api_request("Job Status Update", "POST")
 
     data = request.json or {}
@@ -166,6 +277,9 @@ def update_job_status():
 @app.route("/ping", methods=["POST"])
 def ping_job():
     """Update last_ping_timestamp for a SERVED job."""
+    _, err = _require_worker_token()
+    if err:
+        return err
     db.track_api_request("Job Ping", "POST")
 
     data = request.json or {}
@@ -247,6 +361,9 @@ def _next_version(directory: str, prefix: str) -> int:
 @app.route("/upload", methods=["POST"])
 def upload_file():
     """Accept a result file (≤100 MB) from a worker and store it versioned."""
+    _, err = _require_worker_token()
+    if err:
+        return err
     db.track_api_request("Upload File", "POST")
 
     job_id = request.form.get("job_id")
@@ -283,6 +400,9 @@ def upload_file():
 @app.route("/checkpoint", methods=["POST"])
 def save_checkpoint():
     """Accept a serialised checkpoint (≤100 MB) and store it versioned."""
+    _, err = _require_worker_token()
+    if err:
+        return err
     db.track_api_request("Save Checkpoint", "POST")
 
     job_id = request.form.get("job_id")
@@ -314,6 +434,9 @@ def save_checkpoint():
 @app.route("/checkpoint/latest", methods=["GET"])
 def get_latest_checkpoint():
     """Return the highest-versioned checkpoint for a job as raw bytes."""
+    _, err = _require_worker_token()
+    if err:
+        return err
     db.track_api_request("Get Latest Checkpoint", "GET")
 
     job_id = request.args.get("job_id")
@@ -363,6 +486,7 @@ if __name__ == "__main__":
     logging.info(f"Starting Flask job server on 0.0.0.0:{args.port}, DB: {DB_FILE}")
 
     db = JobDatabase(DB_FILE)
+    _start_hub_threads()
     app.run(host="0.0.0.0", port=args.port, threaded=True)
 
 # python src/server.py --expId=mnist_tune --workspacePath=/data/experiments --port=5000

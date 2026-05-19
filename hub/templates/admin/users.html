@@ -1,0 +1,57 @@
+{% extends "admin/base.html" %}
+{% block title %}Users — Admin{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Users</h1>
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Email</th>
+      <th>Status</th>
+      <th>Verified</th>
+      <th>Experiments</th>
+      <th>Upload used</th>
+      <th>Download used</th>
+      <th>Joined</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+  {% set u = row.user %}
+  <tr>
+    <td>
+      <a href="{{ url_for('admin.user_detail', uid=u.id) }}">{{ u.email }}</a>
+      {% if u.is_admin %}<span class="badge badge--active">admin</span>{% endif %}
+    </td>
+    <td>
+      <span class="badge badge--{{ 'active' if u.is_active else 'expired' }}">
+        {{ 'Active' if u.is_active else 'Suspended' }}
+      </span>
+    </td>
+    <td>{{ '✓' if u.is_verified else '✗' }}</td>
+    <td>{{ row.exp_count }}</td>
+    <td>
+      <div class="mini-bar-wrap">
+        <div class="mini-bar" style="width:{{ (row.usage.total_bytes_in if row.usage else 0)|pct(row.limit_in) }}%"></div>
+      </div>
+      {{ (row.usage.total_bytes_in if row.usage else 0)|fmt_bytes }}
+    </td>
+    <td>
+      <div class="mini-bar-wrap">
+        <div class="mini-bar mini-bar--out" style="width:{{ (row.usage.total_bytes_out if row.usage else 0)|pct(row.limit_out) }}%"></div>
+      </div>
+      {{ (row.usage.total_bytes_out if row.usage else 0)|fmt_bytes }}
+    </td>
+    <td>{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+    <td>
+      <a href="{{ url_for('admin.user_detail', uid=u.id) }}" class="btn btn--xs btn--outline">View</a>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "admin/base.html" %}
+{% block title %}Settings — Admin{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Hub Settings</h1>
+</div>
+
+{% if saved %}<div class="alert alert--success">Settings saved.</div>{% endif %}
+
+<div class="form-card">
+  <h2 class="form-card__title">Default Monthly Data Limits</h2>
+  <p class="form-card__hint">
+    Applies to all users without a personal override.
+    Current: {{ defaults.bytes_in_per_month | fmt_bytes }} upload /
+             {{ defaults.bytes_out_per_month | fmt_bytes }} download per month.
+  </p>
+  <form method="post" action="{{ url_for('admin.settings') }}">
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label">Upload limit (GB per month)</label>
+        <input class="field__input" type="number" name="in_gb" step="1" min="1"
+               value="{{ (defaults.bytes_in_per_month / 1073741824)|round(1) }}" required>
+      </div>
+      <div class="field">
+        <label class="field__label">Download limit (GB per month)</label>
+        <input class="field__input" type="number" name="out_gb" step="1" min="1"
+               value="{{ (defaults.bytes_out_per_month / 1073741824)|round(1) }}" required>
+      </div>
+    </div>
+    <button type="submit" class="btn btn--primary">Save settings</button>
+  </form>
+</div>
+{% endblock %}

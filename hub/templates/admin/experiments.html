@@ -1,0 +1,42 @@
+{% extends "admin/base.html" %}
+{% block title %}Experiments — Admin{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">All Experiments</h1>
+</div>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Owner</th>
+      <th>Status</th>
+      <th>Created</th>
+      <th>Last active</th>
+      <th>Expires</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for exp in exps %}
+  <tr>
+    <td><strong>{{ exp.name }}</strong></td>
+    <td>{{ exp.user.email }}</td>
+    <td><span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span></td>
+    <td>{{ exp.created_at.strftime('%Y-%m-%d') if exp.created_at else '—' }}</td>
+    <td>{{ exp.last_activity_at.strftime('%Y-%m-%d') if exp.last_activity_at else '—' }}</td>
+    <td>{{ exp.expires_at.strftime('%Y-%m-%d') if exp.expires_at else '—' }}</td>
+    <td>
+      {% if exp.status not in ('EXPIRED', 'DELETED') %}
+      <form method="post" action="{{ url_for('admin.expire_experiment', name=exp.name) }}"
+            onsubmit="return confirm('Force expire {{ exp.name }}?')" style="display:inline">
+        <button type="submit" class="btn btn--xs btn--danger">Expire</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

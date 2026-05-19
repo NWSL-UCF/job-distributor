@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Limit Extensions — JD Hub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Data Limit Extensions</h1>
+    <p class="page-sub">Request additional monthly data quota</p>
+  </div>
+</div>
+
+{% if error %}<div class="alert alert--error">{{ error }}</div>{% endif %}
+{% if success %}<div class="alert alert--success">{{ success }}</div>{% endif %}
+
+<div class="form-card">
+  <h2 class="form-card__title">Submit a request</h2>
+  <form method="post" action="{{ url_for('dashboard.extensions') }}">
+    <div class="field">
+      <label class="field__label">Describe your use case</label>
+      <textarea class="field__input field__textarea" name="description" rows="3"
+                placeholder="e.g. Training ResNet-50 for a CVPR submission" required></textarea>
+    </div>
+    <div class="field">
+      <label class="field__label">Affiliation</label>
+      <input class="field__input" type="text" name="affiliation"
+             placeholder="e.g. University of Central Florida" required>
+    </div>
+    <button type="submit" class="btn btn--primary">Submit request</button>
+  </form>
+</div>
+
+{% if requests %}
+<div class="form-card">
+  <h2 class="form-card__title">Your requests</h2>
+  <table class="data-table">
+    <thead>
+      <tr><th>Date</th><th>Status</th><th>Description</th><th>Admin note</th></tr>
+    </thead>
+    <tbody>
+    {% for req in requests %}
+    <tr>
+      <td>{{ req.requested_at.strftime('%Y-%m-%d') if req.requested_at else '—' }}</td>
+      <td><span class="badge badge--{{ req.status|lower }}">{{ req.status }}</span></td>
+      <td>{{ req.description }}</td>
+      <td class="text--muted">{{ req.admin_note or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

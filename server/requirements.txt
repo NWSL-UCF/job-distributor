@@ -4,3 +4,4 @@ pandas
 pytz
 numpy
 requests
+PyJWT

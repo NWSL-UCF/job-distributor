@@ -162,7 +162,42 @@ def _resolve(cfg: dict) -> dict:
         'machine_type':     get('machine_type', 'JD_MACHINE_TYPE', 'worker'),
         'process_id':       get('process_id',   None,              '0'),
         'once':             get('once',         'JD_ONCE',         'false').lower() == 'true',
+        # Hub authentication (optional)
+        'hub_url':          get('hub_url',      'JD_HUB_URL',      '').strip().rstrip('/'),
+        'api_key':          get('api_key',      'JD_API_KEY',      '').strip(),
     }
+
+
+# ── Hub authentication ────────────────────────────────────────────────────────
+
+def _hub_get_worker_token(hub_url: str, api_key: str,
+                           exp_id: str, logger: logging.Logger) -> tuple[str, str] | None:
+    """
+    Obtain a worker JWT and server URL from the Hub.
+
+    Returns (worker_token, server_url) on success, None on failure.
+    The returned server_url overrides any CLI-supplied server address.
+    """
+    endpoint = f"{hub_url}/api/worker/token"
+    try:
+        r = requests.post(
+            endpoint,
+            json={"experiment_name": exp_id},
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=30,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            token      = data.get("worker_token", "")
+            server_url = data.get("server_url", "")
+            expires_at = data.get("expires_at", "unknown")
+            logger.info(f"Worker token obtained from Hub (expires: {expires_at})")
+            return token, server_url
+        logger.error(f"Hub token request failed: HTTP {r.status_code} — {r.text[:300]}")
+        return None
+    except Exception as exc:
+        logger.error(f"Hub connection error: {exc}")
+        return None
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -301,12 +336,20 @@ def _averaged_metrics(machine_type: str, logger: logging.Logger,
 
 # ── Server communication ──────────────────────────────────────────────────────
 
+def _auth_headers(worker_token: str) -> dict:
+    """Return Authorization header dict if worker_token is set, else empty."""
+    if worker_token:
+        return {"Authorization": f"Bearer {worker_token}"}
+    return {}
+
+
 def _request_job(url: str, runner_id: str, metrics: dict,
-                 logger: logging.Logger):
+                 logger: logging.Logger, worker_token: str = ""):
     """Returns (job_dict, None) on success, (None, reason) on failure."""
     try:
         r = requests.post(url, json={"requested_by": runner_id,
                                      "system_metrics": metrics},
+                          headers=_auth_headers(worker_token),
                           timeout=30)
         if r.status_code == 404:
             return None, 'no_jobs'
@@ -318,11 +361,13 @@ def _request_job(url: str, runner_id: str, metrics: dict,
 
 
 def _update_status(url: str, job_id: int, status: str,
-                   message: str, logger: logging.Logger) -> None:
+                   message: str, logger: logging.Logger,
+                   worker_token: str = "") -> None:
     try:
         r = requests.post(url, json={"job_id": job_id,
                                      "status":  status,
                                      "message": message},
+                          headers=_auth_headers(worker_token),
                           timeout=30)
         if r.status_code == 200:
             logger.info(f"Job {job_id} → {status}")
@@ -334,11 +379,14 @@ def _update_status(url: str, job_id: int, status: str,
 
 def _ping_loop(url: str, job_id: int,
                stop_event: threading.Event,
-               logger: logging.Logger) -> None:
+               logger: logging.Logger,
+               worker_token: str = "") -> None:
     """Background thread: ping the server every PING_INTERVAL seconds."""
     while not stop_event.wait(PING_INTERVAL):
         try:
-            r = requests.post(url, json={"id": job_id}, timeout=10)
+            r = requests.post(url, json={"id": job_id},
+                              headers=_auth_headers(worker_token),
+                              timeout=10)
             if r.status_code == 200:
                 logger.info(f"Ping OK (job {job_id})")
             else:
@@ -387,6 +435,26 @@ def main() -> None:
         log_dir = os.path.join(cfg['workspace_path'], cfg['exp_id'], 'jd_worker_logs')
     logger  = _setup_logger(log_dir, runner_id)
 
+    # ── Hub authentication (optional) ────────────────────────────────────────
+    worker_token = ""
+    if cfg['hub_url'] and cfg['api_key']:
+        logger.info(f"Hub mode: authenticating via {cfg['hub_url']}")
+        result = _hub_get_worker_token(
+            cfg['hub_url'], cfg['api_key'], cfg['exp_id'], logger
+        )
+        if result is None:
+            logger.error("Failed to obtain worker token from Hub. Exiting.")
+            sys.exit(1)
+        worker_token, hub_server_url = result
+        if hub_server_url:
+            cfg['base_url'] = hub_server_url
+            logger.info(f"Server URL from Hub: {hub_server_url}")
+    elif cfg['hub_url'] or cfg['api_key']:
+        logger.warning(
+            "Both hub_url (JD_HUB_URL) and api_key (JD_API_KEY) must be set "
+            "for Hub authentication. Running in standalone mode."
+        )
+
     urls = {
         'request': f"{cfg['base_url']}/request_job",
         'update':  f"{cfg['base_url']}/update_job_status",
@@ -396,6 +464,7 @@ def main() -> None:
     logger.info(f"jd_worker v{__version__}  |  runner: {runner_id}")
     logger.info(f"Server:        {cfg['base_url']}")
     logger.info(f"Entry script:   {cfg['entry_script']}")
+    logger.info(f"Hub mode:       {'enabled' if worker_token else 'disabled'}")
     logger.info(f"Local jd_data root: {cfg['workspace_path']} "
                 f"(each job: …/jd_data/<expId>/<job_id>/)")
     logger.info(f"Ping interval: {PING_INTERVAL}s")
@@ -427,7 +496,8 @@ def main() -> None:
         job_id = None
         try:
             metrics      = _averaged_metrics(cfg['machine_type'], logger)
-            job, reason  = _request_job(urls['request'], runner_id, metrics, logger)
+            job, reason  = _request_job(urls['request'], runner_id, metrics, logger,
+                                        worker_token=worker_token)
 
             if job is None:
                 if reason == 'no_jobs':
@@ -459,7 +529,7 @@ def main() -> None:
             stop_ping = threading.Event()
             pinger    = threading.Thread(
                 target=_ping_loop,
-                args=(urls['ping'], job_id, stop_ping, logger),
+                args=(urls['ping'], job_id, stop_ping, logger, worker_token),
                 daemon=True,
             )
             pinger.start()
@@ -473,6 +543,8 @@ def main() -> None:
             child_env["JD_EXP_ID"]                  = cfg["exp_id"]
             child_env["JD_WORKER_JOB_DIR"]          = job_root
             child_env["JD_WORKER_WORKSPACE_ROOT"]   = cfg["workspace_path"]
+            if worker_token:
+                child_env["JD_WORKER_TOKEN"]        = worker_token
 
             # Launch the entry script
             popen_kw = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -502,7 +574,7 @@ def main() -> None:
                 _update_status(
                     urls['update'], job_id, 'DONE',
                     f"Completed successfully on {runner_id}.",
-                    logger,
+                    logger, worker_token=worker_token,
                 )
             else:
                 logger.error(f"Job {job_id} failed — exit code {rc}")
@@ -513,7 +585,6 @@ def main() -> None:
                     f"Job failed on {runner_id}. "
                     f"Exit code {rc}."
                 )
-                # Add the most relevant error snippet
                 snippet = (stderr.strip() or stdout.strip())[-500:]
                 if snippet and any(kw in snippet.lower()
                                    for kw in ('error', 'exception', 'traceback', 'failed')):
@@ -524,7 +595,8 @@ def main() -> None:
                 if rc == -9:
                     abort_msg += " (Process killed — possible OOM or time limit.)"
 
-                _update_status(urls['update'], job_id, 'ABORTED', abort_msg, logger)
+                _update_status(urls['update'], job_id, 'ABORTED', abort_msg, logger,
+                               worker_token=worker_token)
 
             _proc[0] = None
 
@@ -534,7 +606,7 @@ def main() -> None:
                 _update_status(
                     urls['update'], job_id, 'ABORTED',
                     f"Unexpected exception on {runner_id}: {exc}",
-                    logger,
+                    logger, worker_token=worker_token,
                 )
             break
 

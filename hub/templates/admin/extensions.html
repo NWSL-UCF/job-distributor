@@ -1,0 +1,57 @@
+{% extends "admin/base.html" %}
+{% block title %}Extensions — Admin{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Limit Extension Requests</h1>
+</div>
+
+{% for req in reqs %}
+<div class="ext-card ext-card--{{ req.status|lower }}">
+  <div class="ext-card__header">
+    <div>
+      <strong>{{ req.user.email }}</strong>
+      <span class="text--muted">&nbsp;·&nbsp;{{ req.requested_at.strftime('%Y-%m-%d') if req.requested_at else '' }}</span>
+    </div>
+    <span class="badge badge--{{ req.status|lower }}">{{ req.status }}</span>
+  </div>
+  <p class="ext-card__body">{{ req.description }}</p>
+  <p class="text--muted">Affiliation: {{ req.affiliation }}</p>
+
+  {% if req.status == 'PENDING' %}
+  <div class="ext-card__actions">
+    <form method="post" action="{{ url_for('admin.approve_extension', req_id=req.id) }}" class="ext-form">
+      <div class="field-row">
+        <div class="field">
+          <label class="field__label">Extra upload (GB)</label>
+          <input class="field__input" type="number" name="extra_in_gb" step="1" min="0" value="50">
+        </div>
+        <div class="field">
+          <label class="field__label">Extra download (GB)</label>
+          <input class="field__input" type="number" name="extra_out_gb" step="1" min="0" value="50">
+        </div>
+        <div class="field">
+          <label class="field__label">Note (optional)</label>
+          <input class="field__input" type="text" name="admin_note" placeholder="Approved for CVPR">
+        </div>
+      </div>
+      <button type="submit" class="btn btn--primary btn--sm">Approve</button>
+    </form>
+    <form method="post" action="{{ url_for('admin.decline_extension', req_id=req.id) }}" class="ext-form">
+      <div class="field">
+        <label class="field__label">Decline note (optional)</label>
+        <input class="field__input" type="text" name="admin_note" placeholder="Reason for decline">
+      </div>
+      <button type="submit" class="btn btn--danger btn--sm">Decline</button>
+    </form>
+  </div>
+  {% elif req.admin_note %}
+  <p class="text--muted">Admin note: {{ req.admin_note }}</p>
+  {% endif %}
+</div>
+{% else %}
+<div class="empty-state">
+  <p class="empty-state__text">No extension requests.</p>
+</div>
+{% endfor %}
+{% endblock %}
