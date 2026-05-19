@@ -1,0 +1,59 @@
+name: Build & Push Docker Image
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*.*.*"]          # also trigger on version tags like v1.2.3
+  workflow_dispatch:           # allow manual runs from the GitHub UI
+
+env:
+  IMAGE_NAME: jobdistributor/jd-server
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # QEMU lets the runner emulate arm64 so we can build multi-arch images
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Derive tags automatically:
+      #   push to main  → jobdistributor/jd-server:latest
+      #   push v1.2.3   → jobdistributor/jd-server:1.2.3  +  :latest
+      - name: Extract Docker metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          file: ./server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache layers in GitHub Actions cache to speed up rebuilds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

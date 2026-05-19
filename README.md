@@ -14,6 +14,33 @@ Watch the demo video to see the job-distributor framework in action:
 
 To showcase how this framework works, we applied it to a classic machine learning task: hyperparameter tuning for a handwritten digit classifier using the MNIST dataset. The goal is to evaluate various combinations of hyperparameters and find the best-performing configuration. For a clearer understanding of the research task, visit: [MNIST-parameter-tuning](https://github.com/NWSL-UCF/MNIST-parameter-tuning)
 
+## Quick Start with Docker
+
+The server is published as a pre-built multi-arch image on Docker Hub (`linux/amd64` and `linux/arm64`). No local build required.
+
+**1. Create your `.env` file**
+
+```bash
+cp .env.example .env
+# Then edit .env and fill in your JD_API_KEY and JD_EXP_NAME
+```
+
+**2. Start the server**
+
+```bash
+docker compose up -d
+```
+
+Docker will pull `jobdistributor/jd-server:latest` automatically on first run. Job data is persisted at `./workspace/<JD_EXP_NAME>/` on your host machine.
+
+**3. Stop the server**
+
+```bash
+docker compose down
+```
+
+---
+
 ## Setup Overview
 
 To use the **job-distributor** framework, follow these two main steps:
