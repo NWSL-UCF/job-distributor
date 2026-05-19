@@ -1,52 +1,133 @@
 {% extends "base.html" %}
 {% block title %}{{ exp.name }} — JobDistributor Hub{% endblock %}
 
+{% set server_url = 'https://' ~ exp.frpc_subdomain_server %}
+{% set dashboard_url = 'https://' ~ exp.frpc_subdomain_dashboard %}
+
 {% block content %}
-<div class="page-header">
-  <div>
-    <h1 class="page-title">{{ exp.name }}</h1>
-    <span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span>
-  </div>
-  <a href="{{ url_for('dashboard.index') }}" class="btn btn--outline">← Dashboard</a>
-</div>
+<article class="exp-detail">
 
-{% if pin_error %}<div class="alert alert--error">{{ pin_error }}</div>{% endif %}
-{% if pin_success %}<div class="alert alert--success">{{ pin_success }}</div>{% endif %}
-
-<p class="auth-body-text" style="margin-bottom: 24px;">
-  Run the server with your <a href="{{ url_for('dashboard.profile') }}">API key</a> from Profile.
-  Tunnel credentials are fetched automatically — nothing to copy from this page.
-</p>
-
-<div class="detail-grid detail-grid--simple">
-
-  <div class="detail-card">
-    <h2 class="detail-card__title">Reset dashboard PIN</h2>
-    <form method="post" action="{{ url_for('dashboard.reset_pin', name=exp.name) }}">
-      <div class="field">
-        <label class="field__label">New 6-digit PIN</label>
-        <input class="field__input" type="password" name="new_pin" maxlength="6" minlength="6"
-               pattern="\d{6}" placeholder="••••••" autocomplete="off">
+  <header class="exp-detail__hero">
+    <div class="exp-detail__hero-main">
+      <a href="{{ url_for('dashboard.index') }}" class="exp-detail__back">← Experiments</a>
+      <div class="exp-detail__title-row">
+        <h1 class="exp-detail__title">{{ exp.name }}</h1>
+        <span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span>
       </div>
-      <button type="submit" class="btn btn--primary btn--sm">Update PIN</button>
-    </form>
-    <p class="detail-card__hint">
-      Updates the dashboard PIN via the FRP tunnel. Your server container must be running.
-    </p>
+      <p class="exp-detail__lead">
+        Public endpoints for workers and your job server. Start Docker with your
+        <a href="{{ url_for('dashboard.profile') }}">API key</a> — credentials sync from the Hub automatically.
+      </p>
+      <ul class="exp-detail__meta">
+        <li>
+          <span class="exp-detail__meta-label">Created</span>
+          <span>{{ exp.created_at.strftime('%b %d, %Y') if exp.created_at else '—' }}</span>
+        </li>
+        <li>
+          <span class="exp-detail__meta-label">Last active</span>
+          <span>{{ exp.last_activity_at.strftime('%b %d, %Y') if exp.last_activity_at else '—' }}</span>
+        </li>
+        {% if exp.expires_at %}
+        <li>
+          <span class="exp-detail__meta-label">Expires</span>
+          <span class="text--warning">{{ exp.expires_at.strftime('%b %d, %Y') }}</span>
+        </li>
+        {% endif %}
+      </ul>
+    </div>
+  </header>
+
+  {% if pin_error %}<div class="alert alert--error">{{ pin_error }}</div>{% endif %}
+  {% if pin_success %}<div class="alert alert--success">{{ pin_success }}</div>{% endif %}
+
+  <section class="exp-panel exp-panel--endpoints">
+    <div class="exp-panel__head">
+      <h2 class="exp-panel__title">Public endpoints</h2>
+      <p class="exp-panel__desc">Use these URLs in <code>jd_worker</code> and to open your dashboards.</p>
+    </div>
+    <ul class="endpoint-list">
+      <li class="endpoint-item">
+        <div class="endpoint-item__icon endpoint-item__icon--server" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+          </svg>
+        </div>
+        <div class="endpoint-item__body">
+          <span class="endpoint-item__label">Job server</span>
+          <span class="endpoint-item__hint">Worker API · job submission</span>
+          <div class="endpoint-item__url-row">
+            <input class="endpoint-item__input" id="url-server" type="text" readonly value="{{ server_url }}">
+            <div class="endpoint-item__actions">
+              <button type="button" class="btn btn--icon" title="Copy URL" onclick="copyText('url-server')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              </button>
+              <a href="{{ server_url }}" target="_blank" rel="noopener" class="btn btn--icon" title="Open">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+              </a>
+            </div>
+          </div>
+        </div>
+      </li>
+      <li class="endpoint-item">
+        <div class="endpoint-item__icon endpoint-item__icon--dashboard" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/>
+          </svg>
+        </div>
+        <div class="endpoint-item__body">
+          <span class="endpoint-item__label">Dashboard</span>
+          <span class="endpoint-item__hint">Monitor jobs · change settings</span>
+          <div class="endpoint-item__url-row">
+            <input class="endpoint-item__input" id="url-dashboard" type="text" readonly value="{{ dashboard_url }}">
+            <div class="endpoint-item__actions">
+              <button type="button" class="btn btn--icon" title="Copy URL" onclick="copyText('url-dashboard')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              </button>
+              <a href="{{ dashboard_url }}" target="_blank" rel="noopener" class="btn btn--icon" title="Open">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+              </a>
+            </div>
+          </div>
+        </div>
+      </li>
+    </ul>
+  </section>
+
+  <div class="exp-detail__grid">
+    <section class="exp-panel">
+      <div class="exp-panel__head">
+        <h2 class="exp-panel__title">Dashboard PIN</h2>
+        <p class="exp-panel__desc">Remote PIN reset while your server container is running.</p>
+      </div>
+      <form method="post" action="{{ url_for('dashboard.reset_pin', name=exp.name) }}" class="exp-panel__form">
+        <div class="field">
+          <label class="field__label" for="new_pin">New 6-digit PIN</label>
+          <input class="field__input field__input--pin" id="new_pin" type="password" name="new_pin"
+                 maxlength="6" minlength="6" pattern="\d{6}" placeholder="000000" autocomplete="off">
+        </div>
+        <button type="submit" class="btn btn--primary">Update PIN</button>
+      </form>
+    </section>
+
+    <section class="exp-panel exp-panel--danger">
+      <div class="exp-panel__head">
+        <h2 class="exp-panel__title">Danger zone</h2>
+        <p class="exp-panel__desc">Permanently remove this experiment and close its tunnels.</p>
+      </div>
+      <form method="post" action="{{ url_for('dashboard.delete_experiment', name=exp.name) }}"
+            onsubmit="return confirm('Delete experiment {{ exp.name }}? This cannot be undone.')">
+        <button type="submit" class="btn btn--danger btn--outline-danger">Delete experiment</button>
+      </form>
+    </section>
   </div>
 
-  <div class="detail-card">
-    <h2 class="detail-card__title">Delete experiment</h2>
-    <form method="post" action="{{ url_for('dashboard.delete_experiment', name=exp.name) }}"
-          onsubmit="return confirm('Delete experiment {{ exp.name }}? This cannot be undone.')">
-      <button type="submit" class="btn btn--danger">Delete experiment</button>
-    </form>
-    {% if exp.expires_at %}
-    <p class="detail-card__hint text--warning">
-      Scheduled expiry: {{ exp.expires_at.strftime('%b %d, %Y') }}.
-    </p>
-    {% endif %}
-  </div>
-
-</div>
+</article>
 {% endblock %}

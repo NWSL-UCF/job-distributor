@@ -4,15 +4,12 @@
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Profile &amp; API Key</h1>
+  <p class="page-sub">Your API key authenticates <code>jd_worker</code> and your server Docker stack</p>
 </div>
 
 {% if new_api_key %}
 <div class="alert alert--success">
-  <strong>API key generated.</strong> Copy it now — it will not be shown again.
-  <div class="key-reveal">
-    <code id="new-key">{{ new_api_key }}</code>
-    <button class="btn btn--sm btn--ghost" onclick="copyText('new-key')">Copy</button>
-  </div>
+  <strong>API key generated.</strong> Copy it now — it will not be shown again after you leave this page.
 </div>
 {% endif %}
 
@@ -20,24 +17,68 @@
   <h2 class="form-card__title">Account</h2>
   <table class="meta-table">
     <tr><th>Email</th><td>{{ user.email }}</td></tr>
-    <tr><th>API key prefix</th><td><code>{{ user.api_key_prefix or '—' }}</code> <span class="text--muted">(first 8 chars)</span></td></tr>
     <tr><th>Account created</th><td>{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '—' }}</td></tr>
   </table>
 </div>
 
-<div class="form-card">
+<div class="form-card form-card--api">
   <h2 class="form-card__title">API Key</h2>
   <p class="form-card__hint">
-    Use this key as <code>JD_API_KEY</code> for <code>jd_worker</code> and your server
-    Docker stack. Workers and the server fetch tokens and tunnel config from the Hub
-    automatically — you do not copy secrets from experiment pages.
+    Set as <code>JD_API_KEY</code> in your environment. Workers and the server fetch tokens and
+    tunnel config from the Hub automatically.
   </p>
-  {% if user.api_key_prefix %}
-  <p>Current key starts with <code>{{ user.api_key_prefix }}…</code></p>
+
+  {% if new_api_key %}
+  <div class="endpoint-item endpoint-item--profile">
+    <div class="endpoint-item__icon endpoint-item__icon--key" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+      </svg>
+    </div>
+    <div class="endpoint-item__body">
+      <span class="endpoint-item__label">Your API key</span>
+      <span class="endpoint-item__hint">Full key — copy before navigating away</span>
+      <div class="endpoint-item__url-row">
+        <input class="endpoint-item__input" id="api-key-full" type="text" readonly value="{{ new_api_key }}">
+        <div class="endpoint-item__actions">
+          <button type="button" class="btn btn--icon" title="Copy API key" onclick="copyText('api-key-full')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% elif user.api_key_prefix %}
+  <div class="endpoint-item endpoint-item--profile endpoint-item--masked">
+    <div class="endpoint-item__icon endpoint-item__icon--key" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+      </svg>
+    </div>
+    <div class="endpoint-item__body">
+      <span class="endpoint-item__label">Active API key</span>
+      <span class="endpoint-item__hint">Full key is hidden for security — regenerate to get a new copyable key</span>
+      <div class="endpoint-item__url-row">
+        <input class="endpoint-item__input" id="api-key-masked" type="text" readonly
+               value="{{ user.api_key_prefix }}•••••••••••••••••••••••••••••••">
+        <div class="endpoint-item__actions">
+          <button type="button" class="btn btn--icon" title="Copy prefix only"
+                  onclick="copyApiKeyPrefix('{{ user.api_key_prefix }}')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
   {% else %}
-  <p class="text--muted">No API key generated yet.</p>
+  <p class="text--muted">No API key yet. Generate one below.</p>
   {% endif %}
-  <form method="post" action="{{ url_for('dashboard.regenerate_api_key') }}"
+
+  <form method="post" action="{{ url_for('dashboard.regenerate_api_key') }}" class="profile-api-actions"
         onsubmit="return confirm('Regenerate API key? The old key will stop working immediately.')">
     <button type="submit" class="btn btn--primary">
       {{ 'Regenerate API key' if user.api_key_prefix else 'Generate API key' }}
@@ -48,9 +89,15 @@
 
 {% block extra_scripts %}
 <script>
-function copyText(id) {
-  const text = document.getElementById(id).textContent;
-  navigator.clipboard.writeText(text).then(() => showToast('Copied!'));
+function copyApiKeyPrefix(prefix) {
+  const text = prefix + '…';
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() =>
+      showToast('Prefix copied — regenerate to copy the full key')
+    );
+  } else {
+    copyText('api-key-masked');
+  }
 }
 </script>
 {% endblock %}

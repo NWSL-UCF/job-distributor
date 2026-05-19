@@ -19,8 +19,12 @@ window.copyText = function (id) {
   const el = document.getElementById(id);
   if (!el) return;
   const text = el.value !== undefined ? el.value : el.textContent;
+  let msg = 'Copied!';
+  if (el.classList && el.classList.contains('endpoint-item__input')) {
+    msg = el.id === 'api-key-full' ? 'API key copied' : 'URL copied';
+  }
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => showToast('Copied!'));
+    navigator.clipboard.writeText(text).then(() => showToast(msg));
   } else {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -30,7 +34,7 @@ window.copyText = function (id) {
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
-    showToast('Copied!');
+    showToast(msg);
   }
 };
 
