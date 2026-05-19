@@ -11,6 +11,7 @@ from functools import wraps
 from flask import g, jsonify, redirect, request, url_for
 
 from . import config
+from .auth_util import login_next_param
 from .db import db
 from .models import HubSession, User
 
@@ -50,7 +51,7 @@ def require_login(fn):
         if not user:
             if _wants_json():
                 return jsonify({"error": "Authentication required"}), 401
-            return redirect(url_for("auth.login", next=request.url))
+            return redirect(url_for("auth.login", next=login_next_param()))
         g.current_user = user
         return fn(*args, **kwargs)
     return wrapper

@@ -5,6 +5,7 @@ import logging
 import os
 
 from flask import Flask, redirect, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import config
 from .db import db
@@ -42,6 +43,9 @@ def create_app() -> Flask:
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(api_bp,    url_prefix="/api")
     app.register_blueprint(admin_bp,  url_prefix="/admin")
+
+    # Trust X-Forwarded-* from nginx so request.is_secure works behind TLS termination.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
     # ── DB init ───────────────────────────────────────────────────────────────
     with app.app_context():

@@ -38,6 +38,8 @@ JWT_WORKER_TOKEN_TTL_HOURS = int(_env("JWT_WORKER_TOKEN_TTL_HOURS", "24"))
 
 # ── Session ───────────────────────────────────────────────────────────────────
 HUB_SESSION_TTL_DAYS = int(_env("HUB_SESSION_TTL_DAYS", "30"))
+# Leave empty to auto-detect from request (HTTPS). Set 0 for HTTP dev on :5000.
+SESSION_COOKIE_SECURE = _env("SESSION_COOKIE_SECURE")
 
 # ── Email (Brevo) ─────────────────────────────────────────────────────────────
 BREVO_API_KEY    = _env("BREVO_API_KEY")

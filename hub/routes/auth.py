@@ -17,6 +17,7 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config
+from ..auth_util import login_next_param, safe_next_url, session_cookie_secure
 from ..db import db
 from ..email_service import send_password_reset_otp, send_verification_otp
 from ..models import HubSession, User
@@ -196,22 +197,29 @@ def login():
                     error=error,
                     verified_msg=verified_msg,
                     unverified_email=email,
+                    next_url=request.form.get("next") or request.args.get("next", ""),
                 )
             elif not user.is_active:
                 error = "Your account has been suspended."
             else:
                 token = _create_session(user, ip)
-                next_url = request.args.get("next") or url_for("dashboard.index")
+                nxt = request.form.get("next") or request.args.get("next")
+                next_url = safe_next_url(nxt)
                 resp = make_response(redirect(next_url))
                 resp.set_cookie(
                     "hub_session", token,
                     httponly=True, samesite="Lax",
                     max_age=config.HUB_SESSION_TTL_DAYS * 86400,
-                    secure=(config.FLASK_ENV == "production"),
+                    secure=session_cookie_secure(),
                 )
                 return resp
 
-    return render_template("login.html", error=error, verified_msg=verified_msg)
+    return render_template(
+        "login.html",
+        error=error,
+        verified_msg=verified_msg,
+        next_url=request.args.get("next", ""),
+    )
 
 
 @auth_bp.route("/logout", methods=["POST"])

@@ -18,7 +18,10 @@
 {% endif %}
 {% endif %}
 
-<form method="post" action="{{ url_for('auth.login', next=request.args.get('next','')) }}">
+<form method="post" action="{{ url_for('auth.login') }}">
+  {% if next_url %}
+  <input type="hidden" name="next" value="{{ next_url }}">
+  {% endif %}
   <div class="field">
     <label class="field__label">Email</label>
     <input class="field__input" type="email" name="email" required autofocus autocomplete="email"
