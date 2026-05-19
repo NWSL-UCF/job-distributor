@@ -69,7 +69,7 @@ def start_background_threads(app) -> None:
 def _poll_traffic() -> None:
     """Query frps admin API and store a snapshot per active experiment."""
     try:
-        r = requests.get(f"{config.FRPS_API_URL}/api/proxies/http", timeout=10)
+        r = requests.get(f"{config.FRPS_API_URL}/api/proxy/http", timeout=10)
         if r.status_code != 200:
             log.warning("frps admin API returned %s", r.status_code)
             return
