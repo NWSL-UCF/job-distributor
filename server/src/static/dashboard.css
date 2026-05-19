@@ -81,7 +81,35 @@
                 transition: background 0.15s;
             }
             .header-add-btn:hover { background: #219a52; }
-            
+
+            .header-actions {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-shrink: 0;
+            }
+
+            .header-refresh-btn,
+            .header-logout-btn {
+                padding: 8px 14px;
+                background: transparent;
+                color: #a8bcf0;
+                border: 1px solid #3d4f7a;
+                border-radius: 7px;
+                font-size: 0.82rem;
+                font-weight: 600;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                transition: background 0.15s;
+                white-space: nowrap;
+            }
+
+            .header-refresh-btn:hover,
+            .header-logout-btn:hover {
+                background: #2d3650;
+            }
 
             
             .main-content {

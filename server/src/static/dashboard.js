@@ -1212,6 +1212,10 @@ let chart;
 
             // ── Auth helpers ─────────────────────────────────────────────────────────
 
+            function refreshDashboard() {
+                window.location.reload();
+            }
+
             function logout() {
                 fetch('/auth/logout', { method: 'POST' })
                     .then(() => { window.location.href = '/auth'; })

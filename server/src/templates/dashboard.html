@@ -20,11 +20,14 @@
                     <h1><i class="fas fa-chart-line"></i> Job Dashboard</h1>
                     <span class="header-exp-badge" title="Experiment ID">{{ expId }}</span>
                 </div>
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <button class="header-add-btn" onclick="openSetupOverlay()">
+                <div class="header-actions">
+                    <button type="button" class="header-add-btn" onclick="openSetupOverlay()">
                         <i class="fas fa-plus-circle"></i> Add Jobs
                     </button>
-                    <button onclick="logout()" style="padding:8px 14px; background:transparent; color:#a8bcf0; border:1px solid #3d4f7a; border-radius:7px; font-size:0.82rem; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:background 0.15s;" onmouseover="this.style.background='#2d3650'" onmouseout="this.style.background='transparent'">
+                    <button type="button" class="header-refresh-btn" onclick="refreshDashboard()" title="Reload the full dashboard">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <button type="button" class="header-logout-btn" onclick="logout()">
                         <i class="fas fa-sign-out-alt"></i> Logout
                     </button>
                 </div>
