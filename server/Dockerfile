@@ -25,7 +25,8 @@ VOLUME ["/workspace"]
 
 ENV JD_WORKSPACE_PATH=/workspace
 
-# start.py accepts --expId, --server_port, --dashboard_port at runtime.
-# Pass them via docker compose `command:` or docker run args.
-ENTRYPOINT ["python", "start.py"]
+# Hub mode: entrypoint fetches frpc.ini + worker secret from Hub (see scripts/).
+# Pass --expId matching JD_EXP_NAME / Hub experiment name.
+RUN chmod +x /app/scripts/hub-entrypoint.sh
+ENTRYPOINT ["/app/scripts/hub-entrypoint.sh"]
 CMD ["--expId=default", "--server_port=8000", "--dashboard_port=8001"]

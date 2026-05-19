@@ -103,13 +103,7 @@ def experiment_detail(name: str):
     exp = Experiment.query.filter_by(name=name).first_or_404()
     if exp.user_id != g.current_user.id and not g.current_user.is_admin:
         return redirect(url_for("dashboard.index"))
-    frpc_config = _build_frpc_config(exp)
-    return render_template(
-        "experiment_detail.html",
-        user=g.current_user,
-        exp=exp,
-        frpc_config=frpc_config,
-    )
+    return _render_experiment_detail(exp)
 
 
 @dashboard_bp.route("/experiments/<name>/delete", methods=["POST"])
@@ -149,18 +143,11 @@ def reset_pin(name: str):
         return jsonify({"error": "Forbidden"}), 403
     new_pin = request.form.get("new_pin", "").strip()
     if not new_pin or len(new_pin) != 6 or not new_pin.isdigit():
-        return render_template(
-            "experiment_detail.html",
-            user=g.current_user, exp=exp,
-            frpc_config=_build_frpc_config(exp),
-            pin_error="PIN must be exactly 6 digits.",
-        )
+        return _render_experiment_detail(exp, pin_error="PIN must be exactly 6 digits.")
     if not exp.admin_token:
-        return render_template(
-            "experiment_detail.html",
-            user=g.current_user, exp=exp,
-            frpc_config=_build_frpc_config(exp),
-            pin_error="No admin token registered for this experiment yet.",
+        return _render_experiment_detail(
+            exp,
+            pin_error="Server not registered yet. Start your Docker stack with Hub credentials.",
         )
     dash_url = f"https://dashboard.{exp.name}.{config.JD_BASE_DOMAIN}/admin/override_pin"
     try:
@@ -171,25 +158,10 @@ def reset_pin(name: str):
             timeout=10,
         )
         if r.status_code == 200:
-            return render_template(
-                "experiment_detail.html",
-                user=g.current_user, exp=exp,
-                frpc_config=_build_frpc_config(exp),
-                pin_success="Dashboard PIN updated successfully.",
-            )
-        return render_template(
-            "experiment_detail.html",
-            user=g.current_user, exp=exp,
-            frpc_config=_build_frpc_config(exp),
-            pin_error=f"Dashboard returned: {r.text[:200]}",
-        )
+            return _render_experiment_detail(exp, pin_success="Dashboard PIN updated successfully.")
+        return _render_experiment_detail(exp, pin_error=f"Dashboard returned: {r.text[:200]}")
     except Exception as exc:
-        return render_template(
-            "experiment_detail.html",
-            user=g.current_user, exp=exp,
-            frpc_config=_build_frpc_config(exp),
-            pin_error=f"Could not reach dashboard: {exc}",
-        )
+        return _render_experiment_detail(exp, pin_error=f"Could not reach dashboard: {exc}")
 
 
 # ── Profile / API key ─────────────────────────────────────────────────────────
@@ -254,6 +226,15 @@ def submit_extension():
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+def _render_experiment_detail(exp: Experiment, **kwargs):
+    return render_template(
+        "experiment_detail.html",
+        user=g.current_user,
+        exp=exp,
+        **kwargs,
+    )
+
+
 def _provision_experiment(user: User, name: str) -> Experiment:
     worker_secret = secrets.token_hex(32)
     exp = Experiment(
@@ -268,23 +249,6 @@ def _provision_experiment(user: User, name: str) -> Experiment:
     db.session.add(exp)
     db.session.commit()
     return exp
-
-
-def _build_frpc_config(exp: Experiment) -> str:
-    return (
-        f"[common]\n"
-        f"server_addr = hub.{config.JD_BASE_DOMAIN}\n"
-        f"server_port = 7000\n"
-        f"token       = {config.FRPS_TOKEN}\n\n"
-        f"[server-{exp.name}]\n"
-        f"type            = http\n"
-        f"local_port      = 8000\n"
-        f"custom_domains  = {exp.frpc_subdomain_server}\n\n"
-        f"[dashboard-{exp.name}]\n"
-        f"type            = http\n"
-        f"local_port      = 8001\n"
-        f"custom_domains  = {exp.frpc_subdomain_dashboard}\n"
-    )
 
 
 def _current_month_usage(user: User) -> MonthlyUsage | None:

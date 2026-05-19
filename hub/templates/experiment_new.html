@@ -5,7 +5,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">New Experiment</h1>
-    <p class="page-sub">Creates public FRP tunnels for your server and dashboard</p>
+    <p class="page-sub">Provisions public tunnels — configure Docker with your Profile API key</p>
   </div>
   <a href="{{ url_for('dashboard.index') }}" class="btn btn--outline">Cancel</a>
 </div>
@@ -24,9 +24,8 @@
              title="Lowercase letters, numbers, hyphens. Must start with a letter.">
       <span class="field__hint">
         Lowercase, letters/numbers/hyphens only. Must start with a letter (max 48 chars).<br>
-        Your tunnels will be:
-        <code>server.&lt;name&gt;.jobdistributor.net</code> and
-        <code>dashboard.&lt;name&gt;.jobdistributor.net</code>
+        After creating, set <code>JD_EXP_NAME</code> to this name in your server
+        <code>docker-compose.yml</code> and use your API key from Profile.
       </span>
     </div>
     <div class="form-actions">

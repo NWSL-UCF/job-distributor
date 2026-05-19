@@ -28,8 +28,9 @@
 <div class="form-card">
   <h2 class="form-card__title">API Key</h2>
   <p class="form-card__hint">
-    Your API key is used by <code>jd_worker</code> to authenticate with the Hub and
-    receive worker tokens. Set it as <code>JD_API_KEY</code> in your environment.
+    Use this key as <code>JD_API_KEY</code> for <code>jd_worker</code> and your server
+    Docker stack. Workers and the server fetch tokens and tunnel config from the Hub
+    automatically — you do not copy secrets from experiment pages.
   </p>
   {% if user.api_key_prefix %}
   <p>Current key starts with <code>{{ user.api_key_prefix }}…</code></p>

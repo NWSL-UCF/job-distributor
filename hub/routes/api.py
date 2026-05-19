@@ -30,7 +30,7 @@ def _now():
 @api_bp.route("/experiments", methods=["POST"])
 @require_api_key
 def create_experiment():
-    """Create a new experiment and return FRP config + worker_shared_secret."""
+    """Create a new experiment (credentials via runtime-config endpoint)."""
     user = g.api_user
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip().lower()
@@ -63,13 +63,39 @@ def create_experiment():
     db.session.commit()
 
     return jsonify({
-        "experiment_id":        exp.id,
-        "name":                 exp.name,
-        "server_url":           f"https://server.{name}.{config.JD_BASE_DOMAIN}",
-        "dashboard_url":        f"https://dashboard.{name}.{config.JD_BASE_DOMAIN}",
-        "worker_shared_secret": worker_secret,
-        "frpc_config":          _build_frpc_config(exp),
+        "experiment_id": exp.id,
+        "name":          exp.name,
+        "server_url":    f"https://server.{name}.{config.JD_BASE_DOMAIN}",
+        "dashboard_url": f"https://dashboard.{name}.{config.JD_BASE_DOMAIN}",
+        "message":       "Experiment created. Use GET /api/experiments/<name>/runtime-config "
+                         "from your server container to fetch tunnel credentials.",
     }), 201
+
+
+@api_bp.route("/experiments/<name>/runtime-config", methods=["GET"])
+@require_api_key
+def experiment_runtime_config(name: str):
+    """
+    Returns FRP config and worker_shared_secret for the experiment server container.
+    Called by hub-bootstrap on startup — not exposed in the Hub web UI.
+    """
+    exp = _get_owned_exp(name)
+    if exp is None:
+        return jsonify({"error": "Not found"}), 404
+    if exp.status in ("DELETED",):
+        return jsonify({"error": f"Experiment is {exp.status}"}), 403
+    if not exp.worker_shared_secret:
+        return jsonify({"error": "Experiment not provisioned"}), 503
+
+    return jsonify({
+        "name":                 exp.name,
+        "server_url":           f"https://server.{exp.name}.{config.JD_BASE_DOMAIN}",
+        "dashboard_url":        f"https://dashboard.{exp.name}.{config.JD_BASE_DOMAIN}",
+        "worker_shared_secret": exp.worker_shared_secret,
+        "frpc_config":          _build_frpc_config(exp),
+        "frps_server_addr":     f"hub.{config.JD_BASE_DOMAIN}",
+        "frps_server_port":     7000,
+    }), 200
 
 
 @api_bp.route("/experiments/<name>", methods=["GET"])
@@ -110,6 +136,7 @@ def register_experiment(name: str):
     admin_token   = (data.get("admin_token")        or "").strip()
     worker_secret = (data.get("worker_shared_secret") or "").strip()
 
+    # worker_shared_secret in body is optional legacy check; API key ownership is sufficient
     if worker_secret and worker_secret != exp.worker_shared_secret:
         return jsonify({"error": "worker_shared_secret mismatch"}), 403
 

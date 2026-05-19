@@ -10,60 +10,18 @@
   <a href="{{ url_for('dashboard.index') }}" class="btn btn--outline">← Dashboard</a>
 </div>
 
-{# Alerts #}
 {% if pin_error %}<div class="alert alert--error">{{ pin_error }}</div>{% endif %}
 {% if pin_success %}<div class="alert alert--success">{{ pin_success }}</div>{% endif %}
 
-<div class="detail-grid">
+<p class="auth-body-text" style="margin-bottom: 24px;">
+  Run the server with your <a href="{{ url_for('dashboard.profile') }}">API key</a> from Profile.
+  Tunnel credentials are fetched automatically — nothing to copy from this page.
+</p>
 
-  {# Public URLs #}
+<div class="detail-grid detail-grid--simple">
+
   <div class="detail-card">
-    <h2 class="detail-card__title">Public URLs</h2>
-    <div class="url-row">
-      <span class="url-row__label">Job Server</span>
-      <a href="https://{{ exp.frpc_subdomain_server }}" target="_blank" class="url-row__link">
-        https://{{ exp.frpc_subdomain_server }}
-      </a>
-    </div>
-    <div class="url-row">
-      <span class="url-row__label">Dashboard</span>
-      <a href="https://{{ exp.frpc_subdomain_dashboard }}" target="_blank" class="url-row__link">
-        https://{{ exp.frpc_subdomain_dashboard }}
-      </a>
-    </div>
-  </div>
-
-  {# FRP config #}
-  <div class="detail-card detail-card--wide">
-    <div class="detail-card__header">
-      <h2 class="detail-card__title">frpc.ini</h2>
-      <button class="btn btn--sm btn--ghost" onclick="copyFrpc()">Copy</button>
-    </div>
-    <pre class="code-block" id="frpc-config">{{ frpc_config }}</pre>
-    <p class="detail-card__hint">
-      Embed this in your Docker Compose as a <code>frpc</code> sidecar service.
-    </p>
-  </div>
-
-  {# Worker credentials #}
-  <div class="detail-card">
-    <h2 class="detail-card__title">Worker credentials</h2>
-    <div class="cred-row">
-      <span class="cred-row__label">worker_shared_secret</span>
-      <div class="cred-row__value-wrap">
-        <code class="cred-row__value" id="wss">{{ exp.worker_shared_secret or '—' }}</code>
-        <button class="btn btn--xs btn--ghost" onclick="copyText('wss')">Copy</button>
-      </div>
-    </div>
-    <p class="detail-card__hint">
-      Pass as <code>JD_WORKER_SHARED_SECRET</code> env var to <code>server.py</code>.
-      <em>Keep this secret.</em>
-    </p>
-  </div>
-
-  {# Remote PIN reset #}
-  <div class="detail-card">
-    <h2 class="detail-card__title">Reset Dashboard PIN</h2>
+    <h2 class="detail-card__title">Reset dashboard PIN</h2>
     <form method="post" action="{{ url_for('dashboard.reset_pin', name=exp.name) }}">
       <div class="field">
         <label class="field__label">New 6-digit PIN</label>
@@ -73,54 +31,22 @@
       <button type="submit" class="btn btn--primary btn--sm">Update PIN</button>
     </form>
     <p class="detail-card__hint">
-      This calls the dashboard's admin override endpoint via the FRP tunnel.
-      The dashboard must be running and reachable.
+      Updates the dashboard PIN via the FRP tunnel. Your server container must be running.
     </p>
   </div>
 
-  {# Lifecycle actions #}
   <div class="detail-card">
-    <h2 class="detail-card__title">Actions</h2>
-    <div class="action-list">
-      {% if exp.status == 'IDLE' %}
-      <form method="post" action="{{ url_for('dashboard.extend_experiment', name=exp.name) }}">
-        <button type="submit" class="btn btn--warning">Extend 2 weeks</button>
-      </form>
-      {% endif %}
-      <form method="post" action="{{ url_for('dashboard.delete_experiment', name=exp.name) }}"
-            onsubmit="return confirm('Delete experiment {{ exp.name }}? This cannot be undone.')">
-        <button type="submit" class="btn btn--danger">Delete experiment</button>
-      </form>
-    </div>
+    <h2 class="detail-card__title">Delete experiment</h2>
+    <form method="post" action="{{ url_for('dashboard.delete_experiment', name=exp.name) }}"
+          onsubmit="return confirm('Delete experiment {{ exp.name }}? This cannot be undone.')">
+      <button type="submit" class="btn btn--danger">Delete experiment</button>
+    </form>
     {% if exp.expires_at %}
     <p class="detail-card__hint text--warning">
-      This experiment expires on {{ exp.expires_at.strftime('%b %d, %Y') }}.
+      Scheduled expiry: {{ exp.expires_at.strftime('%b %d, %Y') }}.
     </p>
     {% endif %}
   </div>
 
-  {# Metadata #}
-  <div class="detail-card">
-    <h2 class="detail-card__title">Metadata</h2>
-    <table class="meta-table">
-      <tr><th>Created</th><td>{{ exp.created_at.strftime('%Y-%m-%d %H:%M UTC') if exp.created_at else '—' }}</td></tr>
-      <tr><th>Last active</th><td>{{ exp.last_activity_at.strftime('%Y-%m-%d %H:%M UTC') if exp.last_activity_at else '—' }}</td></tr>
-      <tr><th>Admin token set</th><td>{{ 'Yes' if exp.admin_token else 'No (not yet registered)' }}</td></tr>
-    </table>
-  </div>
-
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
-<script>
-function copyFrpc() {
-  const text = document.getElementById('frpc-config').textContent;
-  navigator.clipboard.writeText(text).then(() => showToast('Copied!'));
-}
-function copyText(id) {
-  const text = document.getElementById(id).textContent;
-  navigator.clipboard.writeText(text).then(() => showToast('Copied!'));
-}
-</script>
 {% endblock %}
