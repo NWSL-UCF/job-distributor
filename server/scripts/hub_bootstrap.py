@@ -13,7 +13,7 @@ import sys
 
 import requests
 
-FRPC_PATH = os.environ.get("JD_FRPC_CONFIG_PATH", "/frp-config/frpc.ini").strip()
+FRPC_PATH = os.environ.get("JD_FRPC_CONFIG_PATH", "/tmp/frpc.ini").strip()
 ENV_FILE = os.environ.get("JD_HUB_ENV_FILE", "/tmp/jd-hub.env").strip()
 
 

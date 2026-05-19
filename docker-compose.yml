@@ -1,15 +1,15 @@
 version: "3.9"
 
-# ── Usage ────────────────────────────────────────────────────────────────────
+# ── Usage ─────────────────────────────────────────────────────────────────────
 # 1. Create an experiment on the Hub and copy your API key from Profile.
-# 2. Set JD_HUB_URL, JD_API_KEY, JD_EXP_NAME in .env (see .env.example).
+# 2. Copy .env.example → .env and fill in JD_API_KEY and JD_EXP_NAME.
 # 3. Run:  docker compose up -d
-#    The entrypoint fetches frpc.ini and worker credentials from the Hub.
+#
+# frpc is bundled inside the image — no sidecar needed.
+# Workspace data lands at ./workspace/<JD_EXP_NAME>/ on the host.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
-
-  # ── Job server + dashboard ──────────────────────────────────────────────────
   jd_server:
     build:
       context: ./server
@@ -18,32 +18,10 @@ services:
     container_name: jd_server
     restart: unless-stopped
 
-    command:
-      - "--expId=${JD_EXP_NAME:-my_experiment}"
-      - "--server_port=8000"
-      - "--dashboard_port=8001"
-
-    volumes:
-      - ./workspace:/workspace
-      - frpc_config:/frp-config
-
     environment:
-      - JD_WORKSPACE_PATH=/workspace
-      - JD_HUB_URL=${JD_HUB_URL}
+      - JD_HUB_URL=${JD_HUB_URL:-https://hub.jobdistributor.net}
       - JD_API_KEY=${JD_API_KEY}
       - JD_EXP_NAME=${JD_EXP_NAME:-my_experiment}
-      - JD_FRPC_CONFIG_PATH=/frp-config/frpc.ini
 
-  frpc:
-    image: snowdreamtech/frpc:latest
-    container_name: frpc
-    restart: unless-stopped
-    command: ["-c", "/etc/frp/frpc.ini"]
     volumes:
-      - frpc_config:/etc/frp:ro
-    depends_on:
-      - jd_server
-    network_mode: "service:jd_server"
-
-volumes:
-  frpc_config:
+      - ./workspace/${JD_EXP_NAME:-my_experiment}:/workspace/${JD_EXP_NAME:-my_experiment}
