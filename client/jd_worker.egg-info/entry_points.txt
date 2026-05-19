@@ -1,2 +1,0 @@
-[console_scripts]
-jd_worker = jd.worker:main

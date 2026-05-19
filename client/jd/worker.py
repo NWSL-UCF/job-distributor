@@ -186,7 +186,7 @@ def _setup_logger(log_dir: str, runner_id: str) -> logging.Logger:
     return logger
 
 
-# ── System metrics (ported from runner.py, logger injected) ──────────────────
+# ── System metrics ────────────────────────────────────────────────────────────
 
 def _collect_metrics(machine_type: str, logger: logging.Logger) -> dict:
     """Collect a single snapshot of system metrics."""

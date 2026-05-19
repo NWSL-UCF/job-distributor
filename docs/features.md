@@ -10,15 +10,15 @@ A distributed hyperparameter search system. A central server holds a SQLite data
 
 ```
 server/start.py
-  ├── src/create_job_db.py   (run once on fresh_start)
+  ├── src/create_job_db.py   (optional: seed jobs from CLI)
   ├── src/server.py          (job API, port 5000)
   ├── src/dashboard.py       (monitoring UI, port 5050)
   └── src/job_cleaner.py     (background maintenance process)
 
-client/runner.py             (runs on each worker machine)
+jd_worker                    (install from client/; runs on each worker machine)
 ```
 
-All four server processes are launched and supervised by `start.py`. The database file (`jobs.db`) lives under **`<workspace>/<expId>/meta/`** and is shared between `server.py`, `dashboard.py`, and `job_cleaner.py` via `database.py`.
+All four server processes are launched and supervised by **`server/start.py`**. The database file (`jobs.db`) lives under **`<workspace>/<expId>/meta/`** and is shared between `server.py`, `dashboard.py`, and `job_cleaner.py` via `database.py`.
 
 ---
 
@@ -136,50 +136,23 @@ Standalone process (not a Flask app). Runs two periodic cleanup tasks via HTTP c
 1. **Aborted job reset** — every `abortedJobResetTimeout` seconds: `POST /cleanup/reset_aborted_jobs`. Returns failed jobs to PENDING so they can be retried.
 2. **Stale SERVED job reset** — every `idleTimeout` seconds: `POST /cleanup/reset_stale_served_jobs`. Reclaims jobs from workers that crashed or lost connectivity without sending a final status update.
 
-CLI args: `--serverUrl`, `--serverPort`, `--expId`, `--abortedJobResetTimeout`, `--idleTimeout`, `--pollingInterval`.
+CLI args: `--workspacePath`, `--expId`, `--serverPort`, `--pollingInterval`.
 
 ---
 
-## `start.py` — Process Supervisor
+## `server/start.py` — Process Supervisor
 
-Reads `server/config.json`, optionally runs `create_job_db.py` synchronously (if `fresh_start: true`), then launches `server.py`, `dashboard.py`, and `job_cleaner.py` as parallel subprocesses. Registers `atexit` and `SIGINT`/`SIGTERM` handlers to kill all child processes on shutdown. Saves PIDs to `{expId}/pids.json`.
+Reads **`server/config.json`** only for auxiliary tooling (e.g. `stop.py`). **`server/start.py`** itself takes **`--expId`**, **`--workspace_path`**, ports, and Gunicorn options from the CLI (see **[`server/README.md`](../server/README.md)**).
 
----
-
-## Client — `client/config.json`
-
-| Field | Purpose |
-|---|---|
-| `expId` | Must match server's `expId` |
-| `job_server` | Server base URL (e.g., `http://192.168.1.10`) |
-| `port` | Server port; appended to URL unless the URL already contains an explicit port |
-| `number_of_parallel_process` | How many `runner.py` instances to run in parallel on this machine |
-| `heartBitInterval` | Seconds between heartbeat pings (internally reduced by 0.3 s to avoid timing edge cases) |
-| `run_command` | Base command list, e.g., `["python", "main.py"]` |
-| `machine_type` | Label for this machine: `hpc`, `htc`, `desktop`, or `laptop` |
+Then launches `server.py`, `dashboard.py`, and `job_cleaner.py` as parallel subprocesses. Registers `atexit` and `SIGINT`/`SIGTERM` handlers to kill all child processes on shutdown. Saves PIDs to **`<workspace>/<expId>/meta/pids.json`**.
 
 ---
 
-## `client/runner.py` — Worker
+## Client — `jd_worker` (package `jd-worker`)
 
-One instance per parallel job slot. Each instance has a unique `runner_id` = `user@hostname(machine_type)_processId_random`.
+Workers install the **`client/`** package (`pip install -e ./client`) and run the **`jd_worker`** CLI. It mirrors the old pull-job → run subprocess → heartbeat → status workflow, with configurable **`entry_script`**, local data under **`~/jd_data/`** (or **`$JD_WORKSPACE_PATH/jd_data`**), and optional helpers **`jd_upload`** / **`jd_update_checkpoint`** / **`jd_get_last_checkpoint`**.
 
-### Main Loop
-
-1. **Collect system metrics** — 5 samples over ~12 seconds (3 s apart), then averaged. Captures: CPU utilization, RAM utilization and available GB, load averages (1/5/15 min), idle CPU slots, disk I/O utilization, CPU core/thread count, CPU frequency.
-2. **Request job** — `POST /request_job` with `runner_id` and averaged system metrics. Receives `{job_id, parameters}`. If 404, no jobs remain and the runner exits cleanly.
-3. **Build command** — `run_command + [--key value, ...] + [--base_path ~/data/raw/{expId}/{job_id}]`.
-4. **Start heartbeat thread** — pings `POST /ping` every `heartBitInterval` seconds while the subprocess runs.
-5. **Run subprocess** — `Popen` with captured stdout/stderr. On Windows uses `CREATE_NEW_PROCESS_GROUP`; on POSIX uses `os.setsid` for clean process-group termination.
-6. **Stop heartbeat thread** — signals stop event and joins the thread.
-7. **Report result**:
-   - Exit code 0 → `POST /update_job_status` with `DONE`.
-   - Non-zero → `POST /update_job_status` with `ABORTED` + structured error message containing return code, signal description, and relevant stderr/stdout excerpts (only if they contain error keywords).
-8. Wait 5 seconds, then repeat from step 1.
-
-**Special case:** if `machine_type == "htc"`, the runner exits after completing one job (HTC cluster nodes are single-job-per-allocation).
-
-**Signal handling:** `SIGINT`/`SIGTERM` terminate the current subprocess and exit cleanly.
+See **`docs/jd-worker.md`** for installation, flags, environment variables, and API details.
 
 ---
 
