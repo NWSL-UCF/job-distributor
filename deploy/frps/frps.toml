@@ -1,0 +1,40 @@
+# frps.toml — FRP Server configuration
+#
+# frps runs on the hub VPS and:
+#   • Accepts tunnel connections from jd_server containers (port 7000)
+#   • Exposes experiment HTTP traffic on its vhost port (8080)
+#     Nginx then terminates TLS and forwards *.jobdistributor.net → 8080
+#
+# Install path: /etc/frp/frps.toml
+# Binary:       /usr/local/bin/frps
+# Systemd unit: deploy/systemd/frps.service
+
+# ── Tunnel listener ───────────────────────────────────────────────────────────
+# Port where frpc clients (inside jd_server containers) connect.
+# Must be open in your firewall / security group.
+bindPort = 7000
+
+# ── Authentication ────────────────────────────────────────────────────────────
+# Must match FRPS_TOKEN in the hub .env file.
+# Change this to a long random secret before deploying.
+auth.method = "token"
+auth.token  = "CHANGE_ME_FRPS_TOKEN"
+
+# ── Virtual-host HTTP port ────────────────────────────────────────────────────
+# frps listens here for HTTP requests from Nginx.
+# Nginx proxies *.jobdistributor.net → 127.0.0.1:8080.
+# Do NOT open port 8080 in your firewall — it must only be reachable from Nginx
+# on localhost.
+vhostHTTPPort = 8080
+
+# ── Admin API ─────────────────────────────────────────────────────────────────
+# The Hub queries this API to check tunnel status / traffic stats.
+# Bind to 127.0.0.1 so it is never reachable from the internet.
+# Must match FRPS_API_URL in the hub .env (default: http://localhost:7500).
+webServer.addr = "127.0.0.1"
+webServer.port = 7500
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+log.to      = "/var/log/frps/frps.log"
+log.level   = "info"    # debug | info | warn | error
+log.maxDays = 7
