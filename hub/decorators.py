@@ -37,12 +37,18 @@ def get_current_user() -> User | None:
 
 # ── Decorators ────────────────────────────────────────────────────────────────
 
+def _wants_json() -> bool:
+    """True only for API-style requests that prefer JSON over HTML."""
+    best = request.accept_mimetypes.best_match(["application/json", "text/html"])
+    return best == "application/json"
+
+
 def require_login(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         user = get_current_user()
         if not user:
-            if request.accept_mimetypes.accept_json:
+            if _wants_json():
                 return jsonify({"error": "Authentication required"}), 401
             return redirect(url_for("auth.login", next=request.url))
         g.current_user = user
@@ -55,11 +61,11 @@ def require_admin(fn):
     def wrapper(*args, **kwargs):
         user = get_current_user()
         if not user:
-            if request.accept_mimetypes.accept_json:
+            if _wants_json():
                 return jsonify({"error": "Authentication required"}), 401
             return redirect(url_for("auth.login"))
         if not user.is_admin:
-            if request.accept_mimetypes.accept_json:
+            if _wants_json():
                 return jsonify({"error": "Forbidden"}), 403
             return redirect(url_for("dashboard.index"))
         g.current_user = user
