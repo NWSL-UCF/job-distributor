@@ -27,7 +27,8 @@ class User(db.Model):
 
     experiments     = db.relationship("Experiment",    back_populates="user", lazy="dynamic")
     monthly_usages  = db.relationship("MonthlyUsage",  back_populates="user", lazy="dynamic")
-    limit_override  = db.relationship("UserLimitOverride", back_populates="user", uselist=False)
+    limit_override  = db.relationship("UserLimitOverride", back_populates="user", uselist=False,
+                                      foreign_keys="UserLimitOverride.user_id")
     ext_requests    = db.relationship("LimitExtensionRequest", back_populates="user",
                                       foreign_keys="LimitExtensionRequest.user_id", lazy="dynamic")
 
