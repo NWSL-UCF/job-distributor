@@ -48,19 +48,12 @@
       <span class="exp-card__name">{{ exp.name }}</span>
       <span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span>
     </div>
-    <div class="exp-card__urls">
-      <div class="exp-url">
-        <span class="exp-url__label">Server</span>
-        <a href="https://{{ exp.frpc_subdomain_server }}" target="_blank" class="exp-url__link">
-          {{ exp.frpc_subdomain_server }}
-        </a>
-      </div>
-      <div class="exp-url">
-        <span class="exp-url__label">Dashboard</span>
-        <a href="https://{{ exp.frpc_subdomain_dashboard }}" target="_blank" class="exp-url__link">
-          {{ exp.frpc_subdomain_dashboard }}
-        </a>
-      </div>
+    <div class="exp-card__dash">
+      <input type="hidden" id="dash-url-{{ exp.name }}" value="https://{{ exp.frpc_subdomain_dashboard }}">
+      <a href="https://{{ exp.frpc_subdomain_dashboard }}" target="_blank" rel="noopener"
+         class="btn btn--sm btn--primary btn--full">Visit dashboard</a>
+      <button type="button" class="btn btn--sm btn--outline btn--full"
+              onclick="copyText('dash-url-{{ exp.name }}')">Copy dashboard URL</button>
     </div>
     <div class="exp-card__meta">
       <span>Created {{ exp.created_at.strftime('%b %d, %Y') if exp.created_at else '—' }}</span>

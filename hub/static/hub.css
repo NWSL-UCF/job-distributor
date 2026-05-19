@@ -225,9 +225,16 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 .exp-card__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .exp-card__name   { font-weight: 600; font-size: 1rem; }
 .exp-card__urls   { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
-.exp-url          { display: flex; align-items: center; gap: 8px; }
-.exp-url__label   { font-size: .75rem; font-weight: 600; color: var(--color-muted); width: 72px; }
-.exp-url__link    { font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exp-card__dash {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 14px;
+}
+.btn--full { width: 100%; }
+.exp-dash-actions {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  margin-top: 14px;
+}
+.endpoint-item--compact { margin-bottom: 0; }
 .exp-card__meta   { display: flex; gap: 12px; font-size: .78rem; color: var(--color-muted); margin-bottom: 14px; }
 .exp-card__actions{ display: flex; gap: 8px; }
 

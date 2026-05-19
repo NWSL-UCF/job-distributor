@@ -22,6 +22,10 @@ window.copyText = function (id) {
   let msg = 'Copied!';
   if (el.classList && el.classList.contains('endpoint-item__input')) {
     msg = el.id === 'api-key-full' ? 'API key copied' : 'URL copied';
+  } else if (el.type === 'hidden' && el.id && el.id.startsWith('dash-url-')) {
+    msg = 'Dashboard URL copied';
+  } else if (el.id === 'url-dashboard') {
+    msg = 'Dashboard URL copied';
   }
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => showToast(msg));

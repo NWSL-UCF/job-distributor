@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ exp.name }} — JobDistributor Hub{% endblock %}
 
-{% set server_url = 'https://' ~ exp.frpc_subdomain_server %}
 {% set dashboard_url = 'https://' ~ exp.frpc_subdomain_dashboard %}
 
 {% block content %}
@@ -15,8 +14,8 @@
         <span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span>
       </div>
       <p class="exp-detail__lead">
-        Public endpoints for workers and your job server. Start Docker with your
-        <a href="{{ url_for('dashboard.profile') }}">API key</a> — credentials sync from the Hub automatically.
+        Open your experiment dashboard below. Start Docker with your
+        <a href="{{ url_for('dashboard.profile') }}">API key</a> — workers connect automatically.
       </p>
       <ul class="exp-detail__meta">
         <li>
@@ -42,63 +41,29 @@
 
   <section class="exp-panel exp-panel--endpoints">
     <div class="exp-panel__head">
-      <h2 class="exp-panel__title">Public endpoints</h2>
-      <p class="exp-panel__desc">Use these URLs in <code>jd_worker</code> and to open your dashboards.</p>
+      <h2 class="exp-panel__title">Dashboard</h2>
+      <p class="exp-panel__desc">Monitor jobs, view traffic, and change settings.</p>
     </div>
-    <ul class="endpoint-list">
-      <li class="endpoint-item">
-        <div class="endpoint-item__icon endpoint-item__icon--server" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-          </svg>
+    <div class="endpoint-item endpoint-item--compact">
+      <div class="endpoint-item__icon endpoint-item__icon--dashboard" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/>
+        </svg>
+      </div>
+      <div class="endpoint-item__body">
+        <span class="endpoint-item__label">Experiment dashboard</span>
+        <span class="endpoint-item__hint">Opens in a new tab · default PIN is 000000 until you change it</span>
+        <input type="hidden" id="url-dashboard" value="{{ dashboard_url }}">
+        <div class="exp-dash-actions">
+          <a href="{{ dashboard_url }}" target="_blank" rel="noopener" class="btn btn--primary">
+            Visit dashboard
+          </a>
+          <button type="button" class="btn btn--outline" onclick="copyText('url-dashboard')">
+            Copy dashboard URL
+          </button>
         </div>
-        <div class="endpoint-item__body">
-          <span class="endpoint-item__label">Job server</span>
-          <span class="endpoint-item__hint">Worker API · job submission</span>
-          <div class="endpoint-item__url-row">
-            <input class="endpoint-item__input" id="url-server" type="text" readonly value="{{ server_url }}">
-            <div class="endpoint-item__actions">
-              <button type="button" class="btn btn--icon" title="Copy URL" onclick="copyText('url-server')">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-              </button>
-              <a href="{{ server_url }}" target="_blank" rel="noopener" class="btn btn--icon" title="Open">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                </svg>
-              </a>
-            </div>
-          </div>
-        </div>
-      </li>
-      <li class="endpoint-item">
-        <div class="endpoint-item__icon endpoint-item__icon--dashboard" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/>
-          </svg>
-        </div>
-        <div class="endpoint-item__body">
-          <span class="endpoint-item__label">Dashboard</span>
-          <span class="endpoint-item__hint">Monitor jobs · change settings</span>
-          <div class="endpoint-item__url-row">
-            <input class="endpoint-item__input" id="url-dashboard" type="text" readonly value="{{ dashboard_url }}">
-            <div class="endpoint-item__actions">
-              <button type="button" class="btn btn--icon" title="Copy URL" onclick="copyText('url-dashboard')">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-              </button>
-              <a href="{{ dashboard_url }}" target="_blank" rel="noopener" class="btn btn--icon" title="Open">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-                </svg>
-              </a>
-            </div>
-          </div>
-        </div>
-      </li>
-    </ul>
+      </div>
+    </div>
   </section>
 
   <div class="exp-detail__grid">
