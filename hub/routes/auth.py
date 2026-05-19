@@ -1,12 +1,11 @@
 """
-Auth routes: signup, login, logout, email verification, password reset.
+Auth routes: signup, login, logout, email verification (OTP), password reset (OTP).
 """
 import hashlib
 import secrets
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-
 from flask import (
     Blueprint,
     make_response,
@@ -19,7 +18,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config
 from ..db import db
-from ..email_service import send_password_reset, send_verification
+from ..email_service import send_password_reset_otp, send_verification_otp
 from ..models import HubSession, User
 
 auth_bp = Blueprint("auth", __name__)
@@ -43,7 +42,41 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── OTP helpers ───────────────────────────────────────────────────────────────
+
+def _generate_otp() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _hash_otp(otp: str) -> str:
+    return hashlib.sha256(otp.strip().encode()).hexdigest()
+
+
+def _otp_valid(stored_hash: str | None, otp: str) -> bool:
+    if not stored_hash or not otp:
+        return False
+    return secrets.compare_digest(stored_hash, _hash_otp(otp))
+
+
+def _set_verification_otp(user: User) -> str:
+    otp = _generate_otp()
+    user.verification_token         = _hash_otp(otp)
+    user.verification_token_expires = _now() + timedelta(
+        minutes=config.OTP_VERIFY_EXPIRE_MINUTES
+    )
+    return otp
+
+
+def _set_reset_otp(user: User) -> str:
+    otp = _generate_otp()
+    user.reset_token_hash    = _hash_otp(otp)
+    user.reset_token_expires = _now() + timedelta(
+        minutes=config.OTP_RESET_EXPIRE_MINUTES
+    )
+    return otp
+
+
+# ── Session helpers ───────────────────────────────────────────────────────────
 
 def _create_session(user: User, ip: str):
     token = secrets.token_urlsafe(64)
@@ -82,44 +115,50 @@ def signup():
         elif User.query.filter_by(email=email).first():
             error = "An account with this email already exists."
         else:
-            token        = secrets.token_urlsafe(48)
-            token_hash   = hashlib.sha256(token.encode()).hexdigest()
-            user         = User(
-                email                      = email,
-                password_hash              = generate_password_hash(password),
-                verification_token         = token_hash,
-                verification_token_expires = _now() + timedelta(hours=24),
+            user = User(
+                email         = email,
+                password_hash = generate_password_hash(password),
             )
+            otp = _set_verification_otp(user)
             db.session.add(user)
             db.session.commit()
-            send_verification(email, user.id, token)
-            return render_template("verify_email.html", email=email)
+            send_verification_otp(email, otp)
+            return redirect(url_for("auth.verify_email", email=email))
 
     return render_template("signup.html", error=error)
 
 
 @auth_bp.route("/verify")
-def verify():
-    raw_token = request.args.get("token", "")
-    if not raw_token:
-        return render_template("verify_email.html", email=None,
-                               error="Missing token.")
+def verify_legacy():
+    """Redirect old verification links to the OTP page."""
+    return redirect(url_for("auth.verify_email", email=request.args.get("email", "")))
 
-    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    user = User.query.filter_by(verification_token=token_hash).first()
 
-    if not user:
-        return render_template("verify_email.html", email=None,
-                               error="Invalid or expired verification link.")
-    if user.verification_token_expires and user.verification_token_expires < _now():
-        return render_template("verify_email.html", email=user.email,
-                               error="Verification link expired. Please sign up again.")
+@auth_bp.route("/verify-email", methods=["GET", "POST"])
+def verify_email():
+    email = (request.form.get("email") or request.args.get("email") or "").strip().lower()
+    error = None
 
-    user.is_verified               = 1
-    user.verification_token        = None
-    user.verification_token_expires= None
-    db.session.commit()
-    return redirect(url_for("auth.login", verified="1"))
+    if request.method == "POST":
+        otp = request.form.get("otp", "").strip()
+        user = User.query.filter_by(email=email).first() if email else None
+
+        if not user:
+            error = "No account found for that email."
+        elif user.is_verified:
+            return redirect(url_for("auth.login", verified="1"))
+        elif not _otp_valid(user.verification_token, otp):
+            error = "Invalid verification code."
+        elif user.verification_token_expires and user.verification_token_expires < _now():
+            error = "Verification code expired. Request a new code below."
+        else:
+            user.is_verified                = 1
+            user.verification_token         = None
+            user.verification_token_expires = None
+            db.session.commit()
+            return redirect(url_for("auth.login", verified="1"))
+
+    return render_template("verify_email.html", email=email or None, error=error)
 
 
 @auth_bp.route("/resend-verification", methods=["POST"])
@@ -127,12 +166,9 @@ def resend_verification():
     email = request.form.get("email", "").strip().lower()
     user  = User.query.filter_by(email=email).first()
     if user and not user.is_verified:
-        token      = secrets.token_urlsafe(48)
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
-        user.verification_token         = token_hash
-        user.verification_token_expires = _now() + timedelta(hours=24)
+        otp = _set_verification_otp(user)
         db.session.commit()
-        send_verification(email, user.id, token)
+        send_verification_otp(email, otp)
     return render_template("verify_email.html", email=email, resent=True)
 
 
@@ -154,7 +190,13 @@ def login():
                 _record_attempt(ip)
                 error = "Invalid email or password."
             elif not user.is_verified:
-                error = "Please verify your email address first."
+                error = "Please verify your email first."
+                return render_template(
+                    "login.html",
+                    error=error,
+                    verified_msg=verified_msg,
+                    unverified_email=email,
+                )
             elif not user.is_active:
                 error = "Your account has been suspended."
             else:
@@ -187,28 +229,26 @@ def logout():
 def forgot_password():
     sent  = False
     error = None
+    email = ""
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         user  = User.query.filter_by(email=email).first()
         if user and user.is_verified:
-            token      = secrets.token_urlsafe(48)
-            token_hash = hashlib.sha256(token.encode()).hexdigest()
-            user.reset_token_hash    = token_hash
-            user.reset_token_expires = _now() + timedelta(hours=1)
+            otp = _set_reset_otp(user)
             db.session.commit()
-            date_str = _now().strftime("%Y%m%d")
-            send_password_reset(email, user.id, token, date_str)
-        sent = True   # always show "sent" to avoid email enumeration
+            send_password_reset_otp(email, otp)
+        sent = True
 
-    return render_template("forgot_password.html", sent=sent, error=error)
+    return render_template("forgot_password.html", sent=sent, error=error, email=email)
 
 
 @auth_bp.route("/reset-password", methods=["GET", "POST"])
 def reset_password():
-    raw_token = request.args.get("token", "") or request.form.get("token", "")
-    error     = None
+    email = (request.form.get("email") or request.args.get("email") or "").strip().lower()
+    error = None
 
     if request.method == "POST":
+        otp      = request.form.get("otp", "").strip()
         password = request.form.get("password", "")
         confirm  = request.form.get("confirm_password", "")
 
@@ -217,16 +257,19 @@ def reset_password():
         elif password != confirm:
             error = "Passwords do not match."
         else:
-            token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-            user = User.query.filter_by(reset_token_hash=token_hash).first()
-            if not user or (user.reset_token_expires and user.reset_token_expires < _now()):
-                error = "Invalid or expired reset link."
+            user = User.query.filter_by(email=email).first() if email else None
+            if not user:
+                error = "No account found for that email."
+            elif not _otp_valid(user.reset_token_hash, otp):
+                error = "Invalid reset code."
+            elif user.reset_token_expires and user.reset_token_expires < _now():
+                error = "Reset code expired. Request a new code from forgot password."
             else:
-                user.password_hash    = generate_password_hash(password)
-                user.reset_token_hash = None
+                user.password_hash       = generate_password_hash(password)
+                user.reset_token_hash    = None
                 user.reset_token_expires = None
                 db.session.commit()
                 _invalidate_all_sessions(user.id)
                 return redirect(url_for("auth.login") + "?reset=1")
 
-    return render_template("reset_password.html", token=raw_token, error=error)
+    return render_template("reset_password.html", email=email or None, error=error)

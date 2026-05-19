@@ -1,43 +1,39 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign in — JD Hub</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
-</head>
-<body class="auth-body">
-  <div class="auth-card">
-    <div class="auth-logo">⬡ JD Hub</div>
-    <h1 class="auth-title">Sign in</h1>
+{% extends "auth_base.html" %}
+{% block title %}Sign in — JobDistributor Hub{% endblock %}
+{% block auth_content %}
+<h1 class="auth-title">Sign in</h1>
 
-    {% if verified_msg %}
-    <div class="alert alert--success">{{ verified_msg }}</div>
-    {% endif %}
-    {% if request.args.get('reset') %}
-    <div class="alert alert--success">Password updated. Please sign in.</div>
-    {% endif %}
-    {% if error %}
-    <div class="alert alert--error">{{ error }}</div>
-    {% endif %}
+{% if verified_msg %}
+<p class="alert alert--success">{{ verified_msg }}</p>
+{% endif %}
+{% if request.args.get('reset') %}
+<p class="alert alert--success">Password updated. Please sign in.</p>
+{% endif %}
+{% if error %}
+<p class="alert alert--error">{{ error }}</p>
+{% if unverified_email %}
+<p class="auth-body-text">
+  <a href="{{ url_for('auth.verify_email', email=unverified_email) }}">Enter your verification code</a>
+</p>
+{% endif %}
+{% endif %}
 
-    <form method="post" action="{{ url_for('auth.login', next=request.args.get('next','')) }}">
-      <div class="field">
-        <label class="field__label">Email</label>
-        <input class="field__input" type="email" name="email" required autofocus autocomplete="email">
-      </div>
-      <div class="field">
-        <label class="field__label">Password</label>
-        <input class="field__input" type="password" name="password" required autocomplete="current-password">
-      </div>
-      <button type="submit" class="btn btn--primary btn--full">Sign in</button>
-    </form>
-
-    <div class="auth-links">
-      <a href="{{ url_for('auth.forgot_password') }}">Forgot password?</a>
-      <span class="auth-links__sep">·</span>
-      <a href="{{ url_for('auth.signup') }}">Create account</a>
-    </div>
+<form method="post" action="{{ url_for('auth.login', next=request.args.get('next','')) }}">
+  <div class="field">
+    <label class="field__label">Email</label>
+    <input class="field__input" type="email" name="email" required autofocus autocomplete="email"
+           value="{{ unverified_email or '' }}">
   </div>
-</body>
-</html>
+  <div class="field">
+    <label class="field__label">Password</label>
+    <input class="field__input" type="password" name="password" required autocomplete="current-password">
+  </div>
+  <button type="submit" class="btn btn--primary btn--full">Sign in</button>
+</form>
+
+<div class="auth-links">
+  <a href="{{ url_for('auth.forgot_password') }}">Forgot password?</a>
+  <span class="auth-links__sep">·</span>
+  <a href="{{ url_for('auth.signup') }}">Create account</a>
+</div>
+{% endblock %}

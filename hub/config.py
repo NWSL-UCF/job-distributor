@@ -44,6 +44,10 @@ BREVO_API_KEY    = _env("BREVO_API_KEY")
 BREVO_FROM_EMAIL = _env("BREVO_FROM_EMAIL", "info@jobdistributor.net")
 BREVO_FROM_NAME  = _env("BREVO_FROM_NAME",  "JobDistributor Team")
 
+# ── OTP (email verification & password reset) ─────────────────────────────────
+OTP_VERIFY_EXPIRE_MINUTES = int(_env("OTP_VERIFY_EXPIRE_MINUTES", "30"))
+OTP_RESET_EXPIRE_MINUTES  = int(_env("OTP_RESET_EXPIRE_MINUTES", "15"))
+
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 LOGIN_MAX_ATTEMPTS  = 5
 LOGIN_WINDOW_SECS   = 900   # 15 minutes

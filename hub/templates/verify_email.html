@@ -1,36 +1,45 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Verify email — JD Hub</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
-</head>
-<body class="auth-body">
-  <div class="auth-card">
-    <div class="auth-logo">⬡ JD Hub</div>
+{% extends "auth_base.html" %}
+{% block title %}Verify email — JobDistributor Hub{% endblock %}
+{% block auth_content %}
 
-    {% if error %}
-      <h1 class="auth-title">Verification failed</h1>
-      <div class="alert alert--error">{{ error }}</div>
-      {% if email %}
-      <form method="post" action="{{ url_for('auth.resend_verification') }}">
-        <input type="hidden" name="email" value="{{ email }}">
-        <button type="submit" class="btn btn--primary btn--full">Resend verification email</button>
-      </form>
-      {% endif %}
-    {% elif resent %}
-      <h1 class="auth-title">Email sent</h1>
-      <p class="auth-body-text">A new verification link has been sent to <strong>{{ email }}</strong>. Check your inbox.</p>
-    {% else %}
-      <h1 class="auth-title">Check your inbox</h1>
-      <p class="auth-body-text">We sent a verification link to <strong>{{ email }}</strong>. Click it to activate your account.</p>
-      <p class="auth-body-text">The link expires in 24 hours.</p>
-    {% endif %}
+{% if resent %}
+<h1 class="auth-title">Code sent</h1>
+<p class="alert alert--success">A new verification code has been sent to <strong>{{ email }}</strong>.</p>
+{% elif email %}
+<h1 class="auth-title">Verify your email</h1>
+<p class="auth-body-text">Enter the 6-digit code we sent to <strong>{{ email }}</strong>.</p>
+{% else %}
+<h1 class="auth-title">Verify your email</h1>
+<p class="auth-body-text">Enter your email and the verification code from your inbox.</p>
+{% endif %}
 
-    <div class="auth-links">
-      <a href="{{ url_for('auth.login') }}">Back to sign in</a>
-    </div>
+{% if error %}
+<p class="alert alert--error">{{ error }}</p>
+{% endif %}
+
+<form method="post" action="{{ url_for('auth.verify_email') }}">
+  <div class="field">
+    <label class="field__label">Email</label>
+    <input class="field__input" type="email" name="email" required
+           value="{{ email or '' }}" {% if email %}readonly{% endif %} autocomplete="email">
   </div>
-</body>
-</html>
+  <div class="field">
+    <label class="field__label">Verification code</label>
+    <input class="field__input field__input--otp" type="text" name="otp" required
+           inputmode="numeric" pattern="[0-9]{6}" maxlength="6" minlength="6"
+           placeholder="000000" autofocus autocomplete="one-time-code">
+  </div>
+  <button type="submit" class="btn btn--primary btn--full">Verify email</button>
+</form>
+
+{% if email %}
+<form method="post" action="{{ url_for('auth.resend_verification') }}" class="auth-resend">
+  <input type="hidden" name="email" value="{{ email }}">
+  <button type="submit" class="btn btn--ghost btn--full">Resend code</button>
+</form>
+{% endif %}
+
+<div class="auth-links">
+  <a href="{{ url_for('auth.login') }}">Back to sign in</a>
+</div>
+{% endblock %}

@@ -26,9 +26,12 @@
   font-weight: 700; font-size: 1rem;
   border-bottom: 1px solid #334155;
 }
-.admin-sidebar__brand a {
+.admin-sidebar__brand a,
+.admin-sidebar__brand-link {
+  display: flex; align-items: center; gap: 8px;
   color: #e2e8f0; text-decoration: none;
 }
+.admin-sidebar__brand-link img { border-radius: 4px; }
 .admin-badge {
   background: var(--color-danger); color: #fff;
   font-size: .65rem; font-weight: 700; padding: 2px 6px;

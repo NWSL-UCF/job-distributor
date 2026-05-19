@@ -3,6 +3,7 @@ Email sending via Brevo REST API with deduplication.
 """
 import logging
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import requests
 
@@ -69,31 +70,32 @@ def send_once(user_id: int, notification_type: str,
 
 # ── Specific email builders ───────────────────────────────────────────────────
 
-def send_verification(user_email: str, user_id: int, token: str) -> bool:
-    link = f"{config.HUB_BASE_URL}/verify?token={token}"
+def send_verification_otp(user_email: str, otp: str) -> bool:
+    verify_url = f"{config.HUB_BASE_URL}/verify-email?email={quote(user_email)}"
     html = f"""
     <h2>Welcome to JobDistributor!</h2>
-    <p>Please verify your email address by clicking the link below:</p>
-    <p><a href="{link}" style="background:#2563eb;color:#fff;padding:10px 20px;
-       border-radius:6px;text-decoration:none;">Verify Email</a></p>
-    <p>This link expires in 24 hours.</p>
+    <p>Your email verification code is:</p>
+    <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:16px 0;">{otp}</p>
+    <p>Enter this code on the verification page. It expires in
+       {config.OTP_VERIFY_EXPIRE_MINUTES} minutes.</p>
+    <p><a href="{verify_url}">Open verification page</a></p>
     <p>If you did not sign up, ignore this email.</p>
     """
-    return send_once(user_id, f"verify_{user_id}", user_email,
-                     "Verify your JobDistributor account", html)
+    return send_email(user_email, "Your JobDistributor verification code", html)
 
 
-def send_password_reset(user_email: str, user_id: int, token: str, date_str: str) -> bool:
-    link = f"{config.HUB_BASE_URL}/reset-password?token={token}"
+def send_password_reset_otp(user_email: str, otp: str) -> bool:
+    reset_url = f"{config.HUB_BASE_URL}/reset-password?email={quote(user_email)}"
     html = f"""
-    <h2>Password Reset</h2>
-    <p>Click the link below to reset your password. It expires in 1 hour.</p>
-    <p><a href="{link}" style="background:#2563eb;color:#fff;padding:10px 20px;
-       border-radius:6px;text-decoration:none;">Reset Password</a></p>
+    <h2>Password reset</h2>
+    <p>Your password reset code is:</p>
+    <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:16px 0;">{otp}</p>
+    <p>Enter this code on the reset password page. It expires in
+       {config.OTP_RESET_EXPIRE_MINUTES} minutes.</p>
+    <p><a href="{reset_url}">Open reset password page</a></p>
     <p>If you did not request this, ignore this email.</p>
     """
-    return send_once(user_id, f"password_reset_{user_id}_{date_str}", user_email,
-                     "Reset your JobDistributor password", html)
+    return send_email(user_email, "Your JobDistributor password reset code", html)
 
 
 def send_quota_warning(user_email: str, user_id: int,

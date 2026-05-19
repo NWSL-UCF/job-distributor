@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Admin — JD Hub{% endblock %}</title>
+  <title>{% block title %}Admin — JobDistributor Hub{% endblock %}</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='favicon-192.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
 </head>
@@ -12,7 +14,10 @@
 
     <aside class="admin-sidebar">
       <div class="admin-sidebar__brand">
-        <a href="{{ url_for('dashboard.index') }}">⬡ JD Hub</a>
+        <a href="{{ url_for('dashboard.index') }}" class="admin-sidebar__brand-link">
+          <img src="{{ url_for('static', filename='favicon.png') }}" width="22" height="22" alt="">
+          JobDistributor Hub
+        </a>
         <span class="admin-badge">Admin</span>
       </div>
       <nav class="admin-nav">

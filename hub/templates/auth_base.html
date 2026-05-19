@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}JobDistributor Hub{% endblock %}</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='favicon-192.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
+</head>
+<body class="auth-body">
+  <div class="auth-card">
+    <a class="auth-logo" href="{{ url_for('auth.login') }}">
+      <img class="auth-logo__icon" src="{{ url_for('static', filename='favicon.png') }}" width="32" height="32" alt="">
+      <span>JobDistributor Hub</span>
+    </a>
+    {% block auth_content %}{% endblock %}
+  </div>
+</body>
+</html>
