@@ -1,0 +1,62 @@
+version: "3.9"
+
+# ── Usage ─────────────────────────────────────────────────────────────────────
+# 1. Copy hub/.env.example → deploy/hub.env and fill in every value.
+# 2. Make sure /etc/letsencrypt certs exist on the host (see deploy/README.md §2).
+# 3. Generate dhparams once if not already done:
+#      openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
+# 4. From the deploy/ directory, run:
+#      docker compose -f hub-compose.yml pull
+#      docker compose -f hub-compose.yml up -d
+#
+# To update after a new image is pushed to Docker Hub:
+#      docker compose -f hub-compose.yml pull
+#      docker compose -f hub-compose.yml up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Nginx (TLS termination + routing) ──────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: hub_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/hub-docker.conf:/etc/nginx/conf.d/default.conf:ro
+      # Wildcard TLS cert — obtained on the host via certbot (see README §2)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - hub
+      - frps
+
+  # ── Hub web app ─────────────────────────────────────────────────────────────
+  hub:
+    image: jobdistributor/jd-hub:latest
+    container_name: hub_app
+    restart: unless-stopped
+    # hub.env is the filled-in copy of hub/.env.example
+    # hub/config.py reads it from /app/hub/.env inside the container
+    volumes:
+      - ./hub.env:/app/hub/.env:ro
+    # Allows the hub container to reach MySQL running on the host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── FRP server (tunnel broker for jd_server containers) ────────────────────
+  frps:
+    image: snowdreamtech/frps:0.61.1
+    container_name: hub_frps
+    restart: unless-stopped
+    ports:
+      # Port 7000: where jd_server containers (frpc) connect to
+      - "7000:7000"
+      # Port 8080: frps vhost HTTP — only nginx talks to this, NOT the internet
+    volumes:
+      - ./frps/frps.toml:/etc/frp/frps.toml:ro
+
+networks:
+  default:
+    name: hub_network
