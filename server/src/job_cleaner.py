@@ -15,10 +15,6 @@ DEFAULT_IDLE_TIMEOUT = 600
 DEFAULT_ABORTED_RESET_TIMEOUT = 1200
 
 
-def createExpBaseDirectory(workspace_path, exp_id):
-    ensure_exp_layout(workspace_path, exp_id)
-
-
 def setup_log(workspace_path, exp_id):
     LOG_FILE = os.path.join(exp_meta_dir(workspace_path, exp_id), LOG_FILENAME)
     logging.basicConfig(
@@ -114,7 +110,7 @@ if __name__ == "__main__":
 
     POLLING_INTERVAL = args.pollingInterval
 
-    createExpBaseDirectory(args.workspacePath, args.expId)
+    ensure_exp_layout(args.workspacePath, args.expId)
     setup_log(args.workspacePath, args.expId)
 
     db_path = jobs_db_path(args.workspacePath, args.expId)

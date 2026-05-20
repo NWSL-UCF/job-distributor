@@ -24,10 +24,6 @@ EXP_ID = "sim100"
 # Initialize database connection
 db = None
 
-def createExpBaseDirectory(args):
-    ensure_exp_layout(args.workspacePath, args.expId)
-
-
 def setup_log(args):
     LOG_FILE = os.path.join(exp_meta_dir(args.workspacePath, args.expId), LOG_FILENAME)
     logging.basicConfig(
@@ -705,7 +701,7 @@ if __name__ == "__main__":
     BASE_DIR = args.workspacePath
     EXP_ID = args.expId
 
-    createExpBaseDirectory(args)
+    ensure_exp_layout(args.workspacePath, args.expId)
     setup_log(args)
 
     DB_FILE = jobs_db_path(args.workspacePath, args.expId)

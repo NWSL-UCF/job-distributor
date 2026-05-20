@@ -12,10 +12,6 @@ BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 DB_FILE = ""
 LOG_FILENAME = "create_job_db.log"
 
-def createExpBaseDirectory(args):
-    ensure_exp_layout(BASE_DIR, args.expId)
-
-
 def setup_log(args):
     LOG_FILE = os.path.join(exp_meta_dir(BASE_DIR, args.expId), LOG_FILENAME)
     logging.basicConfig(
@@ -62,7 +58,7 @@ if __name__ == "__main__":
     parser.add_argument('--parameters', type=str, required=True)
     args = parser.parse_args()
 
-    createExpBaseDirectory(args)
+    ensure_exp_layout(BASE_DIR, args.expId)
     setup_log(args)
 
     parameters_dict = json.loads(args.parameters)
