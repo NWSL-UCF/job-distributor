@@ -14,24 +14,35 @@ Required
     expId=<id>              Experiment identifier (must match the server).
     entry_script=<path>     Python script to run for each job.
 
-Optional
---------
-    (no workspace CLI)      Local data lives under ``<parent>/jd_data/<expId>/<job_id>/``.
-                            ``parent`` is ``JD_WORKSPACE_PATH`` if set, otherwise
-                            ``~`` (your home directory). So the default root is
-                            ``~/jd_data/``. Passed to the entry script as
-                            ``--base_path``, ``JD_WORKER_JOB_DIR``, and
-                            ``JD_WORKER_WORKSPACE_ROOT`` (= ``.../jd_data``).
+Hub mode (recommended) — auto-discovers the server URL
+-------------------------------------------------------
+    api_key=<key>           Your API key from the Hub Profile page
+                            (env: JD_API_KEY).
 
-                            Note: ``JD_WORKSPACE_PATH`` here is **worker-only**
-                            (parent of ``jd_data``). The job server uses the same
-                            variable name for its own layout — avoid exporting one
-                            value for both in the same shell.
+    The worker connects to https://hub.jobdistributor.net by default —
+    no ``hub=`` or ``server=`` needed.  Just supply your API key:
+
+        jd_worker expId=mnist-v1 entry_script=train.py api_key=jd_xxxx
+
+    Or set it once as an env var (recommended):
+        export JD_API_KEY=jd_xxxx
+        jd_worker expId=mnist-v1 entry_script=train.py
+
+    To use a self-hosted hub, override with:
+        hub=<url>           Hub base URL (env: JD_HUB_URL).
+        jd_worker expId=mnist-v1 entry_script=train.py \\
+                  hub=https://my-hub.example.com api_key=jd_xxxx
+
+Standalone mode — connect directly to the job server
+-----------------------------------------------------
     server=<url>            Job server base URL or host (default: http://localhost,
                             env: JD_SERVER). If you omit ``http://`` or ``https://``,
                             ``http://`` is assumed.
     port=<N>                Port if not included in server URL
                             (default: 5000, env: JD_PORT)
+
+Other optional arguments
+------------------------
     log_dir=<path>          If set, logs go under <log_dir>/<expId>/; otherwise
                             under <jd_data>/<expId>/jd_worker_logs/
                             (env: JD_LOG_DIR)
@@ -42,22 +53,14 @@ Optional
     once=true               Exit after completing a single job instead of
                             looping until no jobs remain.
 
-Examples
---------
-    jd_worker expId=mnist_tune entry_script=train.py
-
-    # Optional: put jd_data under /scratch/jd_data (parent=/scratch)
-    JD_WORKSPACE_PATH=/scratch jd_worker expId=mnist_tune entry_script=train.py \\
-              server=http://10.0.0.5 port=8000 \\
-              machine_type=gpu_node
-
-    # Run exactly one job:
-    jd_worker expId=mnist_tune entry_script=train.py once=true
+    Local job data lives under ``<parent>/jd_data/<expId>/<job_id>/``.
+    ``parent`` is ``JD_WORKSPACE_PATH`` if set, otherwise ``~``.
+    Inside your entry script use ``jd_job_dir()`` to get this path —
+    no need to handle ``--base_path`` yourself.
 
 Install
 -------
-    pip install -e ./client     # from the repo root
-    # then `jd_worker` is available in whatever env is active
+    pip install jd-worker
 """
 
 import logging
@@ -162,8 +165,9 @@ def _resolve(cfg: dict) -> dict:
         'machine_type':     get('machine_type', 'JD_MACHINE_TYPE', 'worker'),
         'process_id':       get('process_id',   None,              '0'),
         'once':             get('once',         'JD_ONCE',         'false').lower() == 'true',
-        # Hub authentication (optional)
-        'hub_url':          get('hub_url',      'JD_HUB_URL',      '').strip().rstrip('/'),
+        # Hub authentication — defaults to the public hub; override with hub= or JD_HUB_URL
+        'hub_url':          (cfg.get('hub') or get('hub_url', 'JD_HUB_URL',
+                             'https://hub.jobdistributor.net')).strip().rstrip('/'),
         'api_key':          get('api_key',      'JD_API_KEY',      '').strip(),
     }
 
