@@ -5,13 +5,27 @@ build-backend = "setuptools.build_meta"
 [project]
 name            = "jd-worker"
 version         = "1.0.0"
-description     = "Job Distributor worker CLI"
+description     = "Worker CLI for the JobDistributor distributed job system"
 readme          = "README.md"
 requires-python = ">=3.8"
+license         = { text = "MIT" }
+keywords        = ["distributed", "jobs", "worker", "hpc", "ml"]
+classifiers     = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: System :: Distributed Computing",
+]
 dependencies    = [
     "requests",
     "psutil",
 ]
+
+[project.urls]
+Homepage      = "https://github.com/NWSL-UCF/job-distributor"
+Documentation = "https://github.com/NWSL-UCF/job-distributor/blob/main/docs/jd-worker.md"
+"Bug Tracker" = "https://github.com/NWSL-UCF/job-distributor/issues"
 
 [project.scripts]
 jd_worker = "jd.worker:main"
