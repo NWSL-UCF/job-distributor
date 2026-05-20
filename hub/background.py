@@ -81,8 +81,10 @@ def _poll_traffic() -> None:
     # Build {custom_domain -> (bytes_in, bytes_out)}
     domain_map = {}
     for p in proxies:
-        for domain in (p.get("conf", {}).get("custom_domains") or []):
-                domain_map[domain] = (
+        if not p:
+            continue
+        for domain in ((p.get("conf") or {}).get("custom_domains") or []):
+            domain_map[domain] = (
                 p.get("todayTrafficIn",  0),
                 p.get("todayTrafficOut", 0),
             )
