@@ -235,7 +235,14 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 }
 .exp-card:hover { box-shadow: var(--shadow-md); }
 .exp-card__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.exp-card__name   { font-weight: 600; font-size: 1rem; }
+.exp-card__name   { font-weight: 600; font-size: 1rem; display: flex; align-items: center; gap: 5px; }
+.exp-name-copy {
+  background: none; border: none; cursor: pointer; padding: 2px;
+  color: var(--color-muted); border-radius: 4px; display: inline-flex;
+  align-items: center; opacity: 0; transition: opacity 0.15s;
+}
+.exp-card:hover .exp-name-copy { opacity: 1; }
+.exp-name-copy:hover { color: var(--color-text); background: var(--color-border); }
 .exp-card__urls   { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
 .exp-card__dash   { margin-bottom: 12px; }
 
