@@ -81,21 +81,40 @@ def create_app() -> Flask:
 
 
 def _apply_migrations() -> None:
-    """Idempotent schema migrations for columns added after initial deployment."""
+    """Idempotent schema migrations for columns added after initial deployment.
+
+    Uses information_schema checks for MySQL 5.7 compatibility
+    (ADD COLUMN IF NOT EXISTS requires MySQL 8.0+).
+    """
     import logging
     log = logging.getLogger(__name__)
+
+    # Each entry: (table, column, ALTER TABLE statement to run if column is absent)
     migrations = [
         # v2: server heartbeat tracking
-        "ALTER TABLE experiments ADD COLUMN IF NOT EXISTS "
-        "server_last_ping_at DATETIME NULL AFTER last_activity_at",
+        (
+            "experiments",
+            "server_last_ping_at",
+            "ALTER TABLE experiments ADD COLUMN "
+            "server_last_ping_at DATETIME NULL AFTER last_activity_at",
+        ),
     ]
-    for stmt in migrations:
+
+    for table, column, stmt in migrations:
+        check = db.text(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() "
+            "AND TABLE_NAME = :tbl AND COLUMN_NAME = :col"
+        )
         try:
-            db.session.execute(db.text(stmt))
-            db.session.commit()
+            exists = db.session.execute(check, {"tbl": table, "col": column}).scalar()
+            if not exists:
+                db.session.execute(db.text(stmt))
+                db.session.commit()
+                log.info("Migration applied: added %s.%s", table, column)
         except Exception as exc:
             db.session.rollback()
-            log.debug("Migration skipped or failed (may already exist): %s", exc)
+            log.warning("Migration failed for %s.%s: %s", table, column, exc)
 
 
 def _seed_defaults() -> None:
