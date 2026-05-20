@@ -109,12 +109,14 @@ def experiment_detail(name: str):
 @dashboard_bp.route("/experiments/<name>/delete", methods=["POST"])
 @require_login
 def delete_experiment(name: str):
+    from ..background import _disconnect_frp
     exp = Experiment.query.filter_by(name=name).first_or_404()
     if exp.user_id != g.current_user.id:
         return redirect(url_for("dashboard.index"))
     exp.status     = "DELETED"
     exp.deleted_at = _now()
     db.session.commit()
+    _disconnect_frp(exp)
     return redirect(url_for("dashboard.index"))
 
 
