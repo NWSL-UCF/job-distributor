@@ -107,6 +107,11 @@ def _invalidate_all_sessions(user_id: int) -> None:
 
 @auth_bp.route("/signup", methods=["GET", "POST"])
 def signup():
+    # Redirect already-authenticated users straight to the dashboard
+    from ..decorators import get_current_user
+    if get_current_user():
+        return redirect(url_for("dashboard.index"))
+
     error = None
     if request.method == "POST":
         email    = request.form.get("email", "").strip().lower()
@@ -181,6 +186,11 @@ def resend_verification():
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
+    # Redirect already-authenticated users straight to the dashboard
+    from ..decorators import get_current_user
+    if get_current_user():
+        return redirect(url_for("dashboard.index"))
+
     verified_msg = "Email verified! You can now log in." if request.args.get("verified") else None
     error = None
 
