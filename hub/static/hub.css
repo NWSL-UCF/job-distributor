@@ -799,21 +799,142 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 }
 .auth-footer__logo { border-radius: 50%; opacity: .75; flex-shrink: 0; }
 
-/* ── Responsive ─────────────────────────────────────────────────────────────── */
+/* ── Hamburger button ────────────────────────────────────────────────────────── */
+.nav-hamburger {
+  display: none;
+  flex-direction: column; justify-content: center; align-items: center;
+  gap: 5px;
+  width: 36px; height: 36px;
+  padding: 0;
+  background: none; border: none; cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: background .15s;
+}
+.nav-hamburger:hover { background: #f0f0f0; }
+.nav-hamburger span {
+  display: block;
+  width: 20px; height: 2px;
+  background: var(--color-text);
+  border-radius: 2px;
+  transition: transform .2s, opacity .2s;
+}
+/* Animate to X when open */
+.nav-hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.nav-hamburger.open span:nth-child(2) { opacity: 0; }
+.nav-hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* ── Mobile slide-down menu ──────────────────────────────────────────────────── */
+.nav-mobile-menu {
+  display: none;
+  position: fixed;
+  top: var(--topnav-h);
+  left: 0; right: 0;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  z-index: 99;
+  padding: 6px 0 10px;
+  /* Allow scrolling if menu is taller than viewport (e.g. admin with many items) */
+  max-height: calc(100vh - var(--topnav-h));
+  overflow-y: auto;
+}
+.nav-mobile-menu.open { display: block; }
+.nav-mobile-menu__link {
+  display: block;
+  padding: 10px 20px;
+  color: var(--color-text);
+  font-size: .95rem; text-decoration: none;
+  transition: background .12s;
+  background: none; border: none; width: 100%;
+  text-align: left; font-family: var(--font); cursor: pointer;
+}
+.nav-mobile-menu__link:hover,
+.nav-mobile-menu__link.active { background: #f5f5f5; text-decoration: none; }
+.nav-mobile-menu__link--cta { color: var(--color-text); font-weight: 600; }
+.nav-mobile-menu__signout { color: var(--color-danger); }
+.nav-mobile-menu__signout:hover { background: #fef2f2; }
+.nav-mobile-menu__divider {
+  height: 1px;
+  background: var(--color-border-light);
+  margin: 6px 0;
+}
+
+/* ── form-actions: always wrap on small screens ──────────────────────────────── */
+.form-actions { flex-wrap: wrap; }
+
+/* ── Responsive — tablet (≤ 860px) ──────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .detail-grid { grid-template-columns: 1fr; }
+  .detail-card--wide { grid-column: 1; }
+}
+
+/* ── Responsive — mobile (≤ 640px) ──────────────────────────────────────────── */
 @media (max-width: 640px) {
-  .main-content { padding: 16px; }
-  .topnav { padding: 0 16px; gap: 12px; }
-  .exp-detail__hero { margin: 0 0 20px; padding: 20px 18px; }
-  .exp-detail__title { font-size: 1.35rem; }
+  /* Nav: hide desktop links, show hamburger */
+  .topnav { padding: 0 14px; gap: 8px; }
+  .topnav__links { display: none; }
+  .topnav__brand-text { font-size: .95rem; }
+  .nav-hamburger { display: flex; }
+  .nav-avatar-caret { display: none; }
+  /* Hide "Create account" CTA text on mobile — it's in the hamburger */
+  .topnav__cta-full { display: none; }
+
+  /* Main layout */
+  .main-content { padding: 16px 14px; }
+
+  /* Page header — stack if needed */
+  .page-header { flex-wrap: wrap; gap: 10px; }
+  .page-header .btn { align-self: flex-start; }
+
+  /* Usage card value: remove fixed width so it wraps gracefully */
+  .usage-val { width: auto; min-width: 80px; text-align: right; }
+
+  /* Experiment grid: single column on phones */
+  .exp-grid { grid-template-columns: 1fr; }
+
+  /* Experiment detail */
+  .exp-detail__hero { margin: 0 0 16px; padding: 16px 14px; }
+  .exp-detail__title { font-size: 1.25rem; }
   .exp-detail__grid { grid-template-columns: 1fr; }
+
+  /* Endpoint items */
   .endpoint-item { flex-direction: column; }
   .endpoint-item__url-row { flex-direction: column; }
   .endpoint-item__actions { justify-content: flex-end; }
-  .nav-avatar-caret { display: none; }
-  .detail-card--wide { grid-column: 1; }
+
+  /* Profile */
   .profile-layout { grid-template-columns: 1fr; }
   .profile-row { grid-template-columns: 1fr; }
+
+  /* API Keys table: wrap key cell, hide date column */
   .keys-table__date { display: none; }
-  .site-footer__inner { flex-direction: column; align-items: flex-start; }
+  .keys-table__key-cell { min-width: 0; }
+  .keys-table__prefix { display: none; }
+  .key-reveal-row { flex-wrap: wrap; gap: 4px; }
+  .key-reveal-row .endpoint-item__input { font-size: .78rem; }
+
+  /* Modal: full-width at bottom / centred */
+  .modal { max-width: calc(100vw - 24px); margin: 12px; }
+  .modal__footer { flex-wrap: wrap; }
+
+  /* Auth card */
+  .auth-card { padding: 28px 20px; }
+  .auth-body__center { padding: 24px 12px; }
+
+  /* Footer */
+  .site-footer { padding: 16px 14px; }
+  .site-footer__inner { flex-direction: column; align-items: flex-start; gap: 12px; }
   .site-footer__links { gap: 12px; }
+  .site-footer__brand { gap: 8px; }
+  .site-footer__lab { font-size: .8rem; }
+}
+
+/* ── Responsive — small phones (≤ 400px) ────────────────────────────────────── */
+@media (max-width: 400px) {
+  .topnav__brand-text { display: none; }  /* icon alone at very tiny sizes */
+  .auth-card { padding: 22px 16px; }
+  .form-card { padding: 16px; }
+  /* Keep "Sign in" button, hide it from topnav (it's in hamburger) */
+  .topnav__user .btn--outline { display: none; }
 }

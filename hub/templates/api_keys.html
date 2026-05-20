@@ -36,6 +36,7 @@
 {# ── Keys table ──────────────────────────────────────────────────────────── #}
 {% if keys %}
 <div class="form-card" style="padding:0;overflow:hidden">
+  <div style="overflow-x:auto">
   <table class="keys-table">
     <thead>
       <tr>
@@ -87,6 +88,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% else %}
 <div class="empty-state">

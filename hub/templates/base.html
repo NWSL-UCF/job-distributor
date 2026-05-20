@@ -16,15 +16,17 @@
   <nav class="topnav">
     <a class="topnav__brand" href="{{ url_for('dashboard.index') }}">
       <img class="topnav__logo" src="{{ url_for('static', filename='favicon.png') }}" width="24" height="24" alt="">
-      JobDistributor Hub
+      <span class="topnav__brand-text">JobDistributor Hub</span>
     </a>
+
     {% if user %}
+    {# ── Desktop nav links (hidden on mobile) ─────────────────────────────── #}
     <div class="topnav__links">
-      <a href="{{ url_for('dashboard.index') }}"    class="topnav__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
+      <a href="{{ url_for('dashboard.index') }}"      class="topnav__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
       <a href="{{ url_for('dashboard.extensions') }}" class="topnav__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">Extensions</a>
-      <a href="{{ url_for('dashboard.api_keys') }}"  class="topnav__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
-      <a href="{{ url_for('dashboard.profile') }}"   class="topnav__link {% if request.endpoint in ['dashboard.profile','dashboard.change_password'] %}active{% endif %}">Profile</a>
-      <a href="{{ url_for('pages.tutorials') }}"     class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
+      <a href="{{ url_for('dashboard.api_keys') }}"   class="topnav__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
+      <a href="{{ url_for('dashboard.profile') }}"    class="topnav__link {% if request.endpoint in ['dashboard.profile','dashboard.change_password'] %}active{% endif %}">Profile</a>
+      <a href="{{ url_for('pages.tutorials') }}"      class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
       {% if user.is_admin %}
       <a href="{{ url_for('admin.index') }}" class="topnav__link topnav__admin">Admin</a>
       {% endif %}
@@ -40,8 +42,7 @@
           <polyline points="6 9 12 15 18 9"/>
         </svg>
       </div>
-
-      {# Dropdown panel #}
+      {# Avatar dropdown #}
       <div class="nav-avatar-dropdown" id="nav-avatar-dropdown">
         <div class="nav-avatar-dropdown__header">
           <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
@@ -56,43 +57,66 @@
         </div>
         <div class="nav-avatar-dropdown__body">
           <a href="{{ url_for('dashboard.profile') }}" class="nav-avatar-dropdown__link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-              <circle cx="12" cy="7" r="4"/>
-            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             Profile &amp; Settings
           </a>
           <a href="{{ url_for('dashboard.api_keys') }}" class="nav-avatar-dropdown__link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
             API Keys
           </a>
         </div>
         <div class="nav-avatar-dropdown__footer">
           <form action="{{ url_for('auth.logout') }}" method="post">
             <button type="submit" class="nav-avatar-dropdown__signout">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               Sign out
             </button>
           </form>
         </div>
       </div>
+      {# Hamburger (mobile only) #}
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
     </div>
+
     {% else %}
+    {# Anonymous: minimal desktop nav + sign-in buttons #}
     <div class="topnav__links">
       <a href="{{ url_for('pages.tutorials') }}" class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
     </div>
     <div class="topnav__user">
       <a href="{{ url_for('auth.login') }}"  class="btn btn--outline btn--sm">Sign in</a>
-      <a href="{{ url_for('auth.signup') }}" class="btn btn--primary btn--sm">Create account</a>
+      <a href="{{ url_for('auth.signup') }}" class="btn btn--primary btn--sm topnav__cta-full">Create account</a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
     </div>
     {% endif %}
   </nav>
+
+  {# ── Mobile slide-down menu ─────────────────────────────────────────────── #}
+  <div class="nav-mobile-menu" id="nav-mobile-menu" aria-hidden="true">
+    {% if user %}
+    <a href="{{ url_for('dashboard.index') }}"      class="nav-mobile-menu__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
+    <a href="{{ url_for('dashboard.extensions') }}" class="nav-mobile-menu__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">Extensions</a>
+    <a href="{{ url_for('dashboard.api_keys') }}"   class="nav-mobile-menu__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
+    <a href="{{ url_for('dashboard.profile') }}"    class="nav-mobile-menu__link {% if request.endpoint in ['dashboard.profile','dashboard.change_password'] %}active{% endif %}">Profile</a>
+    <a href="{{ url_for('pages.tutorials') }}"      class="nav-mobile-menu__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
+    {% if user.is_admin %}
+    <a href="{{ url_for('admin.index') }}" class="nav-mobile-menu__link" style="color:var(--color-danger)">Admin</a>
+    {% endif %}
+    <div class="nav-mobile-menu__divider"></div>
+    <form action="{{ url_for('auth.logout') }}" method="post" style="margin:0">
+      <button type="submit" class="nav-mobile-menu__link nav-mobile-menu__signout">Sign out</button>
+    </form>
+    {% else %}
+    <a href="{{ url_for('pages.tutorials') }}" class="nav-mobile-menu__link">Tutorials</a>
+    <div class="nav-mobile-menu__divider"></div>
+    <a href="{{ url_for('auth.login') }}"  class="nav-mobile-menu__link">Sign in</a>
+    <a href="{{ url_for('auth.signup') }}" class="nav-mobile-menu__link nav-mobile-menu__link--cta">Create account</a>
+    {% endif %}
+  </div>
 
   <main class="main-content">
     {% block content %}{% endblock %}

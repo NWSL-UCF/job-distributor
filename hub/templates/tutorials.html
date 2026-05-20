@@ -2,6 +2,8 @@
 {% block title %}JobDistributor — Getting Started Tutorial{% endblock %}
 
 {% block extra_head %}
+{# ── Syntax highlighting (Atom One Light theme) ──────────────────────────── #}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css">
 <style>
   /* ── Tutorial layout ────────────────────────────────────────────────────── */
   .tut-wrap {
@@ -24,26 +26,17 @@
     font-size: .85rem;
   }
   .tut-nav__title {
-    font-size: .7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    color: var(--color-muted);
-    margin-bottom: 10px;
+    font-size: .7rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    color: var(--color-muted); margin-bottom: 10px;
   }
   .tut-nav a {
-    display: block;
-    padding: 5px 8px;
-    border-radius: 4px;
-    color: var(--color-muted);
-    text-decoration: none;
-    line-height: 1.4;
-    transition: background .12s, color .12s;
+    display: block; padding: 5px 8px; border-radius: 4px;
+    color: var(--color-muted); text-decoration: none;
+    line-height: 1.4; transition: background .12s, color .12s;
   }
   .tut-nav a:hover, .tut-nav a.active {
-    background: #f0f0f0;
-    color: var(--color-text);
-    text-decoration: none;
+    background: #f0f0f0; color: var(--color-text); text-decoration: none;
   }
   .tut-nav a.sub { padding-left: 20px; font-size: .82rem; }
 
@@ -61,21 +54,17 @@
     padding-bottom: 8px; margin-bottom: 20px;
     display: flex; align-items: center; gap: 10px;
   }
-  .tut-section h3 {
-    font-size: 1.1rem; font-weight: 700; margin: 24px 0 10px;
-  }
+  .tut-section h3 { font-size: 1.1rem; font-weight: 700; margin: 24px 0 10px; }
   .tut-section p { margin-bottom: 14px; line-height: 1.75; }
   .tut-section ul, .tut-section ol {
     padding-left: 22px; margin-bottom: 14px; line-height: 1.8;
   }
   .tut-section li { margin-bottom: 4px; }
   .tut-section table {
-    width: 100%; border-collapse: collapse; margin-bottom: 16px;
-    font-size: .9rem;
+    width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: .9rem;
   }
   .tut-section th, .tut-section td {
-    padding: 8px 12px; text-align: left;
-    border: 1px solid var(--color-border);
+    padding: 8px 12px; text-align: left; border: 1px solid var(--color-border);
   }
   .tut-section th { background: #f5f5f5; font-weight: 600; }
   .tut-section tr:nth-child(even) td { background: #fafafa; }
@@ -89,41 +78,62 @@
   }
   .step-badge--alt { background: #4f46e5; }
 
-  /* ── Code blocks ────────────────────────────────────────────────────────── */
+  /* ── Code blocks — Notion-style ─────────────────────────────────────────── */
+  /*
+   * hub.css applies .code-block { padding:16px; white-space:pre } for the
+   * experiment-detail dark code view.  Override everything here so the
+   * tutorial code blocks are fully self-contained.
+   */
   .code-block {
     position: relative;
-    background: #f6f8fa;
-    border: 1px solid #d8dde3;
-    border-radius: var(--radius);
-    margin: 16px 0;
+    padding: 0;                        /* ← reset hub.css padding */
+    white-space: normal;               /* ← reset hub.css white-space */
+    background: #fafafa;
+    border: 1px solid #e2e4e8;
+    border-radius: 6px;
+    margin: 12px 0;
     overflow: hidden;
+    font-size: unset; color: unset;    /* reset hub.css dark-theme colors */
   }
   .code-block__lang {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 5px 12px;
-    border-bottom: 1px solid #d8dde3;
-    font-size: .72rem;
+    padding: 4px 12px 3px;
+    border-bottom: 1px solid #e2e4e8;
+    background: #f2f3f5;
+    font-size: .67rem;
     font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
-    color: #6e7781;
-    background: #f0f2f4;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: .06em;
   }
   .code-block__copy {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 3px 10px; border-radius: 4px;
-    background: #e8eaed; color: #444;
-    border: 1px solid #d0d3d8; cursor: pointer; font-size: .75rem;
-    transition: background .15s;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 3px;
+    background: transparent; color: #888;
+    border: 1px solid transparent; cursor: pointer;
+    font-size: .7rem; font-family: var(--font);
+    transition: all .14s;
   }
-  .code-block__copy:hover { background: #dde0e5; color: #111; }
-  .code-block__copy.copied { background: #dcf5e7; color: #1a7f4b; border-color: #a6dfc0; }
+  .code-block__copy:hover  { background: #e6e8ec; color: #333; border-color: #ccc; }
+  .code-block__copy.copied { background: #e3f5e8; color: #1a7f4b; border-color: #a6dfc0; }
   .code-block pre {
-    margin: 0; padding: 12px 16px;
+    margin: 0;
+    padding: 10px 14px 12px;
     overflow-x: auto;
-    font-size: .87rem; line-height: 1.6;
-    color: #24292f;
+    background: transparent;
+    font-size: .865rem; line-height: 1.55;
     font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+    /* Do not set white-space here; <pre> default (pre) is correct */
   }
-  .code-block pre code { font-size: inherit; background: none; color: inherit; }
+  /* Strip highlight.js background so our block background shows through */
+  .code-block .hljs,
+  .code-block pre code.hljs {
+    background: transparent !important;
+    padding: 0 !important;
+    font-size: inherit;
+    font-family: inherit;
+  }
+  .code-block pre code { font-size: inherit; font-family: inherit; }
 
   /* ── Info / tip boxes ───────────────────────────────────────────────────── */
   .tut-note {
@@ -149,15 +159,24 @@
   /* ── Grid overview table ────────────────────────────────────────────────── */
   .grid-tag {
     display: inline-block; padding: 2px 8px; border-radius: 12px;
-    background: #f0f0f0; font-size: .8rem; font-family: monospace;
-    margin: 2px;
+    background: #f0f0f0; font-size: .8rem; font-family: monospace; margin: 2px;
   }
 
   /* ── Responsive ─────────────────────────────────────────────────────────── */
   @media (max-width: 840px) {
-    .tut-wrap { grid-template-columns: 1fr; padding: 16px; }
+    .tut-wrap { grid-template-columns: 1fr; padding: 20px 16px 48px; gap: 24px; }
     .tut-nav  { position: static; }
     .tut-body h1 { font-size: 1.5rem; }
+  }
+  @media (max-width: 640px) {
+    .tut-wrap { padding: 14px 12px 40px; gap: 16px; }
+    .tut-body h1 { font-size: 1.3rem; }
+    .tut-body .tut-lead { font-size: .95rem; }
+    .tut-section h2 { font-size: 1.2rem; }
+    .tut-section h3 { font-size: 1rem; }
+    .tut-section table { font-size: .8rem; display: block; overflow-x: auto; }
+    .code-block pre { font-size: .8rem; }
+    .tut-note { padding: 10px 12px; font-size: .85rem; }
   }
 </style>
 {% endblock %}
@@ -888,8 +907,7 @@ pip install --upgrade jd-worker</code></pre>
       <h3 id="step5-install">5a. Install <code>jd-worker</code></h3>
 
       <p>
-        Activate your Python virtual environment (or conda environment) and
-        install the package:
+        Activate your Python virtual environment and install the package:
       </p>
 
       <div class="code-block">
@@ -1082,10 +1100,8 @@ jd_worker expId=digits-tune entry_script=train.py process_id=3 machine_type=cpu<
 # ── Environment setup ─────────────────────────────────────────────────────────
 # Load the Python module appropriate for your cluster, e.g.:
 # module load python/3.11
-# or activate a conda environment:
-# source ~/miniconda3/etc/profile.d/conda.sh && conda activate ml-env
 
-source ~/venvs/ml/bin/activate   # replace with your virtual environment path
+source ~/venvs/ml/bin/activate   # replace with your venv path
 
 # ── JobDistributor configuration ──────────────────────────────────────────────
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -1252,7 +1268,38 @@ sbatch submit_jd.slurm</code></pre>
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script>
+/* ── Syntax highlighting — auto-detect language from label text ─────────────── */
+(function () {
+  var langMap = {
+    'python': 'python',
+    'bash':   'bash',
+    'shell':  'bash',
+    'json':   'json',
+    'slurm':  'bash',
+    'yaml':   'yaml',
+    'ini':    'ini',
+    'path':   'plaintext',
+    'text':   'plaintext',
+  };
+  document.querySelectorAll('.code-block').forEach(function (block) {
+    var labelEl = block.querySelector('.code-block__lang span');
+    var codeEl  = block.querySelector('pre code');
+    if (!labelEl || !codeEl) return;
+    var label = labelEl.textContent.toLowerCase();
+    var lang  = 'plaintext';
+    Object.keys(langMap).forEach(function (key) {
+      if (label.indexOf(key) !== -1) lang = langMap[key];
+    });
+    codeEl.classList.add('language-' + lang);
+  });
+  if (typeof hljs !== 'undefined') {
+    hljs.configure({ ignoreUnescapedHTML: true });
+    hljs.highlightAll();
+  }
+})();
+
 /* ── Copy-code buttons ──────────────────────────────────────────────────────── */
 function copyCode(btn) {
   const pre = btn.closest('.code-block').querySelector('pre');

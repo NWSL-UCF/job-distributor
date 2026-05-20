@@ -63,7 +63,6 @@ window.copyFrpc = function () {
     toggle.classList.toggle('open', open);
   });
 
-  // Close when clicking anywhere outside
   document.addEventListener('click', function (e) {
     if (!toggle.contains(e.target) && !dropdown.contains(e.target)) {
       dropdown.classList.remove('open');
@@ -71,12 +70,60 @@ window.copyFrpc = function () {
     }
   });
 
-  // Close on Escape
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
       dropdown.classList.remove('open');
       toggle.classList.remove('open');
+      mobileMenuClose();
     }
+  });
+})();
+
+// ── Mobile hamburger menu ─────────────────────────────────────────────────────
+(function () {
+  const btn  = document.getElementById('nav-hamburger');
+  const menu = document.getElementById('nav-mobile-menu');
+  if (!btn || !menu) return;
+
+  function mobileMenuOpen() {
+    menu.classList.add('open');
+    menu.setAttribute('aria-hidden', 'false');
+    btn.setAttribute('aria-expanded', 'true');
+    btn.classList.add('open');
+  }
+
+  window.mobileMenuClose = function () {
+    menu.classList.remove('open');
+    menu.setAttribute('aria-hidden', 'true');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('open');
+  };
+
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (menu.classList.contains('open')) {
+      window.mobileMenuClose();
+    } else {
+      mobileMenuOpen();
+      // Close avatar dropdown if open
+      const avDrop = document.getElementById('nav-avatar-dropdown');
+      const avToggle = document.getElementById('nav-avatar-toggle');
+      if (avDrop) { avDrop.classList.remove('open'); }
+      if (avToggle) { avToggle.classList.remove('open'); }
+    }
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!btn.contains(e.target) && !menu.contains(e.target)) {
+      window.mobileMenuClose();
+    }
+  });
+
+  // Close menu when a nav link inside it is clicked (page navigates away)
+  menu.querySelectorAll('a').forEach(function (link) {
+    link.addEventListener('click', function () {
+      window.mobileMenuClose();
+    });
   });
 })();
 
