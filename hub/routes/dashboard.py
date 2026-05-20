@@ -156,7 +156,7 @@ def reset_pin(name: str):
         r = req.post(
             dash_url,
             json={"new_pin": new_pin},
-            headers={"Authorization": f"Bearer {exp.admin_token}"},
+            headers={"X-Admin-Token": exp.admin_token},
             timeout=10,
         )
         if r.status_code == 200:
