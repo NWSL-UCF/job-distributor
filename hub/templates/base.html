@@ -13,139 +13,219 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body>
-  <nav class="topnav">
-    <a class="topnav__brand" href="{{ url_for('dashboard.index') }}">
-      <img class="topnav__logo" src="{{ url_for('static', filename='favicon.png') }}" width="24" height="24" alt="">
-      <span class="topnav__brand-text">JobDistributor Hub</span>
-    </a>
 
-    {% if user %}
-    {# ── Desktop nav links (hidden on mobile) ─────────────────────────────── #}
-    <div class="topnav__links">
-      <a href="{{ url_for('dashboard.index') }}"      class="topnav__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
-      <a href="{{ url_for('dashboard.extensions') }}" class="topnav__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">Extensions</a>
-      <a href="{{ url_for('dashboard.api_keys') }}"   class="topnav__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
-      <a href="{{ url_for('dashboard.profile') }}"    class="topnav__link {% if request.endpoint in ['dashboard.profile','dashboard.change_password'] %}active{% endif %}">Profile</a>
-      <a href="{{ url_for('pages.tutorials') }}"      class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
-      {% if user.is_admin %}
-      <a href="{{ url_for('admin.index') }}" class="topnav__link topnav__admin">Admin</a>
-      {% endif %}
-    </div>
-    <div class="topnav__user">
-      {# Avatar button — opens dropdown #}
-      <div class="nav-avatar-wrap" id="nav-avatar-toggle" title="{{ user.email }}">
-        <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
-             alt="{{ user.display_name or user.email }}"
-             class="nav-avatar nav-avatar--photo">
-        <svg class="nav-avatar-caret" width="10" height="10" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </div>
-      {# Avatar dropdown #}
-      <div class="nav-avatar-dropdown" id="nav-avatar-dropdown">
-        <div class="nav-avatar-dropdown__header">
-          <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
-               alt="{{ user.display_name or user.email }}"
-               class="nav-avatar-dropdown__img">
-          <div class="nav-avatar-dropdown__info">
-            {% if user.display_name %}
-            <span class="nav-avatar-dropdown__name">{{ user.display_name }}</span>
-            {% endif %}
-            <span class="nav-avatar-dropdown__email">{{ user.email }}</span>
-          </div>
-        </div>
-        <div class="nav-avatar-dropdown__body">
-          <a href="{{ url_for('dashboard.profile') }}" class="nav-avatar-dropdown__link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            Profile &amp; Settings
-          </a>
-          <a href="{{ url_for('dashboard.api_keys') }}" class="nav-avatar-dropdown__link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-            API Keys
-          </a>
-        </div>
-        <div class="nav-avatar-dropdown__footer">
-          <form action="{{ url_for('auth.logout') }}" method="post">
-            <button type="submit" class="nav-avatar-dropdown__signout">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              Sign out
-            </button>
-          </form>
-        </div>
-      </div>
-      {# Hamburger (mobile only) #}
-      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu" aria-expanded="false">
-        <span></span><span></span><span></span>
-      </button>
-    </div>
+{# ── Top navigation ──────────────────────────────────────────────────────── #}
+<nav class="topnav">
+  <a class="topnav__brand" href="{{ url_for('dashboard.index') }}">
+    <img class="topnav__logo" src="{{ url_for('static', filename='favicon.png') }}" width="24" height="24" alt="">
+    <span class="topnav__brand-text">JobDistributor Hub</span>
+  </a>
 
-    {% else %}
-    {# Anonymous: minimal desktop nav + sign-in buttons #}
-    <div class="topnav__links">
-      <a href="{{ url_for('pages.tutorials') }}" class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
-    </div>
-    <div class="topnav__user">
-      <a href="{{ url_for('auth.login') }}"  class="btn btn--outline btn--sm">Sign in</a>
-      <a href="{{ url_for('auth.signup') }}" class="btn btn--primary btn--sm topnav__cta-full">Create account</a>
-      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu" aria-expanded="false">
-        <span></span><span></span><span></span>
-      </button>
-    </div>
-    {% endif %}
-  </nav>
-
-  {# ── Mobile slide-down menu ─────────────────────────────────────────────── #}
-  <div class="nav-mobile-menu" id="nav-mobile-menu" aria-hidden="true">
-    {% if user %}
-    <a href="{{ url_for('dashboard.index') }}"      class="nav-mobile-menu__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
-    <a href="{{ url_for('dashboard.extensions') }}" class="nav-mobile-menu__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">Extensions</a>
-    <a href="{{ url_for('dashboard.api_keys') }}"   class="nav-mobile-menu__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
-    <a href="{{ url_for('dashboard.profile') }}"    class="nav-mobile-menu__link {% if request.endpoint in ['dashboard.profile','dashboard.change_password'] %}active{% endif %}">Profile</a>
-    <a href="{{ url_for('pages.tutorials') }}"      class="nav-mobile-menu__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
+  {% if user %}
+  {# ── Desktop nav links (hidden ≤ 640 px) ────────────────────────────── #}
+  <div class="topnav__links">
+    <a href="{{ url_for('dashboard.index') }}"      class="topnav__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
+    <a href="{{ url_for('dashboard.extensions') }}" class="topnav__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">Extensions</a>
+    <a href="{{ url_for('dashboard.api_keys') }}"   class="topnav__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
+    <a href="{{ url_for('dashboard.profile') }}"    class="topnav__link {% if request.endpoint in ['dashboard.profile','dashboard.change_password'] %}active{% endif %}">Profile</a>
+    <a href="{{ url_for('pages.tutorials') }}"      class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
     {% if user.is_admin %}
-    <a href="{{ url_for('admin.index') }}" class="nav-mobile-menu__link" style="color:var(--color-danger)">Admin</a>
-    {% endif %}
-    <div class="nav-mobile-menu__divider"></div>
-    <form action="{{ url_for('auth.logout') }}" method="post" style="margin:0">
-      <button type="submit" class="nav-mobile-menu__link nav-mobile-menu__signout">Sign out</button>
-    </form>
-    {% else %}
-    <a href="{{ url_for('pages.tutorials') }}" class="nav-mobile-menu__link">Tutorials</a>
-    <div class="nav-mobile-menu__divider"></div>
-    <a href="{{ url_for('auth.login') }}"  class="nav-mobile-menu__link">Sign in</a>
-    <a href="{{ url_for('auth.signup') }}" class="nav-mobile-menu__link nav-mobile-menu__link--cta">Create account</a>
+    <a href="{{ url_for('admin.index') }}" class="topnav__link topnav__admin">Admin</a>
     {% endif %}
   </div>
 
-  <main class="main-content">
-    {% block content %}{% endblock %}
-  </main>
-
-  <footer class="site-footer">
-    <div class="site-footer__inner">
-      <div class="site-footer__brand">
-        <img src="{{ url_for('static', filename='nwsl-logo.png') }}"
-             alt="NWSL" width="32" height="32" class="site-footer__logo"
+  <div class="topnav__user">
+    {# Avatar + desktop dropdown (desktop only) #}
+    <div class="nav-avatar-wrap" id="nav-avatar-toggle" title="{{ user.email }}">
+      {# Avatar frame: shows initial letter when image fails #}
+      <div class="nav-avatar-frame">
+        <span class="nav-avatar-initial" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
+        <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+             alt="{{ user.display_name or user.email }}"
              onerror="this.style.display='none'">
-        <div>
-          <span class="site-footer__lab">
-            University of Central Florida &mdash; Networking and Wireless System Lab (NWSL)
-          </span>
-          <span class="site-footer__copy">
-            &copy; {{ now.year if now else '2025' }} University of Central Florida. All rights reserved.
-          </span>
+      </div>
+      <svg class="nav-avatar-caret" width="10" height="10" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+
+    {# Desktop dropdown panel #}
+    <div class="nav-avatar-dropdown" id="nav-avatar-dropdown">
+      <div class="nav-avatar-dropdown__header">
+        <div class="nav-avatar-frame nav-avatar-frame--md">
+          <span class="nav-avatar-initial nav-avatar-initial--md" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
+          <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+               alt="{{ user.display_name or user.email }}"
+               onerror="this.style.display='none'">
+        </div>
+        <div class="nav-avatar-dropdown__info">
+          {% if user.display_name %}
+          <span class="nav-avatar-dropdown__name">{{ user.display_name }}</span>
+          {% endif %}
+          <span class="nav-avatar-dropdown__email">{{ user.email }}</span>
         </div>
       </div>
-      <div class="site-footer__links">
-        <a href="{{ url_for('pages.tutorials') }}">Tutorials</a>
-        <a href="https://github.com/NWSL-UCF/job-distributor" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://pypi.org/project/jd-worker/" target="_blank" rel="noopener">PyPI</a>
+      <div class="nav-avatar-dropdown__body">
+        <a href="{{ url_for('dashboard.profile') }}" class="nav-avatar-dropdown__link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Profile &amp; Settings
+        </a>
+        <a href="{{ url_for('dashboard.api_keys') }}" class="nav-avatar-dropdown__link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          API Keys
+        </a>
+      </div>
+      <div class="nav-avatar-dropdown__footer">
+        <form action="{{ url_for('auth.logout') }}" method="post">
+          <button type="submit" class="nav-avatar-dropdown__signout">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Sign out
+          </button>
+        </form>
       </div>
     </div>
-  </footer>
 
-  <script src="{{ url_for('static', filename='hub.js') }}"></script>
-  {% block extra_scripts %}{% endblock %}
+    {# Hamburger — mobile only #}
+    <button class="nav-hamburger" id="nav-hamburger" aria-label="Open navigation" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+
+  {% else %}
+  {# ── Anonymous nav ───────────────────────────────────────────────────── #}
+  <div class="topnav__links">
+    <a href="{{ url_for('pages.tutorials') }}" class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
+  </div>
+  <div class="topnav__user">
+    <a href="{{ url_for('auth.login') }}"  class="btn btn--outline btn--sm">Sign in</a>
+    <a href="{{ url_for('auth.signup') }}" class="btn btn--primary btn--sm topnav__cta-full">Create account</a>
+    <button class="nav-hamburger" id="nav-hamburger" aria-label="Open navigation" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+  {% endif %}
+</nav>
+
+{# ── Mobile drawer overlay (darkens background) ─────────────────────────── #}
+<div class="nav-drawer-overlay" id="nav-drawer-overlay"></div>
+
+{# ── Mobile navigation drawer ────────────────────────────────────────────── #}
+<aside class="nav-drawer" id="nav-drawer" aria-hidden="true">
+
+  {# Drawer header #}
+  <div class="nav-drawer__header">
+    {% if user %}
+    <div class="nav-drawer__identity">
+      <div class="nav-drawer__avatar-frame">
+        <span class="nav-drawer__avatar-initial" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
+        <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+             alt="{{ user.display_name or user.email }}"
+             onerror="this.style.display='none'">
+      </div>
+      <div class="nav-drawer__identity-text">
+        {% if user.display_name %}
+        <span class="nav-drawer__identity-name">{{ user.display_name }}</span>
+        {% endif %}
+        <span class="nav-drawer__identity-email">{{ user.email }}</span>
+      </div>
+    </div>
+    {% else %}
+    <a class="nav-drawer__brand" href="{{ url_for('auth.login') }}">
+      <img src="{{ url_for('static', filename='favicon.png') }}" width="22" height="22" alt="">
+      JobDistributor Hub
+    </a>
+    {% endif %}
+    <button class="nav-drawer__close" id="nav-drawer-close" aria-label="Close navigation">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  </div>
+
+  {# Drawer nav links #}
+  <nav class="nav-drawer__body">
+    {% if user %}
+    <a href="{{ url_for('dashboard.index') }}" class="nav-drawer__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </a>
+    <a href="{{ url_for('dashboard.extensions') }}" class="nav-drawer__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      Extensions
+    </a>
+    <a href="{{ url_for('dashboard.api_keys') }}" class="nav-drawer__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+      API Keys
+    </a>
+    <a href="{{ url_for('dashboard.profile') }}" class="nav-drawer__link {% if request.endpoint in ['dashboard.profile','dashboard.change_password'] %}active{% endif %}">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Profile
+    </a>
+    <a href="{{ url_for('pages.tutorials') }}" class="nav-drawer__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      Tutorials
+    </a>
+    {% if user.is_admin %}
+    <a href="{{ url_for('admin.index') }}" class="nav-drawer__link nav-drawer__link--admin">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+      Admin
+    </a>
+    {% endif %}
+    <div class="nav-drawer__divider"></div>
+    <form action="{{ url_for('auth.logout') }}" method="post" style="margin:0">
+      <button type="submit" class="nav-drawer__link nav-drawer__link--danger">
+        <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sign out
+      </button>
+    </form>
+    {% else %}
+    <a href="{{ url_for('pages.tutorials') }}" class="nav-drawer__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      Tutorials
+    </a>
+    <div class="nav-drawer__divider"></div>
+    <a href="{{ url_for('auth.login') }}" class="nav-drawer__link">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+      Sign in
+    </a>
+    <a href="{{ url_for('auth.signup') }}" class="nav-drawer__link nav-drawer__link--cta">
+      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+      Create account
+    </a>
+    {% endif %}
+  </nav>
+</aside>
+
+<main class="main-content">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <div class="site-footer__brand">
+      <img src="{{ url_for('static', filename='nwsl-logo.png') }}"
+           alt="NWSL" width="32" height="32" class="site-footer__logo"
+           onerror="this.style.display='none'">
+      <div>
+        <span class="site-footer__lab">
+          University of Central Florida &mdash; Networking and Wireless System Lab (NWSL)
+        </span>
+        <span class="site-footer__copy">
+          &copy; {{ now.year if now else '2025' }} University of Central Florida. All rights reserved.
+        </span>
+      </div>
+    </div>
+    <div class="site-footer__links">
+      <a href="{{ url_for('pages.tutorials') }}">Tutorials</a>
+      <a href="https://github.com/NWSL-UCF/job-distributor" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://pypi.org/project/jd-worker/" target="_blank" rel="noopener">PyPI</a>
+      <a href="https://hub.docker.com/repositories/jobdistributor" target="_blank" rel="noopener">Docker Hub</a>
+    </div>
+  </div>
+</footer>
+
+<script src="{{ url_for('static', filename='hub.js') }}"></script>
+{% block extra_scripts %}{% endblock %}
 </body>
 </html>

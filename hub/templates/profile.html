@@ -24,9 +24,14 @@
     {# Avatar column #}
     <div class="profile-avatar-col">
       <div class="profile-avatar-wrap">
-        <img id="avatar-preview"
-             src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
-             alt="Profile photo" class="profile-avatar">
+        {# Frame shows the user's initial when the image fails to load #}
+        <div class="profile-avatar-frame" id="avatar-preview-frame">
+          <span class="profile-avatar-initial" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
+          <img id="avatar-preview"
+               src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+               alt="Profile photo" class="profile-avatar"
+               onerror="this.style.display='none'">
+        </div>
       </div>
       <form method="post" action="{{ url_for('dashboard.update_avatar') }}"
             enctype="multipart/form-data" class="avatar-upload-form">
@@ -108,16 +113,10 @@ function previewAvatar(input) {
   if (!input.files || !input.files[0]) return;
   const reader = new FileReader();
   reader.onload = function(e) {
-    const el = document.getElementById('avatar-preview');
-    if (el.tagName === 'IMG') {
-      el.src = e.target.result;
-    } else {
-      const img = document.createElement('img');
-      img.id = 'avatar-preview';
+    const img = document.getElementById('avatar-preview');
+    if (img) {
       img.src = e.target.result;
-      img.alt = 'Profile photo';
-      img.className = 'profile-avatar';
-      el.replaceWith(img);
+      img.style.display = '';   // ensure visible after any prior onerror
     }
   };
   reader.readAsDataURL(input.files[0]);

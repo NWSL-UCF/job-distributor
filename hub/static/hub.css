@@ -28,6 +28,9 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 a { color: var(--color-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -71,6 +74,8 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   max-width: 1100px;
   margin: 0 auto;
   padding: 32px 24px;
+  flex: 1;          /* stretches to fill remaining viewport height */
+  width: 100%;      /* needed when body is flex column */
 }
 
 /* ── Page header ────────────────────────────────────────────────────────────── */
@@ -581,9 +586,22 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   align-items: flex-start;
 }
 .profile-avatar-col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.profile-avatar-wrap { width: 120px; height: 120px; border-radius: 50%; overflow: hidden; border: 2px solid var(--color-border); }
+.profile-avatar-wrap { width: 120px; height: 120px; }
+/* Frame always shows initial; img sits on top — hides itself on error */
+.profile-avatar-frame {
+  width: 120px; height: 120px; border-radius: 50%;
+  border: 2px solid var(--color-border);
+  position: relative; background: #d4d4d4;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.profile-avatar-initial {
+  font-size: 2.8rem; font-weight: 700; color: #777;
+  user-select: none; pointer-events: none; line-height: 1;
+}
 .profile-avatar {
-  width: 120px; height: 120px; object-fit: cover; border-radius: 50%; display: block;
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block;
 }
 .avatar-upload-btn { cursor: pointer; }
 .profile-info-form { flex: 1; }
@@ -658,6 +676,27 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   background: #f0f0f0;
   border-color: var(--color-border);
 }
+/* ── Avatar frame — image + initial-letter fallback ─────────────────────────── */
+.nav-avatar-frame {
+  width: 32px; height: 32px; border-radius: 50%;
+  position: relative; flex-shrink: 0;
+  background: #d4d4d4;
+  display: flex; align-items: center; justify-content: center;
+}
+.nav-avatar-frame img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  border-radius: 50%; object-fit: cover;
+}
+.nav-avatar-initial {
+  font-size: .75rem; font-weight: 700; color: #555;
+  user-select: none; pointer-events: none; line-height: 1;
+}
+/* Medium variant — used inside desktop dropdown header */
+.nav-avatar-frame--md  { width: 38px; height: 38px; }
+.nav-avatar-initial--md { font-size: .9rem; }
+
+/* Legacy .nav-avatar kept for any remaining uses */
 .nav-avatar {
   width: 32px; height: 32px; border-radius: 50%;
   flex-shrink: 0; display: block;
@@ -738,7 +777,7 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 .site-footer {
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
-  margin-top: 48px;
+  margin-top: auto;   /* pushes footer to bottom when content is short */
   padding: 20px 24px;
   font-size: .82rem;
   color: var(--color-muted);
@@ -824,41 +863,100 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 .nav-hamburger.open span:nth-child(2) { opacity: 0; }
 .nav-hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
-/* ── Mobile slide-down menu ──────────────────────────────────────────────────── */
-.nav-mobile-menu {
-  display: none;
-  position: fixed;
-  top: var(--topnav-h);
-  left: 0; right: 0;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  box-shadow: var(--shadow-md);
-  z-index: 99;
-  padding: 6px 0 10px;
-  /* Allow scrolling if menu is taller than viewport (e.g. admin with many items) */
-  max-height: calc(100vh - var(--topnav-h));
-  overflow-y: auto;
+/* ── Mobile navigation drawer ────────────────────────────────────────────────── */
+/* Overlay (darkens the page behind the drawer) */
+.nav-drawer-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.48);
+  z-index: 298;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s;
 }
-.nav-mobile-menu.open { display: block; }
-.nav-mobile-menu__link {
-  display: block;
-  padding: 10px 20px;
-  color: var(--color-text);
-  font-size: .95rem; text-decoration: none;
-  transition: background .12s;
+.nav-drawer-overlay.open { opacity: 1; pointer-events: auto; }
+
+/* Drawer panel */
+.nav-drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 300px; max-width: 85vw;
+  background: var(--color-surface);
+  z-index: 299;
+  transform: translateX(100%);
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  box-shadow: -6px 0 28px rgba(0,0,0,.13);
+}
+.nav-drawer.open { transform: translateX(0); }
+
+/* Drawer — header (identity or brand) */
+.nav-drawer__header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0; gap: 10px; min-height: 68px;
+}
+.nav-drawer__identity {
+  display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1;
+}
+.nav-drawer__avatar-frame {
+  width: 44px; height: 44px; border-radius: 50%;
+  position: relative; flex-shrink: 0;
+  background: #d4d4d4;
+  display: flex; align-items: center; justify-content: center;
+}
+.nav-drawer__avatar-frame img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  border-radius: 50%; object-fit: cover;
+}
+.nav-drawer__avatar-initial {
+  font-size: 1rem; font-weight: 700; color: #555;
+  user-select: none; pointer-events: none;
+}
+.nav-drawer__identity-text { min-width: 0; flex: 1; }
+.nav-drawer__identity-name {
+  display: block; font-size: .9rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nav-drawer__identity-email {
+  display: block; font-size: .78rem; color: var(--color-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nav-drawer__brand {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 700; font-size: .95rem;
+  color: var(--color-text); text-decoration: none; flex: 1;
+}
+.nav-drawer__close {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-muted); padding: 6px; border-radius: 4px;
+  flex-shrink: 0; transition: background .13s;
+}
+.nav-drawer__close:hover { background: #f0f0f0; color: var(--color-text); }
+.nav-drawer__close svg { display: block; }
+
+/* Drawer — scrollable nav list */
+.nav-drawer__body { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
+.nav-drawer__link {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 20px;
+  color: var(--color-text); font-size: .92rem;
+  text-decoration: none; transition: background .12s;
   background: none; border: none; width: 100%;
   text-align: left; font-family: var(--font); cursor: pointer;
 }
-.nav-mobile-menu__link:hover,
-.nav-mobile-menu__link.active { background: #f5f5f5; text-decoration: none; }
-.nav-mobile-menu__link--cta { color: var(--color-text); font-weight: 600; }
-.nav-mobile-menu__signout { color: var(--color-danger); }
-.nav-mobile-menu__signout:hover { background: #fef2f2; }
-.nav-mobile-menu__divider {
-  height: 1px;
-  background: var(--color-border-light);
-  margin: 6px 0;
-}
+.nav-drawer__link:hover  { background: #f5f5f5; text-decoration: none; }
+.nav-drawer__link.active { background: #efefef; font-weight: 600; }
+.nav-drawer__link--danger { color: var(--color-danger); }
+.nav-drawer__link--danger:hover { background: #fef2f2; }
+.nav-drawer__link--admin  { color: var(--color-danger); }
+.nav-drawer__link--cta    { font-weight: 600; }
+.nav-drawer__icon { color: var(--color-muted); flex-shrink: 0; }
+.nav-drawer__link.active .nav-drawer__icon,
+.nav-drawer__link:hover  .nav-drawer__icon { color: var(--color-text); }
+.nav-drawer__divider { height: 1px; background: var(--color-border-light); margin: 8px 0; }
 
 /* ── form-actions: always wrap on small screens ──────────────────────────────── */
 .form-actions { flex-wrap: wrap; }
@@ -877,7 +975,10 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   .topnav__brand-text { font-size: .95rem; }
   .nav-hamburger { display: flex; }
   .nav-avatar-caret { display: none; }
-  /* Hide "Create account" CTA text on mobile — it's in the hamburger */
+  /* Avatar non-interactive on mobile (hamburger/drawer handles nav) */
+  .nav-avatar-wrap { pointer-events: none; cursor: default; }
+  .nav-avatar-dropdown { display: none !important; }
+  /* Hide "Create account" CTA — it's in the drawer */
   .topnav__cta-full { display: none; }
 
   /* Main layout */
