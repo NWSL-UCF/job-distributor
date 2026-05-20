@@ -578,37 +578,63 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 }
 
 /* ── Profile page ────────────────────────────────────────────────────────────── */
-.profile-card { padding-bottom: 8px; }
-.profile-layout {
-  display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 32px;
-  align-items: flex-start;
+
+/* Avatar row — horizontal layout: photo | name, email, buttons */
+.avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--color-border-light);
 }
-.profile-avatar-col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.profile-avatar-wrap { width: 120px; height: 120px; }
-/* Frame always shows initial; img sits on top — hides itself on error */
-.profile-avatar-frame {
-  width: 120px; height: 120px; border-radius: 50%;
-  border: 2px solid var(--color-border);
-  position: relative; background: #d4d4d4;
+.avatar-row__frame {
+  width: 88px; height: 88px; border-radius: 50%;
+  position: relative; flex-shrink: 0;
+  background: #d4d4d4;
+  border: 3px solid var(--color-border);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
-.profile-avatar-initial {
-  font-size: 2.8rem; font-weight: 700; color: #777;
+.avatar-row__frame img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  border-radius: 50%; object-fit: cover;
+}
+.avatar-row__initial {
+  font-size: 1.9rem; font-weight: 700; color: #777;
   user-select: none; pointer-events: none; line-height: 1;
 }
-.profile-avatar {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block;
+.avatar-row__meta { flex: 1; min-width: 0; }
+.avatar-row__name {
+  font-size: 1rem; font-weight: 600;
+  margin-bottom: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.avatar-upload-btn { cursor: pointer; }
-.profile-info-form { flex: 1; }
+.avatar-row__email {
+  font-size: .85rem; color: var(--color-muted);
+  margin-bottom: 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.avatar-row__actions {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  margin-bottom: 6px;
+}
+.avatar-row__hint {
+  font-size: .75rem; color: var(--color-muted);
+}
+
+.profile-fields-form { margin-top: 4px; }
 .profile-row {
   display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
 }
 .profile-api-actions { margin-top: 16px; }
+
+/* Responsive: stack avatar-row on narrow screens */
+@media (max-width: 480px) {
+  .avatar-row { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .avatar-row__name, .avatar-row__email { white-space: normal; }
+}
 
 /* ── API Keys table ────────────────────────────────────────────────────────── */
 .keys-table {
@@ -1005,7 +1031,6 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   .endpoint-item__actions { justify-content: flex-end; }
 
   /* Profile */
-  .profile-layout { grid-template-columns: 1fr; }
   .profile-row { grid-template-columns: 1fr; }
 
   /* API Keys table: wrap key cell, hide date column */

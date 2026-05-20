@@ -16,86 +16,94 @@
 <div class="alert alert--error">{{ profile_error }}</div>
 {% endif %}
 
-{# ── Avatar + profile info ────────────────────────────────────────────────── #}
-<div class="form-card profile-card">
+{# ── Account Info card ─────────────────────────────────────────────────────── #}
+<div class="form-card">
   <h2 class="form-card__title">Account Info</h2>
 
-  <div class="profile-layout">
-    {# Avatar column #}
-    <div class="profile-avatar-col">
-      <div class="profile-avatar-wrap">
-        {# Frame shows the user's initial when the image fails to load #}
-        <div class="profile-avatar-frame" id="avatar-preview-frame">
-          <span class="profile-avatar-initial" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
-          <img id="avatar-preview"
-               src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
-               alt="Profile photo" class="profile-avatar"
-               onerror="this.style.display='none'">
-        </div>
-      </div>
-      <form method="post" action="{{ url_for('dashboard.update_avatar') }}"
-            enctype="multipart/form-data" class="avatar-upload-form">
-        <label class="btn btn--outline btn--sm avatar-upload-btn">
-          {{ 'Change photo' if user.profile_photo else 'Upload photo' }}
-          <input type="file" name="photo" accept="image/jpeg,image/png,image/gif,image/webp"
-                 style="display:none" onchange="previewAvatar(this); this.form.submit()">
-        </label>
-        <p class="field__hint">JPG, PNG, GIF or WebP · max 2 MB</p>
-      </form>
-      {% if user.profile_photo %}
-      <form method="post" action="{{ url_for('dashboard.delete_avatar') }}"
-            data-confirm="Remove your profile photo?">
-        <button type="submit" class="btn btn--xs btn--outline-danger" style="margin-top:4px">
-          Remove photo
-        </button>
-      </form>
-      {% endif %}
+  {# ── Avatar row ─────────────────────────────────────────────────────────── #}
+  <div class="avatar-row">
+    {# Photo frame — shows initial when image is missing #}
+    <div class="avatar-row__frame">
+      <span class="avatar-row__initial" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
+      <img id="avatar-preview"
+           src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+           alt="Profile photo"
+           onerror="this.style.display='none'">
     </div>
 
-    {# Info column #}
-    <form method="post" action="{{ url_for('dashboard.update_profile') }}" class="profile-info-form">
-      <div class="field">
-        <label class="field__label">Email</label>
-        <input class="field__input" type="text" value="{{ user.email }}" disabled>
-        <span class="field__hint">Email cannot be changed</span>
+    {# Meta: name, email, upload / remove buttons #}
+    <div class="avatar-row__meta">
+      <p class="avatar-row__name">{{ user.display_name or 'No name set' }}</p>
+      <p class="avatar-row__email">{{ user.email }}</p>
+      <div class="avatar-row__actions">
+        <form method="post" action="{{ url_for('dashboard.update_avatar') }}"
+              enctype="multipart/form-data" style="margin:0">
+          <label class="btn btn--outline btn--sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            {{ 'Change photo' if user.profile_photo else 'Upload photo' }}
+            <input type="file" name="photo" accept="image/jpeg,image/png,image/gif,image/webp"
+                   style="display:none" onchange="previewAvatar(this); this.form.submit()">
+          </label>
+        </form>
+        {% if user.profile_photo %}
+        <form method="post" action="{{ url_for('dashboard.delete_avatar') }}"
+              data-confirm="Remove your profile photo?" style="margin:0">
+          <button type="submit" class="btn btn--ghost btn--sm" style="color:var(--color-danger)">
+            Remove photo
+          </button>
+        </form>
+        {% endif %}
       </div>
-      <div class="field">
-        <label class="field__label" for="display_name">Name</label>
-        <input class="field__input" type="text" id="display_name" name="display_name"
-               value="{{ user.display_name or '' }}" maxlength="100"
-               placeholder="Your full name">
-      </div>
-      <div class="profile-row">
-        <div class="field">
-          <label class="field__label" for="city">City</label>
-          <input class="field__input" type="text" id="city" name="city"
-                 value="{{ user.city or '' }}" maxlength="100" placeholder="e.g. Orlando">
-        </div>
-        <div class="field">
-          <label class="field__label" for="country">Country</label>
-          <input class="field__input" type="text" id="country" name="country"
-                 value="{{ user.country or '' }}" maxlength="100" placeholder="e.g. United States">
-        </div>
-      </div>
-      <div class="field">
-        <label class="field__label" for="affiliation">Affiliation</label>
-        <input class="field__input" type="text" id="affiliation" name="affiliation"
-               value="{{ user.affiliation or '' }}" maxlength="200"
-               placeholder="University, company, or organization">
-      </div>
-      <div class="field">
-        <label class="field__label">Member since</label>
-        <input class="field__input" type="text"
-               value="{{ user.created_at.strftime('%B %d, %Y') if user.created_at else '—' }}" disabled>
-      </div>
-      <div class="form-actions">
-        <button type="submit" class="btn btn--primary">Save changes</button>
-      </div>
-    </form>
+      <p class="avatar-row__hint">JPG, PNG, GIF or WebP &middot; max 2 MB</p>
+    </div>
   </div>
+
+  {# ── Profile fields ──────────────────────────────────────────────────────── #}
+  <form method="post" action="{{ url_for('dashboard.update_profile') }}" class="profile-fields-form">
+    <div class="field">
+      <label class="field__label">Email</label>
+      <input class="field__input" type="text" value="{{ user.email }}" disabled>
+      <span class="field__hint">Email cannot be changed</span>
+    </div>
+    <div class="field">
+      <label class="field__label" for="display_name">Name</label>
+      <input class="field__input" type="text" id="display_name" name="display_name"
+             value="{{ user.display_name or '' }}" maxlength="100"
+             placeholder="Your full name">
+    </div>
+    <div class="profile-row">
+      <div class="field">
+        <label class="field__label" for="city">City</label>
+        <input class="field__input" type="text" id="city" name="city"
+               value="{{ user.city or '' }}" maxlength="100" placeholder="e.g. Orlando">
+      </div>
+      <div class="field">
+        <label class="field__label" for="country">Country</label>
+        <input class="field__input" type="text" id="country" name="country"
+               value="{{ user.country or '' }}" maxlength="100" placeholder="e.g. United States">
+      </div>
+    </div>
+    <div class="field">
+      <label class="field__label" for="affiliation">Affiliation</label>
+      <input class="field__input" type="text" id="affiliation" name="affiliation"
+             value="{{ user.affiliation or '' }}" maxlength="200"
+             placeholder="University, company, or organization">
+    </div>
+    <div class="field">
+      <label class="field__label">Member since</label>
+      <input class="field__input" type="text"
+             value="{{ user.created_at.strftime('%B %d, %Y') if user.created_at else '—' }}" disabled>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Save changes</button>
+    </div>
+  </form>
 </div>
 
-{# ── Change password ──────────────────────────────────────────────────────── #}
+{# ── Security card ─────────────────────────────────────────────────────────── #}
 <div class="form-card">
   <h2 class="form-card__title">Security</h2>
   <p class="form-card__hint">
@@ -112,11 +120,11 @@
 function previewAvatar(input) {
   if (!input.files || !input.files[0]) return;
   const reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = function (e) {
     const img = document.getElementById('avatar-preview');
     if (img) {
       img.src = e.target.result;
-      img.style.display = '';   // ensure visible after any prior onerror
+      img.style.display = '';
     }
   };
   reader.readAsDataURL(input.files[0]);
