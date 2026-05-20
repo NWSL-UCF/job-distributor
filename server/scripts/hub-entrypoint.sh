@@ -9,11 +9,11 @@ set -e
 EXP="${JD_EXP_NAME:-default}"
 
 if [ -n "$JD_WORKSPACE" ]; then
-  # User supplied a custom root; append expId
-  export JD_WORKSPACE_PATH="${JD_WORKSPACE}/${EXP}"
+  # User supplied a custom root — hub_register appends expId internally
+  export JD_WORKSPACE_PATH="${JD_WORKSPACE}"
 else
-  # Default: /workspace/<expId>  (host maps ~/jd_server/<expId> → /workspace)
-  export JD_WORKSPACE_PATH="/workspace/${EXP}"
+  # Default: /workspace  (host maps ~/jd_server/<expId> → /workspace/<expId>)
+  export JD_WORKSPACE_PATH="/workspace"
 fi
 
 # ── Hub bootstrap (fetch frpc.ini + worker secret) ───────────────────────────
