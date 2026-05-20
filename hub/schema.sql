@@ -23,16 +23,23 @@ CREATE TABLE IF NOT EXISTS users (
     verification_token          VARCHAR(128)    NULL,
     verification_token_expires  DATETIME        NULL,
 
-    -- API key (stored as hash; prefix shown in UI)
+    -- Legacy single API key (kept for backward compat; new keys use api_keys table)
     api_key_hash                VARCHAR(255)    NULL,
-    api_key_prefix              VARCHAR(8)      NULL,          -- first 8 chars, shown in UI
+    api_key_prefix              VARCHAR(8)      NULL,
 
-    -- Password reset
+    -- Password reset / change-password OTP (reused for both flows)
     reset_token_hash            VARCHAR(255)    NULL,
     reset_token_expires         DATETIME        NULL,
 
     is_admin                    TINYINT(1)      NOT NULL DEFAULT 0,
     is_active                   TINYINT(1)      NOT NULL DEFAULT 1,
+
+    -- Profile fields (all optional)
+    display_name                VARCHAR(100)    NULL,
+    city                        VARCHAR(100)    NULL,
+    country                     VARCHAR(100)    NULL,
+    affiliation                 VARCHAR(200)    NULL,
+    profile_photo               VARCHAR(255)    NULL,   -- filename in static/uploads/avatars/
 
     created_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -63,7 +70,27 @@ CREATE TABLE IF NOT EXISTS hub_sessions (
 
 
 -- ──────────────────────────────────────────────────────────────
--- 3. EXPERIMENTS
+-- 3. API KEYS  (named, multi-key per user)
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS api_keys (
+    id              BIGINT          NOT NULL AUTO_INCREMENT,
+    user_id         BIGINT          NOT NULL,
+    name            VARCHAR(100)    NOT NULL,
+    key_value       VARCHAR(255)    NOT NULL,   -- full raw key (for reveal feature)
+    key_hash        VARCHAR(255)    NOT NULL,   -- sha256 for auth lookup
+    key_prefix      VARCHAR(8)      NOT NULL,   -- first 8 chars shown in UI
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX ix_api_keys_user_id   (user_id),
+    INDEX ix_api_keys_prefix    (key_prefix),
+    CONSTRAINT fk_api_keys_user FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ──────────────────────────────────────────────────────────────
+-- 5. EXPERIMENTS
 -- ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS experiments (
     id                      BIGINT          NOT NULL AUTO_INCREMENT,
@@ -110,7 +137,7 @@ CREATE TABLE IF NOT EXISTS experiments (
 
 
 -- ──────────────────────────────────────────────────────────────
--- 4. TRAFFIC SNAPSHOTS
+-- 6. TRAFFIC SNAPSHOTS
 -- One row per experiment per polling cycle (every 60 seconds).
 -- Cumulative frps values; processed by Hub to derive deltas.
 -- ──────────────────────────────────────────────────────────────
@@ -129,7 +156,7 @@ CREATE TABLE IF NOT EXISTS traffic_snapshots (
 
 
 -- ──────────────────────────────────────────────────────────────
--- 5. MONTHLY USAGE  (aggregated per user per calendar month)
+-- 7. MONTHLY USAGE  (aggregated per user per calendar month)
 -- Rebuilt from traffic_snapshots by a background job.
 -- ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS monthly_usage (
@@ -159,7 +186,7 @@ CREATE TABLE IF NOT EXISTS monthly_usage (
 
 
 -- ──────────────────────────────────────────────────────────────
--- 6. DEFAULT LIMITS  (singleton — always exactly one row, id=1)
+-- 8. DEFAULT LIMITS  (singleton — always exactly one row, id=1)
 -- ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS default_limits (
     id                      INT         NOT NULL DEFAULT 1,
@@ -180,7 +207,7 @@ INSERT IGNORE INTO default_limits (id) VALUES (1);
 
 
 -- ──────────────────────────────────────────────────────────────
--- 7. USER LIMIT OVERRIDES
+-- 9. USER LIMIT OVERRIDES
 -- One row per user (UPSERT on each admin change).
 -- NULL in bytes columns means "fall back to default_limits".
 -- valid_until NULL means the override never expires.
@@ -207,7 +234,7 @@ CREATE TABLE IF NOT EXISTS user_limit_overrides (
 
 
 -- ──────────────────────────────────────────────────────────────
--- 8. LIMIT EXTENSION REQUESTS
+-- 10. LIMIT EXTENSION REQUESTS
 -- ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS limit_extension_requests (
     id                      BIGINT      NOT NULL AUTO_INCREMENT,
@@ -237,7 +264,7 @@ CREATE TABLE IF NOT EXISTS limit_extension_requests (
 
 
 -- ──────────────────────────────────────────────────────────────
--- 9. WORKER TOKENS  (issued JWTs; for explicit revocation support)
+-- 11. WORKER TOKENS  (issued JWTs; for explicit revocation support)
 -- jti = JWT ID claim; unique per token.
 -- ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS worker_tokens (
@@ -257,7 +284,7 @@ CREATE TABLE IF NOT EXISTS worker_tokens (
 
 
 -- ──────────────────────────────────────────────────────────────
--- 10. EMAIL NOTIFICATIONS LOG
+-- 12. EMAIL NOTIFICATIONS LOG
 -- Deduplication: one row per (user_id, notification_type).
 -- notification_type examples:
 --   quota_80_in_2025_01, quota_95_out_2025_01,

@@ -1,0 +1,4 @@
+# Ignore uploaded avatar files; keep the directory tracked via .gitkeep
+*
+!.gitkeep
+!.gitignore

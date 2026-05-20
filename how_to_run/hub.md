@@ -1,202 +1,254 @@
-# How to Run the JD Hub
+# How to Run the JD Hub (Docker)
 
-The Hub is the central web application that handles user accounts, experiment
-registration, FRP tunnel configuration, data-quota tracking, and worker
-authentication.
+The Hub is the central control plane: user accounts, experiment registration,
+FRP tunnel management, quota tracking, and worker authentication. It is deployed
+as a Docker Compose stack consisting of **Nginx**, **jd-hub**, and **frps**, with
+**MySQL** running on the host.
+
+---
+
+## Architecture
+
+```
+Internet
+  │
+  ├─ HTTPS 443 ──► Nginx (container) ──► hub.jobdistributor.net ──► jd-hub :5000
+  │                                   └─ *.jobdistributor.net   ──► frps vhost :8080
+  │                                                                       │
+  └─ TCP  7000 ───────────────────────────────────────────────► frps bind port
+                                                        (jd_server containers connect here)
+```
 
 ---
 
 ## Prerequisites
 
-- Python 3.11+
-- MySQL 8.x (running and accessible)
-- An FRP server (`frps`) running on the same host (for tunnel management)
-- A domain with wildcard DNS pointing to this server  
-  e.g. `*.jobdistributor.net → <your VPS IP>`
+- Ubuntu 22.04 VPS with a public IP
+- Ports **80**, **443**, and **7000** open in the firewall
+- Docker + Docker Compose installed
+- Domain with two DNS A-records pointing to the VPS:
+  - `hub.yourdomain.com → <VPS IP>`
+  - `*.yourdomain.com  → <VPS IP>` (wildcard)
 
 ---
 
-## 1. Install dependencies
+## 1. Install Docker
 
 ```bash
-cd job-distributor/hub
-pip install -r requirements.txt
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER   # log out and back in after this
 ```
 
 ---
 
-## 2. Configure environment
+## 2. Obtain a wildcard TLS certificate
 
-Copy the example file and fill in every value:
+Wildcard certs require the **DNS-01** challenge. The example uses Cloudflare;
+replace the plugin for your DNS provider.
 
 ```bash
-cp .env.example .env
+# Install certbot + Cloudflare plugin
+sudo apt update && sudo apt install -y certbot
+sudo pip install certbot-dns-cloudflare
+
+# Create an API token credentials file (chmod 600!)
+sudo mkdir -p /etc/letsencrypt
+sudo tee /etc/letsencrypt/cloudflare.ini > /dev/null <<'EOF'
+dns_cloudflare_api_token = YOUR_CLOUDFLARE_API_TOKEN
+EOF
+sudo chmod 600 /etc/letsencrypt/cloudflare.ini
+
+# Issue the certificate (covers hub. and *.yourdomain.com)
+sudo certbot certonly \
+  --dns-cloudflare \
+  --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
+  -d "yourdomain.com" \
+  -d "*.yourdomain.com" \
+  --agree-tos --email you@example.com
 ```
 
-Open `.env` and set:
+> **Other providers:** replace `certbot-dns-cloudflare` with the matching plugin,
+> e.g. `certbot-dns-route53`, `certbot-dns-digitalocean`.
+> See <https://eff-certbot.readthedocs.io/en/stable/using.html#dns-plugins>
+
+Cert files will be at:
+```
+/etc/letsencrypt/live/yourdomain.com/fullchain.pem
+/etc/letsencrypt/live/yourdomain.com/privkey.pem
+```
+
+Generate DH params once (takes ~1 min):
+```bash
+sudo openssl dhparam -out /etc/letsencrypt/ssl-dhparams.pem 2048
+```
+
+---
+
+## 3. Set up MySQL on the host
+
+MySQL runs on the host (not inside Docker). The hub container reaches it via
+`host.docker.internal`.
+
+```bash
+sudo apt install -y mysql-server
+
+sudo mysql -u root <<'SQL'
+CREATE DATABASE jd_hub CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'hub_user'@'localhost' IDENTIFIED BY 'CHANGE_ME_DB_PASSWORD';
+-- Allow connection from Docker containers (via host.docker.internal)
+CREATE USER 'hub_user'@'%' IDENTIFIED BY 'CHANGE_ME_DB_PASSWORD';
+GRANT ALL PRIVILEGES ON jd_hub.* TO 'hub_user'@'localhost';
+GRANT ALL PRIVILEGES ON jd_hub.* TO 'hub_user'@'%';
+FLUSH PRIVILEGES;
+SQL
+```
+
+Make MySQL listen on all interfaces so Docker containers can reach it:
+
+```bash
+# Find the bind-address line and change it to 0.0.0.0
+sudo sed -i 's/^bind-address\s*=.*/bind-address = 0.0.0.0/' \
+    /etc/mysql/mysql.conf.d/mysqld.cnf
+sudo systemctl restart mysql
+```
+
+---
+
+## 4. Configure the hub environment
+
+```bash
+cd /path/to/job-distributor/deploy
+
+cp hub.env.example hub.env
+```
+
+Edit `hub.env` and fill in every value:
 
 | Variable | Description |
 |---|---|
-| `MYSQL_HOST` | MySQL host (usually `localhost`) |
-| `MYSQL_PORT` | MySQL port (default `3306`) |
-| `MYSQL_USER` | MySQL username |
-| `MYSQL_PASSWORD` | MySQL password |
-| `MYSQL_DATABASE` | Database name (e.g. `jd_hub`) |
-| `FLASK_SECRET_KEY` | Long random string for session signing |
-| `FLASK_ENV` | `production` or `development` |
-| `HUB_BASE_URL` | Public URL of the Hub (e.g. `https://hub.jobdistributor.net`) |
-| `JD_BASE_DOMAIN` | Base domain (e.g. `jobdistributor.net`) |
-| `FRPS_TOKEN` | Shared token used in generated `frpc.ini` files |
-| `FRPS_API_URL` | frps admin API URL (default `http://localhost:7500`) |
-| `JWT_SECRET_KEY` | Long random string for JWT signing (keep secret) |
-| `JWT_WORKER_TOKEN_TTL_HOURS` | Worker token lifetime in hours (default `24`) |
-| `HUB_SESSION_TTL_DAYS` | Web login session lifetime in days (default `30`) |
-| `BREVO_API_KEY` | Brevo API key for sending emails |
-| `BREVO_FROM_EMAIL` | Sender email address (e.g. `info@jobdistributor.net`) |
-| `BREVO_FROM_NAME` | Sender display name (e.g. `JobDistributor Team`) |
+| `MYSQL_HOST` | `host.docker.internal` (reaches host MySQL from container) |
+| `MYSQL_PASSWORD` | Password you set in step 3 |
+| `FLASK_SECRET_KEY` | Long random string — `openssl rand -hex 32` |
+| `FLASK_ENV` | `production` |
+| `HUB_BASE_URL` | `https://hub.yourdomain.com` |
+| `JD_BASE_DOMAIN` | `yourdomain.com` |
+| `FRPS_TOKEN` | Shared secret for FRP auth — `openssl rand -hex 24` |
+| `FRPS_API_URL` | `http://frps:7500` (Docker service name, **do not change**) |
+| `JWT_SECRET_KEY` | Long random string — `openssl rand -hex 32` |
+| `BREVO_API_KEY` | Brevo transactional email API key (for OTP emails) |
+| `BREVO_FROM_EMAIL` | Sender address, e.g. `info@yourdomain.com` |
 
 ---
 
-## 3. Create the MySQL database
+## 5. Configure FRP server token
 
-```sql
-CREATE DATABASE jd_hub CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'hub_user'@'localhost' IDENTIFIED BY 'your-password';
-GRANT ALL PRIVILEGES ON jd_hub.* TO 'hub_user'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-The Hub auto-creates all tables on first startup using SQLAlchemy `create_all`.
-Alternatively, for exact production DDL use the reference schema:
+Edit `deploy/frps/frps.toml` and replace the placeholder token with the same
+value you used for `FRPS_TOKEN` in `hub.env`:
 
 ```bash
-mysql -u hub_user -p jd_hub < schema.sql
+sed -i 's/CHANGE_ME_FRPS_TOKEN/your-actual-frps-token/' \
+    deploy/frps/frps.toml
 ```
 
 ---
 
-## 4. Create the first admin user
+## 6. Update Nginx config for your domain
 
-Start the Hub once in development mode to trigger table creation, then create
-an admin directly in MySQL:
-
-```sql
--- After running the Hub once so the table exists:
-UPDATE users SET is_admin = 1 WHERE email = 'your@email.com';
-```
-
-Or sign up normally via `/signup` and then promote via SQL.
-
----
-
-## 5. Run the Hub
-
-### Development (Flask dev server)
+If your domain is not `jobdistributor.net`, edit
+`deploy/nginx/hub-docker.conf` and replace every occurrence:
 
 ```bash
-cd job-distributor/hub
-FLASK_APP=app:create_app flask run --port 5000
+sed -i 's/jobdistributor\.net/yourdomain.com/g' \
+    deploy/nginx/hub-docker.conf
 ```
 
-### Production (Gunicorn — recommended)
+Also update the cert paths in `hub-docker.conf` if your cert was issued under a
+different name (e.g. `hub.yourdomain.com` vs `yourdomain.com`).
+
+---
+
+## 7. Start the stack
 
 ```bash
-cd job-distributor   # repo root, so `hub` package is importable
-gunicorn "hub.wsgi:app" \
-  --workers=1 \
-  --threads=4 \
-  --bind=0.0.0.0:5000 \
-  --timeout=120 \
-  --access-logfile=hub_access.log \
-  --error-logfile=hub_error.log
+cd /path/to/job-distributor/deploy
+
+docker compose -f hub-compose.yml pull
+docker compose -f hub-compose.yml up -d
 ```
 
-> **Important:** Use `--workers=1`. The Hub starts background threads
-> (traffic poller, usage aggregator, idle checker) inside the single worker.
-> Multiple workers would create duplicate threads. Use `--threads` for
-> concurrency instead.
-
----
-
-## 6. Put nginx in front (production)
-
-Minimal nginx config:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name hub.jobdistributor.net;
-
-    ssl_certificate     /etc/letsencrypt/live/jobdistributor.net/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/jobdistributor.net/privkey.pem;
-
-    location / {
-        proxy_pass         http://127.0.0.1:5000;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_read_timeout 120;
-    }
-}
-
-# Wildcard subdomains → frps vhost proxy
-server {
-    listen 443 ssl;
-    server_name *.jobdistributor.net;
-
-    ssl_certificate     /etc/letsencrypt/live/jobdistributor.net/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/jobdistributor.net/privkey.pem;
-
-    location / {
-        proxy_pass         http://127.0.0.1:8080;  # frps vhost_http_port
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_read_timeout 300;
-    }
-}
-```
-
----
-
-## 7. Stop the Hub
+Check that all three containers are healthy:
 
 ```bash
-pkill -f "hub.wsgi:app"
+docker compose -f hub-compose.yml ps
+docker compose -f hub-compose.yml logs hub --tail=50
 ```
 
-Or if running under a process manager (systemd, supervisor), use its stop command.
+The Hub auto-creates all database tables on first startup.
 
 ---
 
-## Directory structure created at runtime
+## 8. Promote the first admin user
 
-```
-job-distributor/
-└── hub/
-    ├── .env                  ← your secrets (gitignored)
-    ├── hub_access.log        ← gunicorn access log
-    └── hub_error.log         ← gunicorn error log
-```
-
-All database state is in MySQL (`jd_hub` database).
-
----
-
-## Environment variable reference (quick copy)
+Sign up at `https://hub.yourdomain.com/signup`, then:
 
 ```bash
-export MYSQL_HOST=localhost
-export MYSQL_PORT=3306
-export MYSQL_USER=hub_user
-export MYSQL_PASSWORD=your-password
-export MYSQL_DATABASE=jd_hub
-export FLASK_SECRET_KEY=$(openssl rand -hex 32)
-export FLASK_ENV=production
-export HUB_BASE_URL=https://hub.jobdistributor.net
-export JD_BASE_DOMAIN=jobdistributor.net
-export FRPS_TOKEN=your-frps-token
-export FRPS_API_URL=http://localhost:7500
-export JWT_SECRET_KEY=$(openssl rand -hex 32)
-export BREVO_API_KEY=your-brevo-key
-export BREVO_FROM_EMAIL=info@jobdistributor.net
-export BREVO_FROM_NAME="JobDistributor Team"
+mysql -u hub_user -p jd_hub \
+  -e "UPDATE users SET is_admin = 1 WHERE email = 'your@email.com';"
+```
+
+---
+
+## 9. Verify everything works
+
+```bash
+# Hub responds
+curl -I https://hub.yourdomain.com/
+
+# frps admin API is reachable from the hub container
+docker exec hub_app python3 -c \
+  "import requests; print(requests.get('http://frps:7500/api/info').json())"
+```
+
+---
+
+## Updating the Hub
+
+When a new `jobdistributor/jd-hub:latest` image is pushed:
+
+```bash
+cd /path/to/job-distributor/deploy
+
+docker compose -f hub-compose.yml pull hub
+docker compose -f hub-compose.yml up -d --no-deps hub
+```
+
+---
+
+## Firewall rules summary
+
+| Port | Protocol | Source      | Purpose                          |
+|------|----------|-------------|----------------------------------|
+| 22   | TCP      | your IP     | SSH                              |
+| 80   | TCP      | anywhere    | HTTP → HTTPS redirect            |
+| 443  | TCP      | anywhere    | HTTPS (Hub + experiment tunnels) |
+| 7000 | TCP      | anywhere    | frpc tunnel connections          |
+| 8080 | TCP      | localhost   | frps vhost HTTP (Nginx → frps)   |
+| 7500 | TCP      | localhost   | frps admin API (hub → frps)      |
+| 3306 | TCP      | localhost   | MySQL                            |
+
+Ports 8080, 7500, and 3306 must **not** be open to the internet.
+
+---
+
+## Directory layout used
+
+```
+deploy/
+├── hub-compose.yml          ← Docker Compose stack definition
+├── hub.env                  ← your secrets (gitignore this, not hub.env.example)
+├── hub.env.example          ← template
+├── nginx/
+│   └── hub-docker.conf      ← Nginx TLS + proxy config
+└── frps/
+    └── frps.toml            ← FRP server config
 ```

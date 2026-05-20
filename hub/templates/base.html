@@ -22,7 +22,8 @@
     <div class="topnav__links">
       <a href="{{ url_for('dashboard.index') }}" class="topnav__link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
       <a href="{{ url_for('dashboard.extensions') }}" class="topnav__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">Extensions</a>
-      <a href="{{ url_for('dashboard.profile') }}" class="topnav__link {% if request.endpoint == 'dashboard.profile' %}active{% endif %}">Profile</a>
+      <a href="{{ url_for('dashboard.api_keys') }}" class="topnav__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
+      <a href="{{ url_for('dashboard.profile') }}" class="topnav__link {% if request.endpoint == 'dashboard.profile' or request.endpoint == 'dashboard.change_password' %}active{% endif %}">Profile</a>
       {% if user.is_admin %}
       <a href="{{ url_for('admin.index') }}" class="topnav__link topnav__admin">Admin</a>
       {% endif %}

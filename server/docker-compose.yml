@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ── Usage ─────────────────────────────────────────────────────────────────────
 # Pass the experiment name directly on the command line — no .env editing needed:
 #

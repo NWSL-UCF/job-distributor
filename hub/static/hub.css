@@ -562,6 +562,81 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   opacity: 1;
 }
 
+/* ── Profile page ────────────────────────────────────────────────────────────── */
+.profile-card { padding-bottom: 8px; }
+.profile-layout {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 32px;
+  align-items: flex-start;
+}
+.profile-avatar-col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.profile-avatar-wrap { width: 120px; height: 120px; border-radius: 50%; overflow: hidden; border: 2px solid var(--color-border); }
+.profile-avatar {
+  width: 120px; height: 120px; object-fit: cover; border-radius: 50%; display: block;
+}
+.profile-avatar--placeholder {
+  width: 120px; height: 120px; border-radius: 50%;
+  background: #f0f0f0; display: flex; align-items: center; justify-content: center;
+  color: var(--color-muted);
+}
+.avatar-upload-btn { cursor: pointer; }
+.profile-info-form { flex: 1; }
+.profile-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+.profile-api-actions { margin-top: 16px; }
+
+/* ── API Keys table ────────────────────────────────────────────────────────── */
+.keys-table {
+  width: 100%; border-collapse: collapse; font-size: .9rem;
+}
+.keys-table thead th {
+  text-align: left; padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: .8rem; font-weight: 600; color: var(--color-muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.keys-table tbody tr { border-bottom: 1px solid var(--color-border-light); }
+.keys-table tbody tr:last-child { border-bottom: none; }
+.keys-table tbody td { padding: 12px 16px; vertical-align: middle; }
+.keys-table__name { font-weight: 600; }
+.keys-table__prefix code { font-size: .88em; background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+.keys-table__date { color: var(--color-muted); font-size: .85rem; white-space: nowrap; }
+.keys-table__key-cell { min-width: 220px; }
+.key-reveal-row { display: flex; align-items: center; gap: 6px; }
+.key-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* ── Modal ───────────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.45); z-index: 200;
+  align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--color-surface); border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.18);
+  width: 100%; max-width: 440px; margin: 16px;
+  overflow: hidden;
+}
+.modal__header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 0;
+}
+.modal__title { font-size: 1.05rem; font-weight: 700; }
+.modal__close {
+  background: none; border: none; cursor: pointer;
+  font-size: 1rem; color: var(--color-muted); line-height: 1;
+  padding: 4px; border-radius: 4px;
+}
+.modal__close:hover { background: #f0f0f0; color: var(--color-text); }
+.modal__body { padding: 16px 20px; }
+.modal__footer {
+  display: flex; gap: 8px; padding: 12px 20px 18px;
+  border-top: 1px solid var(--color-border-light);
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .main-content { padding: 16px; }
@@ -574,4 +649,7 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   .endpoint-item__actions { justify-content: flex-end; }
   .topnav__email { display: none; }
   .detail-card--wide { grid-column: 1; }
+  .profile-layout { grid-template-columns: 1fr; }
+  .profile-row { grid-template-columns: 1fr; }
+  .keys-table__date { display: none; }
 }

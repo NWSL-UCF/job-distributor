@@ -1,80 +1,48 @@
 # How to Run the Worker (`jd_worker`)
 
 `jd_worker` is the command-line tool that runs on your compute node (laptop,
-GPU server, cluster, etc.). It requests a job from the server, runs your entry
-script with the job's parameters as CLI arguments, sends heartbeats every 57
-seconds, and reports DONE or ABORTED when the script finishes.
+GPU server, cluster, etc.). It requests jobs from the server, runs your entry
+script with each job's parameters, sends heartbeats every 57 seconds, and
+reports DONE or ABORTED when the script finishes.
 
 ---
 
 ## Prerequisites
 
-- Python 3.9+ with `pip`
-- The compute environment you want to use (venv, conda, etc.) **already active**
-- Your entry script (`train.py`, `main.py`, etc.) in the current directory
+- Python 3.9+
+- Your compute environment (venv, conda, etc.) **already active**
+- Your entry script (`train.py`, `main.py`, etc.) present in the working directory
 
 ---
 
 ## 1. Install `jd_worker`
 
-### From PyPI (once published)
-
 ```bash
 pip install jd-worker
-```
-
-### From GitHub (current method)
-
-```bash
-pip install "git+https://github.com/NWSL-UCF/job-distributor.git@v2#subdirectory=client"
-```
-
-### From local source (development)
-
-```bash
-cd job-distributor
-pip install -e ./client
 ```
 
 After installation, `jd_worker` is available as a command in your active
 Python environment.
 
----
-
-## 2. Standalone mode (direct connection to server)
-
-Use this when the server is on your local network or reachable via a known URL.
+### Upgrade to the latest version
 
 ```bash
-jd_worker expId=my_experiment entry_script=train.py
+pip install --upgrade jd-worker
 ```
 
-### With a remote server
+### Install from source (development)
 
 ```bash
-jd_worker expId=my_experiment entry_script=train.py \
-          server=http://10.0.0.5 port=8000
+git clone https://github.com/NWSL-UCF/job-distributor.git
+pip install -e job-distributor/client
 ```
-
-### All options
-
-| Argument | Env var | Default | Description |
-|---|---|---|---|
-| `expId=<name>` | `JD_EXP_ID` | required | Experiment name (must match server) |
-| `entry_script=<path>` | `JD_ENTRY_SCRIPT` | required | Python script to run per job |
-| `server=<url>` | `JD_SERVER` | `http://localhost` | Job server base URL or hostname |
-| `port=<N>` | `JD_PORT` | `5000` | Port (if not in `server`) |
-| `machine_type=<label>` | `JD_MACHINE_TYPE` | `worker` | Label shown in dashboard |
-| `process_id=<N>` | — | `0` | ID when running multiple workers on same machine |
-| `once=true` | `JD_ONCE` | `false` | Exit after completing exactly one job |
-| `log_dir=<path>` | `JD_LOG_DIR` | auto | Override log directory |
 
 ---
 
-## 3. Hub mode (FRP tunnel — internet access)
+## 2. Hub mode (recommended — internet access via FRP tunnel)
 
-Use this when your server is behind NAT and exposed via the Hub's FRP tunnel.
-`jd_worker` contacts the Hub first to get a short-lived JWT and the tunnel URL,
+Use this when your server is running via Docker and exposed through the Hub's
+FRP tunnel. `jd_worker` contacts the Hub first to get a JWT and the server URL,
 then communicates with the server through the public subdomain.
 
 ### Step 1 — Get your API key
@@ -83,81 +51,91 @@ then communicates with the server through the public subdomain.
 2. Go to **Profile**
 3. Click **Generate API key** and copy the full key (shown once)
 
-### Step 2 — Set environment variables
+### Step 2 — Set your API key
 
 ```bash
-export JD_HUB_URL=https://hub.jobdistributor.net
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 ### Step 3 — Run the worker
 
 ```bash
-jd_worker expId=my_experiment entry_script=train.py
+jd_worker expId=my-experiment entry_script=train.py
 ```
 
 That's it. `jd_worker` will:
-1. Call `POST /api/worker/token` on the Hub with your API key
-2. Receive a JWT worker token and the public server URL
-3. Use the token as `Authorization: Bearer` on every server request
-4. Run jobs normally through the FRP tunnel
+1. Call the Hub with your API key to get a JWT worker token and the server URL
+2. Use the token as `Authorization: Bearer` on every server request
+3. Request jobs, run your script, report results
 
-No `server=` or `port=` arguments are needed in Hub mode — the URL comes from
-the Hub.
+No `server=` argument needed — the Hub provides the URL automatically.
 
-### Full Hub-mode example
+### Full example with machine label
 
 ```bash
-export JD_HUB_URL=https://hub.jobdistributor.net
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-jd_worker expId=mnist_tune entry_script=train.py \
-          machine_type=gpu_a100
+jd_worker expId=my-experiment entry_script=train.py machine_type=gpu_a100
 ```
 
 ---
 
-## 4. Where data is stored locally
+## 3. Standalone mode (local / direct connection)
 
-`jd_worker` stores logs and a local job workspace under:
-
-```
-~/jd_data/<expId>/<job_id>/
-```
-
-Override the parent directory by setting `JD_WORKSPACE_PATH`:
+Use this when the server is on your local network or reachable directly.
 
 ```bash
-export JD_WORKSPACE_PATH=/scratch
-# data goes to: /scratch/jd_data/<expId>/<job_id>/
+jd_worker expId=my-experiment entry_script=train.py \
+          server=http://10.0.0.5 port=8000
 ```
 
-Your entry script receives this path automatically:
-- `--base_path <path>` CLI argument
-- `JD_WORKER_JOB_DIR` environment variable
-- `JD_WORKER_WORKSPACE_ROOT` environment variable (`~/jd_data`)
+For a server on the same machine:
+
+```bash
+jd_worker expId=my-experiment entry_script=train.py
+# defaults to server=http://localhost port=5000
+```
+
+---
+
+## 4. All CLI options
+
+| Argument | Env var | Default | Description |
+|---|---|---|---|
+| `expId=<name>` | `JD_EXP_ID` | required | Experiment name (must match server) |
+| `entry_script=<path>` | `JD_ENTRY_SCRIPT` | required | Python script to run per job |
+| `api_key=<key>` | `JD_API_KEY` | — | Hub API key (enables Hub mode) |
+| `hub=<url>` | `JD_HUB_URL` | `https://hub.jobdistributor.net` | Hub base URL |
+| `server=<url>` | `JD_SERVER` | `http://localhost` | Job server URL (standalone mode) |
+| `port=<N>` | `JD_PORT` | `5000` | Port (standalone mode, if not in `server`) |
+| `machine_type=<label>` | `JD_MACHINE_TYPE` | `worker` | Label shown in dashboard |
+| `process_id=<N>` | — | `0` | ID for running multiple workers on same machine |
+| `once=true` | `JD_ONCE` | `false` | Exit after completing exactly one job |
+| `log_dir=<path>` | `JD_LOG_DIR` | auto | Override log directory |
 
 ---
 
 ## 5. Entry script contract
 
-Your entry script receives job parameters as `--key value` CLI arguments plus
-`--base_path <local_job_dir>`.
+Your entry script receives job parameters as `--key value` CLI arguments.
 
 ```python
 # train.py
 import argparse
+import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--learning_rate", type=float)
 parser.add_argument("--batch_size",    type=int)
-parser.add_argument("--base_path",     type=str)   # local job directory
 args = parser.parse_args()
+
+# Access the local job directory via environment variable
+job_dir = os.environ["JD_WORKER_JOB_DIR"]
 
 # Run your training code...
 ```
 
-### Available environment variables inside the script
+### Environment variables available inside the script
 
 | Variable | Value |
 |---|---|
@@ -166,13 +144,23 @@ args = parser.parse_args()
 | `JD_EXP_ID` | Experiment name |
 | `JD_WORKER_JOB_DIR` | Full path to local job directory |
 | `JD_WORKER_WORKSPACE_ROOT` | Root of local jd_data directory |
-| `JD_WORKER_TOKEN` | JWT worker token (set in Hub mode; used by `jd_upload` etc.) |
+| `JD_WORKER_TOKEN` | JWT worker token (Hub mode; used by `jd_upload` etc.) |
+
+### Path helpers (inside the script)
+
+```python
+from jd import jd_job_dir, jd_worker_workspace, jd_exp_dir
+
+job_dir  = jd_job_dir()         # same as os.environ["JD_WORKER_JOB_DIR"]
+root_dir = jd_worker_workspace() # ~/jd_data
+exp_dir  = jd_exp_dir()          # ~/jd_data/<expId>
+```
 
 ---
 
-## 6. Library functions (inside your entry script)
+## 6. Library functions
 
-Import and use these from inside `train.py`:
+Import these from inside your entry script to interact with the server:
 
 ```python
 from jd import jd_upload, jd_update_checkpoint, jd_get_last_checkpoint
@@ -180,8 +168,8 @@ from jd import jd_upload, jd_update_checkpoint, jd_get_last_checkpoint
 
 ### `jd_upload(file_path)`
 
-Upload a result file (≤ 100 MB) to the server. Stored as
-`result_v{N}_{timestamp}.<ext>` in the job's server-side directory.
+Upload a result file (≤ 100 MB) to the server. Stored versioned under the
+job's server-side directory.
 
 ```python
 jd_upload("outputs/metrics.csv")
@@ -195,16 +183,16 @@ Serialise any Python object with pickle and save it as a versioned checkpoint
 
 ```python
 jd_update_checkpoint({
-    "epoch":      epoch,
-    "model":      model.state_dict(),
-    "optimizer":  optimizer.state_dict(),
+    "epoch":     epoch,
+    "model":     model.state_dict(),
+    "optimizer": optimizer.state_dict(),
 })
 ```
 
 ### `jd_get_last_checkpoint()`
 
-Download the latest checkpoint for this job into memory (no file written to
-disk). Returns `None` if no checkpoint exists yet.
+Download the latest checkpoint for this job into memory. Returns `None` if no
+checkpoint exists yet.
 
 ```python
 ckpt = jd_get_last_checkpoint()
@@ -217,45 +205,61 @@ else:
 
 ---
 
-## 7. Running multiple workers in parallel
+## 7. Where data is stored locally
 
-Run the command in multiple terminals (or tmux panes), with different
-`process_id` values so the dashboard can distinguish them:
+`jd_worker` stores logs and a local job workspace under:
+
+```
+~/jd_data/<expId>/<job_id>/
+```
+
+Override the parent directory:
+
+```bash
+export JD_WORKSPACE_PATH=/scratch
+# data goes to: /scratch/jd_data/<expId>/<job_id>/
+```
+
+---
+
+## 8. Running multiple workers in parallel
+
+Run the command in multiple terminals with different `process_id` values so
+the dashboard can distinguish them:
 
 ```bash
 # Terminal 1
-jd_worker expId=mnist_tune entry_script=train.py machine_type=gpu process_id=0
+jd_worker expId=my-experiment entry_script=train.py machine_type=gpu process_id=0
 
 # Terminal 2
-jd_worker expId=mnist_tune entry_script=train.py machine_type=gpu process_id=1
+jd_worker expId=my-experiment entry_script=train.py machine_type=gpu process_id=1
 
 # Terminal 3
-jd_worker expId=mnist_tune entry_script=train.py machine_type=gpu process_id=2
+jd_worker expId=my-experiment entry_script=train.py machine_type=gpu process_id=2
 ```
 
 Workers stop automatically when no more `PENDING` jobs remain.
 
 ---
 
-## 8. Logs
+## 9. Logs
 
-Logs are written to:
+Logs are written to stdout and to:
 
 ```
 ~/jd_data/<expId>/jd_worker_logs/jd_worker_<runner_id>.log
 ```
 
-And also printed to stdout. Override with `log_dir=<path>` or `JD_LOG_DIR`.
+Override with `log_dir=<path>` or `JD_LOG_DIR`.
 
 ---
 
-## 9. Quick-start checklist
+## Quick-start checklist
 
 ```
 [ ] Server is running (see how_to_run/server.md)
-[ ] pip install jd-worker (or install from source)
-[ ] entry script uses --base_path and any custom args
+[ ] pip install jd-worker
 [ ] Jobs have been added in the dashboard
-[ ] (Hub mode) JD_HUB_URL and JD_API_KEY are exported
+[ ] (Hub mode) export JD_API_KEY=jd_xxxx
 [ ] Run: jd_worker expId=<name> entry_script=<script.py>
 ```

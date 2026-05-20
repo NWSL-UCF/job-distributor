@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ── Usage ─────────────────────────────────────────────────────────────────────
 # 1. Copy hub/.env.example → deploy/hub.env and fill in every value.
 # 2. Make sure /etc/letsencrypt certs exist on the host (see deploy/README.md §2).
@@ -41,6 +39,8 @@ services:
     # hub/config.py reads it from /app/hub/.env inside the container
     volumes:
       - ./hub.env:/app/hub/.env:ro
+      # Persist user profile photos across image updates
+      - ./hub-uploads:/app/hub/static/uploads
     # Allows the hub container to reach MySQL running on the host
     extra_hosts:
       - "host.docker.internal:host-gateway"

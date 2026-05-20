@@ -28,10 +28,12 @@ auth.token  = "CHANGE_ME_FRPS_TOKEN"
 vhostHTTPPort = 8080
 
 # ── Admin API ─────────────────────────────────────────────────────────────────
-# The Hub queries this API to check tunnel status / traffic stats.
-# Bind to 127.0.0.1 so it is never reachable from the internet.
-# Must match FRPS_API_URL in the hub .env (default: http://localhost:7500).
-webServer.addr = "127.0.0.1"
+# The Hub container queries this API to check tunnel status / traffic stats.
+# Bind to 0.0.0.0 so the hub container can reach it via the Docker network
+# (FRPS_API_URL = http://frps:7500 in hub.env).
+# Port 7500 is NOT published to the host in hub-compose.yml, so it is only
+# reachable from within the Docker network.
+webServer.addr = "0.0.0.0"
 webServer.port = 7500
 
 # ── Logging ───────────────────────────────────────────────────────────────────

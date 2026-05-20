@@ -59,6 +59,12 @@ def _otp_valid(stored_hash: str | None, otp: str) -> bool:
     return secrets.compare_digest(stored_hash, _hash_otp(otp))
 
 
+# Expose helpers for use by other route modules
+generate_otp = _generate_otp
+hash_otp     = _hash_otp
+otp_valid    = _otp_valid
+
+
 def _set_verification_otp(user: User) -> str:
     otp = _generate_otp()
     user.verification_token         = _hash_otp(otp)

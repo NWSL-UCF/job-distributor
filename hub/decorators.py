@@ -92,12 +92,24 @@ def require_api_key(fn):
 
 
 def _lookup_api_key(raw_key: str) -> User | None:
-    """Verify a raw API key against stored hashes."""
+    """Verify a raw API key against stored hashes.
+
+    Checks the new api_keys table first (named multi-key), then falls back
+    to the legacy single key stored on the users table.
+    """
     import hashlib
+    from .models import ApiKey
     if not raw_key or len(raw_key) < 10:
         return None
-    prefix = raw_key[:8]
+    prefix   = raw_key[:8]
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+    # Check named api_keys table (new multi-key system)
+    named_key = ApiKey.query.filter_by(key_prefix=prefix, key_hash=key_hash).first()
+    if named_key:
+        return named_key.user
+
+    # Fall back to legacy single key on users table
     return User.query.filter_by(
         api_key_prefix=prefix, api_key_hash=key_hash
     ).first()

@@ -22,6 +22,12 @@ class User(db.Model):
     reset_token_expires        = db.Column(db.DateTime)
     is_admin                   = db.Column(db.SmallInteger, nullable=False, default=0)
     is_active                  = db.Column(db.SmallInteger, nullable=False, default=1)
+    # Profile fields
+    display_name               = db.Column(db.String(100))
+    city                       = db.Column(db.String(100))
+    country                    = db.Column(db.String(100))
+    affiliation                = db.Column(db.String(200))
+    profile_photo              = db.Column(db.String(255))
     created_at                 = db.Column(db.DateTime, default=_now)
     updated_at                 = db.Column(db.DateTime, default=_now, onupdate=_now)
 
@@ -31,6 +37,8 @@ class User(db.Model):
                                       foreign_keys="UserLimitOverride.user_id")
     ext_requests    = db.relationship("LimitExtensionRequest", back_populates="user",
                                       foreign_keys="LimitExtensionRequest.user_id", lazy="dynamic")
+    api_keys        = db.relationship("ApiKey", back_populates="user", lazy="dynamic",
+                                      cascade="all, delete-orphan")
 
 
 class HubSession(db.Model):
@@ -195,3 +203,18 @@ class EmailNotification(db.Model):
                                   nullable=False)
     notification_type = db.Column(db.String(96), nullable=False)
     sent_at           = db.Column(db.DateTime, default=_now)
+
+
+class ApiKey(db.Model):
+    __tablename__ = "api_keys"
+
+    id         = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    user_id    = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="CASCADE"),
+                           nullable=False)
+    name       = db.Column(db.String(100), nullable=False)
+    key_value  = db.Column(db.String(255), nullable=False)
+    key_hash   = db.Column(db.String(255), nullable=False)
+    key_prefix = db.Column(db.String(8),   nullable=False)
+    created_at = db.Column(db.DateTime, default=_now)
+
+    user = db.relationship("User", back_populates="api_keys")

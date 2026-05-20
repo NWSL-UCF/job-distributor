@@ -22,7 +22,8 @@ def create_app() -> Flask:
             "pool_recycle": 280,
             "pool_pre_ping": True,
         },
-        SECRET_KEY = config.SECRET_KEY,
+        SECRET_KEY          = config.SECRET_KEY,
+        MAX_CONTENT_LENGTH  = 2 * 1024 * 1024,   # 2 MB limit for avatar uploads
     )
 
     logging.basicConfig(
@@ -98,6 +99,12 @@ def _apply_migrations() -> None:
             "ALTER TABLE experiments ADD COLUMN "
             "server_last_ping_at DATETIME NULL AFTER last_activity_at",
         ),
+        # v3: user profile fields
+        ("users", "display_name",  "ALTER TABLE users ADD COLUMN display_name  VARCHAR(100) NULL"),
+        ("users", "city",          "ALTER TABLE users ADD COLUMN city          VARCHAR(100) NULL"),
+        ("users", "country",       "ALTER TABLE users ADD COLUMN country       VARCHAR(100) NULL"),
+        ("users", "affiliation",   "ALTER TABLE users ADD COLUMN affiliation   VARCHAR(200) NULL"),
+        ("users", "profile_photo", "ALTER TABLE users ADD COLUMN profile_photo VARCHAR(255) NULL"),
     ]
 
     for table, column, stmt in migrations:

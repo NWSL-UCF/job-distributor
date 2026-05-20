@@ -2,9 +2,10 @@
 User-facing dashboard routes.
 """
 import hashlib
+import os
 import re
 import secrets
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from flask import (
     Blueprint,
@@ -15,11 +16,13 @@ from flask import (
     request,
     url_for,
 )
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from .. import config
 from ..db import db
 from ..decorators import require_login
 from ..models import (
+    ApiKey,
     DefaultLimits,
     Experiment,
     LimitExtensionRequest,
@@ -31,6 +34,8 @@ from ..models import (
 dashboard_bp = Blueprint("dashboard", __name__)
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9\-]{1,46}$")
+_AVATAR_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
+_AVATAR_MAX_BYTES  = 2 * 1024 * 1024   # 2 MB
 
 
 def _now():
@@ -123,15 +128,14 @@ def delete_experiment(name: str):
 @dashboard_bp.route("/experiments/<name>/extend", methods=["POST"])
 @require_login
 def extend_experiment(name: str):
-    from datetime import timedelta
     exp = Experiment.query.filter_by(name=name).first_or_404()
     if exp.user_id != g.current_user.id:
         return jsonify({"error": "Forbidden"}), 403
     if exp.status not in ("IDLE", "ACTIVE"):
         return jsonify({"error": "Experiment cannot be extended in its current state"}), 400
-    exp.expires_at    = _now() + timedelta(days=14)
-    exp.idle_warned_at= None
-    exp.status        = "ACTIVE"
+    exp.expires_at     = _now() + timedelta(days=14)
+    exp.idle_warned_at = None
+    exp.status         = "ACTIVE"
     db.session.commit()
     return redirect(url_for("dashboard.experiment_detail", name=name))
 
@@ -166,7 +170,7 @@ def reset_pin(name: str):
         return _render_experiment_detail(exp, pin_error=f"Could not reach dashboard: {exc}")
 
 
-# ── Profile / API key ─────────────────────────────────────────────────────────
+# ── Profile ───────────────────────────────────────────────────────────────────
 
 @dashboard_bp.route("/profile")
 @require_login
@@ -174,16 +178,197 @@ def profile():
     return render_template("profile.html", user=g.current_user)
 
 
+@dashboard_bp.route("/profile/update", methods=["POST"])
+@require_login
+def update_profile():
+    user = g.current_user
+    user.display_name = request.form.get("display_name", "").strip() or None
+    user.city         = request.form.get("city", "").strip() or None
+    user.country      = request.form.get("country", "").strip() or None
+    user.affiliation  = request.form.get("affiliation", "").strip() or None
+    db.session.commit()
+    return render_template("profile.html", user=user, profile_success="Profile updated.")
+
+
+@dashboard_bp.route("/profile/photo", methods=["POST"])
+@require_login
+def update_avatar():
+    user = g.current_user
+    file = request.files.get("photo")
+    if not file or not file.filename:
+        return redirect(url_for("dashboard.profile"))
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in _AVATAR_EXTENSIONS:
+        return render_template("profile.html", user=user,
+                               profile_error="Invalid file type. Use JPG, PNG, GIF, or WebP.")
+
+    data = file.read()
+    if len(data) > _AVATAR_MAX_BYTES:
+        return render_template("profile.html", user=user,
+                               profile_error="Photo too large. Maximum 2 MB.")
+
+    upload_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "static", "uploads", "avatars",
+    )
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # Remove old avatar file if extension changed
+    if user.profile_photo and user.profile_photo != f"{user.id}.{ext}":
+        old_path = os.path.join(upload_dir, user.profile_photo)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    filename = f"{user.id}.{ext}"
+    with open(os.path.join(upload_dir, filename), "wb") as f:
+        f.write(data)
+
+    user.profile_photo = filename
+    db.session.commit()
+    return render_template("profile.html", user=user, profile_success="Photo updated.")
+
+
+# ── Change password (logged-in flow) ─────────────────────────────────────────
+
+@dashboard_bp.route("/change-password", methods=["GET", "POST"])
+@require_login
+def change_password():
+    from ..email_service import send_password_change_otp
+    from ..routes.auth import generate_otp as _generate_otp, hash_otp as _hash_otp, otp_valid as _otp_valid
+
+    user = g.current_user
+
+    if request.method == "GET":
+        return render_template("change_password.html", user=user, step=1)
+
+    step = request.form.get("step", "1")
+
+    # ── Step 1: verify current password, send OTP ────────────────────────────
+    if step == "1":
+        current_pw = request.form.get("current_password", "")
+        if not check_password_hash(user.password_hash, current_pw):
+            return render_template("change_password.html", user=user, step=1,
+                                   error="Current password is incorrect.")
+        otp = _generate_otp()
+        user.reset_token_hash    = _hash_otp(otp)
+        user.reset_token_expires = _now() + timedelta(minutes=config.OTP_RESET_EXPIRE_MINUTES)
+        db.session.commit()
+        send_password_change_otp(user.email, otp)
+        return render_template("change_password.html", user=user, step=2,
+                               info=f"A verification code was sent to {user.email}.")
+
+    # ── Step 2: verify OTP and set new password ──────────────────────────────
+    if step == "2":
+        otp         = request.form.get("otp", "").strip()
+        new_pw      = request.form.get("new_password", "")
+        confirm_pw  = request.form.get("confirm_password", "")
+
+        if not _otp_valid(user.reset_token_hash, otp):
+            return render_template("change_password.html", user=user, step=2,
+                                   error="Invalid verification code.",
+                                   info=f"Code was sent to {user.email}.")
+        if user.reset_token_expires and user.reset_token_expires < _now():
+            return render_template("change_password.html", user=user, step=1,
+                                   error="Verification code expired. Please start again.")
+        if len(new_pw) < 10:
+            return render_template("change_password.html", user=user, step=2,
+                                   error="New password must be at least 10 characters.",
+                                   info=f"Code was sent to {user.email}.")
+        if new_pw != confirm_pw:
+            return render_template("change_password.html", user=user, step=2,
+                                   error="Passwords do not match.",
+                                   info=f"Code was sent to {user.email}.")
+
+        user.password_hash       = generate_password_hash(new_pw)
+        user.reset_token_hash    = None
+        user.reset_token_expires = None
+        db.session.commit()
+
+        # Invalidate all OTHER sessions (keep the current one logged in)
+        current_token = request.cookies.get("hub_session")
+        from ..models import HubSession
+        HubSession.query.filter(
+            HubSession.user_id == user.id,
+            HubSession.id != current_token,
+        ).delete()
+        db.session.commit()
+
+        return render_template("profile.html", user=user,
+                               profile_success="Password changed successfully.")
+
+    return redirect(url_for("dashboard.change_password"))
+
+
+# ── Legacy single-key regenerate (kept for backward compat) ──────────────────
+
 @dashboard_bp.route("/api-key/regenerate", methods=["POST"])
 @require_login
 def regenerate_api_key():
-    user   = g.current_user
-    raw    = "jd_" + secrets.token_urlsafe(38)
-    kh     = hashlib.sha256(raw.encode()).hexdigest()
-    user.api_key_hash   = kh
-    user.api_key_prefix = raw[:8]
+    return redirect(url_for("dashboard.api_keys"))
+
+
+# ── API Keys management ───────────────────────────────────────────────────────
+
+@dashboard_bp.route("/api-keys")
+@require_login
+def api_keys():
+    keys = g.current_user.api_keys.order_by(ApiKey.created_at.desc()).all()
+    return render_template("api_keys.html", user=g.current_user, keys=keys)
+
+
+@dashboard_bp.route("/api-keys/create", methods=["POST"])
+@require_login
+def create_api_key():
+    user = g.current_user
+    name = request.form.get("name", "").strip()
+    if not name:
+        keys = user.api_keys.order_by(ApiKey.created_at.desc()).all()
+        return render_template("api_keys.html", user=user, keys=keys,
+                               error="Key name is required.")
+    if len(name) > 100:
+        keys = user.api_keys.order_by(ApiKey.created_at.desc()).all()
+        return render_template("api_keys.html", user=user, keys=keys,
+                               error="Key name must be 100 characters or fewer.")
+
+    raw       = "jd_" + secrets.token_urlsafe(38)
+    key_hash  = hashlib.sha256(raw.encode()).hexdigest()
+    key_prefix= raw[:8]
+    key = ApiKey(
+        user_id    = user.id,
+        name       = name,
+        key_value  = raw,
+        key_hash   = key_hash,
+        key_prefix = key_prefix,
+    )
+    db.session.add(key)
     db.session.commit()
-    return render_template("profile.html", user=user, new_api_key=raw)
+
+    keys = user.api_keys.order_by(ApiKey.created_at.desc()).all()
+    return render_template("api_keys.html", user=user, keys=keys,
+                           new_key_id=key.id, new_key_value=raw)
+
+
+@dashboard_bp.route("/api-keys/<int:key_id>/delete", methods=["POST"])
+@require_login
+def delete_api_key(key_id: int):
+    key = ApiKey.query.filter_by(id=key_id, user_id=g.current_user.id).first_or_404()
+    db.session.delete(key)
+    db.session.commit()
+    return redirect(url_for("dashboard.api_keys"))
+
+
+@dashboard_bp.route("/api-keys/<int:key_id>/reveal", methods=["POST"])
+@require_login
+def reveal_api_key(key_id: int):
+    """AJAX endpoint: verify password and return the full key value."""
+    key = ApiKey.query.filter_by(id=key_id, user_id=g.current_user.id).first()
+    if not key:
+        return jsonify({"error": "Not found"}), 404
+    password = (request.json or {}).get("password", "")
+    if not check_password_hash(g.current_user.password_hash, password):
+        return jsonify({"error": "Incorrect password"}), 403
+    return jsonify({"key": key.key_value})
 
 
 # ── Limit extensions ──────────────────────────────────────────────────────────
@@ -240,13 +425,13 @@ def _render_experiment_detail(exp: Experiment, **kwargs):
 def _provision_experiment(user: User, name: str) -> Experiment:
     worker_secret = secrets.token_hex(32)
     exp = Experiment(
-        user_id               = user.id,
-        name                  = name,
-        status                = "ACTIVE",
-        worker_shared_secret  = worker_secret,
-        frpc_subdomain_server = f"{name}-server.{config.JD_BASE_DOMAIN}",
+        user_id                  = user.id,
+        name                     = name,
+        status                   = "ACTIVE",
+        worker_shared_secret     = worker_secret,
+        frpc_subdomain_server    = f"{name}-server.{config.JD_BASE_DOMAIN}",
         frpc_subdomain_dashboard = f"{name}-dashboard.{config.JD_BASE_DOMAIN}",
-        last_activity_at      = _now(),
+        last_activity_at         = _now(),
     )
     db.session.add(exp)
     db.session.commit()

@@ -3,101 +3,125 @@
 
 {% block content %}
 <div class="page-header">
-  <h1 class="page-title">Profile &amp; API Key</h1>
-  <p class="page-sub">Your API key authenticates <code>jd_worker</code> and your server Docker stack</p>
+  <div>
+    <h1 class="page-title">Profile</h1>
+    <p class="page-sub">Manage your account information and security settings</p>
+  </div>
 </div>
 
-{% if new_api_key %}
-<div class="alert alert--success">
-  <strong>API key generated.</strong> Copy it now — it will not be shown again after you leave this page.
-</div>
+{% if profile_success %}
+<div class="alert alert--success">{{ profile_success }}</div>
+{% endif %}
+{% if profile_error %}
+<div class="alert alert--error">{{ profile_error }}</div>
 {% endif %}
 
-<div class="form-card">
-  <h2 class="form-card__title">Account</h2>
-  <table class="meta-table">
-    <tr><th>Email</th><td>{{ user.email }}</td></tr>
-    <tr><th>Account created</th><td>{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '—' }}</td></tr>
-  </table>
+{# ── Avatar + profile info ────────────────────────────────────────────────── #}
+<div class="form-card profile-card">
+  <h2 class="form-card__title">Account Info</h2>
+
+  <div class="profile-layout">
+    {# Avatar column #}
+    <div class="profile-avatar-col">
+      <div class="profile-avatar-wrap">
+        {% if user.profile_photo %}
+        <img id="avatar-preview"
+             src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) }}"
+             alt="Profile photo" class="profile-avatar">
+        {% else %}
+        <div id="avatar-preview" class="profile-avatar profile-avatar--placeholder">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+        {% endif %}
+      </div>
+      <form method="post" action="{{ url_for('dashboard.update_avatar') }}"
+            enctype="multipart/form-data" class="avatar-upload-form">
+        <label class="btn btn--outline btn--sm avatar-upload-btn">
+          Change photo
+          <input type="file" name="photo" accept="image/jpeg,image/png,image/gif,image/webp"
+                 style="display:none" onchange="previewAvatar(this); this.form.submit()">
+        </label>
+        <p class="field__hint">JPG, PNG, GIF or WebP · max 2 MB</p>
+      </form>
+    </div>
+
+    {# Info column #}
+    <form method="post" action="{{ url_for('dashboard.update_profile') }}" class="profile-info-form">
+      <div class="field">
+        <label class="field__label">Email</label>
+        <input class="field__input" type="text" value="{{ user.email }}" disabled>
+        <span class="field__hint">Email cannot be changed</span>
+      </div>
+      <div class="field">
+        <label class="field__label" for="display_name">Name</label>
+        <input class="field__input" type="text" id="display_name" name="display_name"
+               value="{{ user.display_name or '' }}" maxlength="100"
+               placeholder="Your full name">
+      </div>
+      <div class="profile-row">
+        <div class="field">
+          <label class="field__label" for="city">City</label>
+          <input class="field__input" type="text" id="city" name="city"
+                 value="{{ user.city or '' }}" maxlength="100" placeholder="e.g. Orlando">
+        </div>
+        <div class="field">
+          <label class="field__label" for="country">Country</label>
+          <input class="field__input" type="text" id="country" name="country"
+                 value="{{ user.country or '' }}" maxlength="100" placeholder="e.g. United States">
+        </div>
+      </div>
+      <div class="field">
+        <label class="field__label" for="affiliation">Affiliation</label>
+        <input class="field__input" type="text" id="affiliation" name="affiliation"
+               value="{{ user.affiliation or '' }}" maxlength="200"
+               placeholder="University, company, or organization">
+      </div>
+      <div class="field">
+        <label class="field__label">Member since</label>
+        <input class="field__input" type="text"
+               value="{{ user.created_at.strftime('%B %d, %Y') if user.created_at else '—' }}" disabled>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Save changes</button>
+      </div>
+    </form>
+  </div>
 </div>
 
-<div class="form-card form-card--api">
-  <h2 class="form-card__title">API Key</h2>
+{# ── Change password ──────────────────────────────────────────────────────── #}
+<div class="form-card">
+  <h2 class="form-card__title">Security</h2>
   <p class="form-card__hint">
-    Set as <code>JD_API_KEY</code> in your environment. Workers and the server fetch tokens and
-    tunnel config from the Hub automatically.
+    Changing your password will sign out all other active sessions.
   </p>
-
-  {% if new_api_key %}
-  <div class="endpoint-item endpoint-item--profile">
-    <div class="endpoint-item__icon endpoint-item__icon--key" aria-hidden="true">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-      </svg>
-    </div>
-    <div class="endpoint-item__body">
-      <span class="endpoint-item__label">Your API key</span>
-      <span class="endpoint-item__hint">Full key — copy before navigating away</span>
-      <div class="endpoint-item__url-row">
-        <input class="endpoint-item__input" id="api-key-full" type="text" readonly value="{{ new_api_key }}">
-        <div class="endpoint-item__actions">
-          <button type="button" class="btn btn--icon" title="Copy API key" onclick="copyText('api-key-full')">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
+  <div class="form-actions" style="margin-top:12px">
+    <a href="{{ url_for('dashboard.change_password') }}" class="btn btn--outline">Change password</a>
   </div>
-  {% elif user.api_key_prefix %}
-  <div class="endpoint-item endpoint-item--profile endpoint-item--masked">
-    <div class="endpoint-item__icon endpoint-item__icon--key" aria-hidden="true">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-      </svg>
-    </div>
-    <div class="endpoint-item__body">
-      <span class="endpoint-item__label">Active API key</span>
-      <span class="endpoint-item__hint">Full key is hidden for security — regenerate to get a new copyable key</span>
-      <div class="endpoint-item__url-row">
-        <input class="endpoint-item__input" id="api-key-masked" type="text" readonly
-               value="{{ user.api_key_prefix }}•••••••••••••••••••••••••••••••">
-        <div class="endpoint-item__actions">
-          <button type="button" class="btn btn--icon" title="Copy prefix only"
-                  onclick="copyApiKeyPrefix('{{ user.api_key_prefix }}')">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% else %}
-  <p class="text--muted">No API key yet. Generate one below.</p>
-  {% endif %}
-
-  <form method="post" action="{{ url_for('dashboard.regenerate_api_key') }}" class="profile-api-actions"
-        onsubmit="return confirm('Regenerate API key? The old key will stop working immediately.')">
-    <button type="submit" class="btn btn--primary">
-      {{ 'Regenerate API key' if user.api_key_prefix else 'Generate API key' }}
-    </button>
-  </form>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-function copyApiKeyPrefix(prefix) {
-  const text = prefix + '…';
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() =>
-      showToast('Prefix copied — regenerate to copy the full key')
-    );
-  } else {
-    copyText('api-key-masked');
-  }
+function previewAvatar(input) {
+  if (!input.files || !input.files[0]) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const el = document.getElementById('avatar-preview');
+    if (el.tagName === 'IMG') {
+      el.src = e.target.result;
+    } else {
+      const img = document.createElement('img');
+      img.id = 'avatar-preview';
+      img.src = e.target.result;
+      img.alt = 'Profile photo';
+      img.className = 'profile-avatar';
+      el.replaceWith(img);
+    }
+  };
+  reader.readAsDataURL(input.files[0]);
 }
 </script>
 {% endblock %}

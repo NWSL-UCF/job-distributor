@@ -98,6 +98,18 @@ def send_password_reset_otp(user_email: str, otp: str) -> bool:
     return send_email(user_email, "Your JobDistributor password reset code", html)
 
 
+def send_password_change_otp(user_email: str, otp: str) -> bool:
+    html = f"""
+    <h2>Password change confirmation</h2>
+    <p>Your verification code to change your password is:</p>
+    <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:16px 0;">{otp}</p>
+    <p>Enter this code on the password change page. It expires in
+       {config.OTP_RESET_EXPIRE_MINUTES} minutes.</p>
+    <p>If you did not request this, your account may be at risk — change your password immediately.</p>
+    """
+    return send_email(user_email, "Your JobDistributor password change code", html)
+
+
 def send_quota_warning(user_email: str, user_id: int,
                        direction: str, pct: int, year: int, month: int) -> bool:
     """direction is 'in' or 'out'. pct is 80, 95, or 100."""

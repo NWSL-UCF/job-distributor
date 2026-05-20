@@ -1,164 +1,204 @@
-# How to Run the Job Server
+# How to Run the Job Server (Docker)
 
-The job server is the backend your workers talk to directly. It serves jobs,
-receives status updates, stores checkpoints and uploads, and exposes a dashboard
-UI. It runs on **your own machine** (locally or inside Docker) and is exposed
-publicly via an FRP tunnel managed by the Hub.
+The job server is the per-experiment backend your workers talk to. It serves
+jobs, receives status updates, stores checkpoints and uploads, and exposes a
+browser dashboard. It runs in a Docker container and is exposed to the internet
+automatically through the Hub's FRP tunnel — no manual port forwarding needed.
+
+**frpc is bundled inside the image.** No separate sidecar container is required.
 
 ---
 
 ## Prerequisites
 
-- Python 3.11+ with `pip`
-- A MySQL-free setup — the server uses **SQLite** (auto-created, no config needed)
+- Docker installed on your machine
+- A Hub account at `https://hub.jobdistributor.net`
+- An experiment created on the Hub (gives you an API key)
 
 ---
 
-## 1. Install dependencies
+## Quick start — `run.sh` (recommended)
 
 ```bash
+# Clone the repo (one-time)
+git clone https://github.com/NWSL-UCF/job-distributor.git
 cd job-distributor/server
-pip install -r requirements.txt
+
+# Start the server for your experiment
+JD_API_KEY=jd_xxxxxxxxxxxxxxxx ./run.sh my-experiment
 ```
 
-`requirements.txt` includes: `flask`, `gunicorn`, `pandas`, `pytz`, `numpy`,
-`requests`, `PyJWT`.
+That's it. The container:
+1. Pulls `jobdistributor/jd-server:latest` if not cached
+2. Fetches the FRP config and worker secret from the Hub
+3. Starts frpc to open the tunnel
+4. Registers the dashboard admin token with the Hub
+5. Starts the job server and dashboard
+6. Sends heartbeats to the Hub every 3 minutes
+
+Your experiment is now publicly reachable at:
+
+| Service | URL |
+|---|---|
+| Job server | `https://<expName>-server.jobdistributor.net` |
+| Dashboard  | `https://<expName>-dashboard.jobdistributor.net` |
+
+Data is persisted at `~/jd_server/<expName>/` on the host.
 
 ---
 
-## 2. Run the server stack
+## `run.sh` commands
 
-`start.py` launches three processes together:
+```bash
+# Start (default)
+JD_API_KEY=jd_xxx ./run.sh my-experiment
 
-- **Job server** (Gunicorn) — handles worker API calls
-- **Dashboard** (Gunicorn) — browser UI for monitoring jobs
-- **Job cleaner** — background process that resets stale/aborted jobs
+# Explicit start
+JD_API_KEY=jd_xxx ./run.sh my-experiment start
+
+# Tail container logs
+./run.sh my-experiment logs
+
+# Check running status
+./run.sh my-experiment status
+
+# Stop and remove the container (data is preserved on disk)
+./run.sh my-experiment stop
+```
+
+### Optional environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `JD_HUB_URL` | `https://hub.jobdistributor.net` | Hub base URL |
+| `JD_WORKSPACE` | `~/jd_server` | Host root for experiment data |
+| `JD_IMAGE` | `jobdistributor/jd-server:latest` | Docker image to use |
+
+---
+
+## Alternative — `docker compose`
+
+Use the provided `server/docker-compose.yml` for a more declarative setup.
+Pass the experiment name and API key inline — no `.env` file needed:
 
 ```bash
 cd job-distributor/server
-python start.py \
-  --expId          my_experiment \
-  --workspace_path /data/experiments
+
+EXP=my-experiment JD_API_KEY=jd_xxxxxxxxxxxxxxxx docker compose up -d
 ```
 
-### Arguments
+### Running multiple experiments on the same machine
 
-| Argument | Required | Default | Description |
-|---|---|---|---|
-| `--expId` | Yes | — | Unique name for this experiment. Used as the data subdirectory. |
-| `--workspace_path` | No | directory of `start.py` | Root directory where all experiment data is stored |
-| `--workers` | No | `1` | Gunicorn worker processes per server |
-| `--threads` | No | `4` | Threads per Gunicorn worker |
-
-### Minimal example
+Each experiment gets its own container and workspace:
 
 ```bash
-python start.py --expId mnist_tune
+EXP=tuning-01 JD_API_KEY=jd_key1 docker compose up -d
+EXP=tuning-02 JD_API_KEY=jd_key2 docker compose up -d
 ```
 
-This creates:
+Stop a specific experiment:
+
+```bash
+docker stop jd-tuning-01 && docker rm jd-tuning-01
+```
+
+---
+
+## Workspace layout
+
+All data is written on the **host** (survives container restarts and rebuilds):
 
 ```
-<workspace_path>/
-└── mnist_tune/
+~/jd_server/
+└── <expName>/
     ├── meta/
-    │   ├── jobs.db             ← SQLite database
+    │   ├── jobs.db              ← SQLite job queue
     │   ├── server.log
     │   ├── dashboard.log
-    │   ├── pids.json           ← PIDs of running processes
+    │   ├── server_access.log
+    │   ├── dashboard_access.log
+    │   ├── pids.json
     │   └── ...
     └── data/
         └── <job_id>/
-            ├── result_v0_<ts>.csv      ← worker uploads
+            ├── result_v0_<ts>.csv     ← worker uploads
             └── checkpoint_v0_<ts>.pt  ← checkpoints
 ```
 
----
-
-## 3. Hub mode (optional — for public access via FRP tunnel)
-
-If you want workers to reach the server over the internet via the Hub's FRP
-tunnel, set these additional environment variables **before** running `start.py`:
+Override the root by setting `JD_WORKSPACE`:
 
 ```bash
-export JD_WORKER_SHARED_SECRET=<secret from Hub experiment page>
-export JD_HUB_URL=https://hub.jobdistributor.net
-export JD_API_KEY=jd_xxxxxxxxxxxxxxxx         # your Hub API key
-export JD_EXP_NAME=my_experiment              # must match --expId
-
-python start.py --expId my_experiment --workspace_path /data/experiments
-```
-
-When `JD_WORKER_SHARED_SECRET` is set, the server **verifies the JWT** on every
-worker request. Workers must obtain a token from the Hub first (handled
-automatically by `jd_worker`).
-
-### Register with the Hub on first boot
-
-After starting, call the Hub's register endpoint once to store the admin token
-(enables remote PIN reset from the Hub dashboard):
-
-```bash
-curl -X POST https://hub.jobdistributor.net/api/experiments/my_experiment/register \
-  -H "Authorization: Bearer jd_xxxxxxxxxxxxxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "admin_token": "<your dashboard admin token>",
-    "worker_shared_secret": "<JD_WORKER_SHARED_SECRET value>"
-  }'
+JD_API_KEY=jd_xxx JD_WORKSPACE=/data/experiments ./run.sh my-experiment
 ```
 
 ---
 
-## 4. Run inside Docker
-
-For Docker-based deployment (recommended when using the Hub and FRP tunnel),
-see **`how_to_run/dockerize_server.md`** for the full guide including the
-`Dockerfile`, `docker-compose.yml`, and `frpc.ini` setup.
-
----
-
-## 5. Stop the server
+## View logs
 
 ```bash
-cd job-distributor/server
-python stop.py --expId my_experiment --workspace_path /data/experiments
+# Live container logs (entrypoint + frpc + start.py)
+./run.sh my-experiment logs
+
+# Or directly
+docker logs -f jd-my-experiment
+
+# Application logs on disk
+tail -f ~/jd_server/my-experiment/meta/server.log
+tail -f ~/jd_server/my-experiment/meta/dashboard.log
 ```
 
-`stop.py` reads the PID file from `meta/pids.json` and sends SIGTERM to all
-three processes.
+---
+
+## Add jobs
+
+Jobs are defined from the dashboard UI:
+
+1. Open `https://<expName>-dashboard.jobdistributor.net` (PIN prompted on first visit)
+2. Click **Add Jobs** and enter your parameter grid
+3. The server generates all parameter combinations automatically
+
+Alternatively, add jobs via the Hub experiment page.
 
 ---
 
-## 6. Access the dashboard
+## Update to the latest image
 
-Open in your browser:
+```bash
+docker pull jobdistributor/jd-server:latest
 
-| Mode | URL |
-|---|---|
-| Local | `http://localhost:<dashboard_port>` |
-| Hub (FRP tunnel) | `https://dashboard.<expId>.jobdistributor.net` |
-
-The dashboard is PIN-protected. Set or reset the PIN from the **Settings** modal
-inside the dashboard, or from the Hub experiment detail page.
+# Restart with the new image
+./run.sh my-experiment stop
+JD_API_KEY=jd_xxx ./run.sh my-experiment start
+```
 
 ---
 
-## 7. Add jobs
+## Troubleshooting
 
-Jobs are added through the dashboard UI — click **Add Jobs** and define your
-parameter grid. The server generates all combinations automatically.
+### Container exits immediately
 
----
+Check logs for the error:
+```bash
+docker logs jd-my-experiment
+```
 
-## Logs
+Common causes:
+- `JD_API_KEY` is wrong or for a different experiment
+- Experiment does not exist on the Hub — create it first
+- Hub is unreachable
 
-All logs go under `<workspace_path>/<expId>/meta/`:
+### Dashboard PIN locked / PIN reset from Hub not working
 
-| File | Content |
-|---|---|
-| `server.log` | Job server application log |
-| `server_access.log` | Gunicorn HTTP access log |
-| `dashboard.log` | Dashboard application log |
-| `dashboard_access.log` | Gunicorn HTTP access log |
-| `__start__.log` | start.py orchestration log |
+The Hub sends a PIN reset request using the admin token registered at startup.
+If the server just started, wait ~30 seconds for `hub_register.py` to complete,
+then retry from the Hub dashboard.
+
+### frpc tunnel not connecting
+
+Check the server logs for `frpc` errors:
+```bash
+docker logs jd-my-experiment 2>&1 | grep -i "frpc\|tunnel\|bootstrap"
+```
+
+If `hub_bootstrap` failed, the `frpc.ini` was not fetched — verify `JD_API_KEY`
+and that the experiment is `ACTIVE` on the Hub.
