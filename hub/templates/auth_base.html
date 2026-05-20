@@ -17,7 +17,37 @@
       <img class="auth-logo__icon" src="{{ url_for('static', filename='favicon.png') }}" width="32" height="32" alt="">
       <span>JobDistributor Hub</span>
     </a>
+
     {% block auth_content %}{% endblock %}
+
+    <div class="auth-site-blurb">
+      <p>
+        <strong>JobDistributor</strong> distributes large parameter sweeps and
+        simulation runs across any number of machines — your laptop, a GPU
+        server, or an HPC cluster — through a simple job queue.
+        No infrastructure changes required.
+      </p>
+      <a href="{{ url_for('pages.tutorials') }}" class="auth-tutorial-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 8 16 12 12 16"/><line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        Read the Getting Started tutorial
+      </a>
+    </div>
   </div>
+
+  <footer class="auth-footer">
+    <div class="auth-footer__inner">
+      <img src="{{ url_for('static', filename='nwsl-logo.png') }}"
+           alt="NWSL" width="24" height="24" class="auth-footer__logo"
+           onerror="this.style.display='none'">
+      <span>
+        University of Central Florida &mdash; Networking and Wireless System Lab (NWSL)
+        &nbsp;&middot;&nbsp;
+        &copy; University of Central Florida. All rights reserved.
+      </span>
+    </div>
+  </footer>
 </body>
 </html>

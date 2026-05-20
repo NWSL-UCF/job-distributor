@@ -51,6 +51,35 @@ window.copyFrpc = function () {
   }
 };
 
+// ── Nav avatar dropdown ───────────────────────────────────────────────────────
+(function () {
+  const toggle   = document.getElementById('nav-avatar-toggle');
+  const dropdown = document.getElementById('nav-avatar-dropdown');
+  if (!toggle || !dropdown) return;
+
+  toggle.addEventListener('click', function (e) {
+    e.stopPropagation();
+    const open = dropdown.classList.toggle('open');
+    toggle.classList.toggle('open', open);
+  });
+
+  // Close when clicking anywhere outside
+  document.addEventListener('click', function (e) {
+    if (!toggle.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.remove('open');
+      toggle.classList.remove('open');
+    }
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      dropdown.classList.remove('open');
+      toggle.classList.remove('open');
+    }
+  });
+})();
+
 // ── Confirm-before-submit on data- attribute ─────────────────────────────────
 document.addEventListener('submit', function (e) {
   const msg = e.target.dataset.confirm;

@@ -1,0 +1,1287 @@
+{% extends "base.html" %}
+{% block title %}JobDistributor — Getting Started Tutorial{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Tutorial layout ────────────────────────────────────────────────────── */
+  .tut-wrap {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 40px;
+    align-items: flex-start;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+  /* ── Sticky sidebar ─────────────────────────────────────────────────────── */
+  .tut-nav {
+    position: sticky;
+    top: calc(var(--topnav-h) + 20px);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 20px;
+    font-size: .85rem;
+  }
+  .tut-nav__title {
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--color-muted);
+    margin-bottom: 10px;
+  }
+  .tut-nav a {
+    display: block;
+    padding: 5px 8px;
+    border-radius: 4px;
+    color: var(--color-muted);
+    text-decoration: none;
+    line-height: 1.4;
+    transition: background .12s, color .12s;
+  }
+  .tut-nav a:hover, .tut-nav a.active {
+    background: #f0f0f0;
+    color: var(--color-text);
+    text-decoration: none;
+  }
+  .tut-nav a.sub { padding-left: 20px; font-size: .82rem; }
+
+  /* ── Tutorial body ──────────────────────────────────────────────────────── */
+  .tut-body { min-width: 0; }
+  .tut-body h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+  .tut-body .tut-lead {
+    font-size: 1.05rem; color: var(--color-muted);
+    margin-bottom: 36px; line-height: 1.7;
+  }
+  .tut-section { margin-bottom: 56px; scroll-margin-top: calc(var(--topnav-h) + 20px); }
+  .tut-section h2 {
+    font-size: 1.4rem; font-weight: 700;
+    border-bottom: 2px solid var(--color-border);
+    padding-bottom: 8px; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .tut-section h3 {
+    font-size: 1.1rem; font-weight: 700; margin: 24px 0 10px;
+  }
+  .tut-section p { margin-bottom: 14px; line-height: 1.75; }
+  .tut-section ul, .tut-section ol {
+    padding-left: 22px; margin-bottom: 14px; line-height: 1.8;
+  }
+  .tut-section li { margin-bottom: 4px; }
+  .tut-section table {
+    width: 100%; border-collapse: collapse; margin-bottom: 16px;
+    font-size: .9rem;
+  }
+  .tut-section th, .tut-section td {
+    padding: 8px 12px; text-align: left;
+    border: 1px solid var(--color-border);
+  }
+  .tut-section th { background: #f5f5f5; font-weight: 600; }
+  .tut-section tr:nth-child(even) td { background: #fafafa; }
+
+  /* ── Step badge ─────────────────────────────────────────────────────────── */
+  .step-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--color-text); color: #fff;
+    font-size: .8rem; font-weight: 700; flex-shrink: 0;
+  }
+  .step-badge--alt { background: #4f46e5; }
+
+  /* ── Code blocks ────────────────────────────────────────────────────────── */
+  .code-block {
+    position: relative;
+    background: #1a1a1a;
+    border-radius: var(--radius);
+    margin: 16px 0;
+    overflow: hidden;
+  }
+  .code-block__lang {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px 6px;
+    border-bottom: 1px solid #333;
+    font-size: .75rem;
+    font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+    color: #888;
+  }
+  .code-block__copy {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 4px;
+    background: #333; color: #ccc;
+    border: none; cursor: pointer; font-size: .75rem;
+    transition: background .15s;
+  }
+  .code-block__copy:hover { background: #444; color: #fff; }
+  .code-block__copy.copied { background: #2d6a4f; color: #b7e4c7; }
+  .code-block pre {
+    margin: 0; padding: 18px 16px;
+    overflow-x: auto;
+    font-size: .87rem; line-height: 1.65;
+    color: #e8e8e8;
+    font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  }
+  .code-block pre code { font-size: inherit; background: none; color: inherit; }
+  /* syntax-ish colouring (CSS only, no library) */
+  .code-block .kw  { color: #c792ea; }
+  .code-block .cm  { color: #7c9aaa; font-style: italic; }
+  .code-block .st  { color: #c3e88d; }
+  .code-block .nb  { color: #82aaff; }
+  .code-block .fn  { color: #ffcb6b; }
+
+  /* ── Info / tip boxes ───────────────────────────────────────────────────── */
+  .tut-note {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 16px; border-radius: var(--radius);
+    margin: 16px 0; font-size: .9rem; line-height: 1.6;
+  }
+  .tut-note--info  { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+  .tut-note--tip   { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+  .tut-note--warn  { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+  .tut-note__icon  { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+
+  /* ── Checklist ──────────────────────────────────────────────────────────── */
+  .checklist { list-style: none; padding: 0; }
+  .checklist li {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 12px; border-bottom: 1px solid var(--color-border-light);
+    font-size: .9rem;
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist__icon { color: #16a34a; flex-shrink: 0; margin-top: 2px; font-size: 1rem; }
+
+  /* ── Grid overview table ────────────────────────────────────────────────── */
+  .grid-tag {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    background: #f0f0f0; font-size: .8rem; font-family: monospace;
+    margin: 2px;
+  }
+
+  /* ── Responsive ─────────────────────────────────────────────────────────── */
+  @media (max-width: 840px) {
+    .tut-wrap { grid-template-columns: 1fr; padding: 16px; }
+    .tut-nav  { position: static; }
+    .tut-body h1 { font-size: 1.5rem; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="tut-wrap">
+
+  {# ── Sidebar ──────────────────────────────────────────────────────────── #}
+  <nav class="tut-nav" id="tut-toc">
+    <div class="tut-nav__title">Table of Contents</div>
+    <a href="#intro">Introduction</a>
+    <a href="#problem">Example Problem</a>
+    <a href="#serial">Serial Baseline</a>
+    <a href="#parallel">Why Parallelize?</a>
+    <a href="#step1">Step 1 — Hub Setup</a>
+    <a class="sub" href="#step1-account">Create an account</a>
+    <a class="sub" href="#step1-experiment">Create an experiment</a>
+    <a class="sub" href="#step1-key">Generate an API key</a>
+    <a href="#step2">Step 2 — Start the Server</a>
+    <a class="sub" href="#step2-docker">Install Docker</a>
+    <a class="sub" href="#step2-run">Run the container</a>
+    <a href="#step3">Step 3 — Write train.py</a>
+    <a class="sub" href="#step3-script">Entry script</a>
+    <a class="sub" href="#step3-paths">Paths &amp; uploads</a>
+    <a href="#step4">Step 4 — Create Jobs</a>
+    <a href="#step5">Step 5 — Run Workers</a>
+    <a class="sub" href="#step5-install">Install jd-worker</a>
+    <a class="sub" href="#step5-run">Launch workers</a>
+    <a class="sub" href="#step5-results">Retrieve results</a>
+    <a href="#step6">Step 6 — Scale with Slurm</a>
+    <a href="#checklist">End-to-End Checklist</a>
+  </nav>
+
+  {# ── Body ─────────────────────────────────────────────────────────────── #}
+  <div class="tut-body">
+
+    <h1>Getting Started with JobDistributor</h1>
+    <p class="tut-lead">
+      A practical, end-to-end guide to running large hyperparameter sweeps
+      across one machine, multiple machines, or an HPC cluster — without
+      changing a single line of your training code.
+    </p>
+
+    {# ── 0. Introduction ──────────────────────────────────────────────── #}
+    <section class="tut-section" id="intro">
+      <h2><span class="step-badge">?</span> Introduction</h2>
+
+      <p>
+        <strong>JobDistributor</strong> is an open-source platform for
+        distributing a large number of independent compute tasks across
+        any number of machines. It consists of three components:
+      </p>
+
+      <table>
+        <thead><tr><th>Component</th><th>What it does</th><th>Where it runs</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Hub</strong></td>
+            <td>Manages user accounts, experiments, API keys, and public tunnels</td>
+            <td>Central server (cloud VPS)</td>
+          </tr>
+          <tr>
+            <td><strong>Server</strong></td>
+            <td>Holds the job queue for one experiment; serves jobs to workers; stores results</td>
+            <td>Any machine with Docker (your laptop, lab server, VM)</td>
+          </tr>
+          <tr>
+            <td><strong>Worker</strong> (<code>jd_worker</code>)</td>
+            <td>Pulls jobs from the server, runs your script, reports completion</td>
+            <td>Any compute node (laptop, GPU server, Slurm node)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p><strong>JobDistributor is the right tool when:</strong></p>
+      <ul>
+        <li>You need to run the <em>same script</em> many times with different parameter combinations.</li>
+        <li>Each run is completely independent of the others (no data sharing between jobs).</li>
+        <li>You want to spread the work across laptops, GPU servers, and cluster nodes simultaneously.</li>
+        <li>You want one central dashboard to track job progress, failures, and results.</li>
+      </ul>
+
+      <p><strong>Typical use cases:</strong></p>
+      <ul>
+        <li>Machine learning hyperparameter search</li>
+        <li>Physics or network simulation sweeps</li>
+        <li>Benchmark matrices over algorithm variants</li>
+        <li>Repeated experiments with different random seeds</li>
+      </ul>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          JobDistributor is <em>not</em> designed for tightly coupled parallel jobs
+          (MPI programs, multi-GPU training with shared gradients, etc.).
+          It is optimized for <strong>embarrassingly parallel</strong> workloads.
+        </span>
+      </div>
+    </section>
+
+    {# ── 1. Example problem ───────────────────────────────────────────── #}
+    <section class="tut-section" id="problem">
+      <h2><span class="step-badge">1</span> Example Problem — ML Hyperparameter Search</h2>
+
+      <p>
+        Throughout this tutorial we train a <strong>neural network classifier</strong>
+        (scikit-learn <code>MLPClassifier</code>) on the built-in
+        <strong>optical digits dataset</strong> (1,797 samples, 10 classes).
+        We want to find the best combination of four hyperparameters:
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Hyperparameter</th><th>Values</th><th>Count</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>learning_rate_init</code></td>
+            <td>
+              <span class="grid-tag">0.001</span>
+              <span class="grid-tag">0.01</span>
+              <span class="grid-tag">0.1</span>
+            </td>
+            <td>3</td>
+          </tr>
+          <tr>
+            <td><code>hidden_layer_sizes</code></td>
+            <td>
+              <span class="grid-tag">64</span>
+              <span class="grid-tag">128</span>
+              <span class="grid-tag">64,64</span>
+            </td>
+            <td>3</td>
+          </tr>
+          <tr>
+            <td><code>alpha</code> (L2 regularization)</td>
+            <td>
+              <span class="grid-tag">0.0001</span>
+              <span class="grid-tag">0.001</span>
+              <span class="grid-tag">0.01</span>
+            </td>
+            <td>3</td>
+          </tr>
+          <tr>
+            <td><code>max_iter</code></td>
+            <td>
+              <span class="grid-tag">100</span>
+              <span class="grid-tag">200</span>
+            </td>
+            <td>2</td>
+          </tr>
+          <tr>
+            <td colspan="2"><strong>Total combinations</strong></td>
+            <td><strong>54</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        With 54 independent runs, this is a straightforward but concrete example.
+        Real-world sweeps often involve hundreds or thousands of combinations.
+      </p>
+    </section>
+
+    {# ── 2. Serial baseline ────────────────────────────────────────────── #}
+    <section class="tut-section" id="serial">
+      <h2><span class="step-badge">2</span> Serial Baseline — All Combinations on One Machine</h2>
+
+      <p>
+        Before distributing anything, let us first write the naïve approach:
+        iterate over every combination and run them one by one on a single machine.
+        Save this as <code>serial_grid.py</code> in your working directory.
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>serial_grid.py — Python</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>#!/usr/bin/env python3
+"""Naïve serial sweep — runs all 54 combinations one by one."""
+import itertools
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+GRID = {
+    "learning_rate_init": [0.001, 0.01, 0.1],
+    "hidden_layer_sizes": ["64", "128", "64,64"],
+    "alpha":              [0.0001, 0.001, 0.01],
+    "max_iter":           [100, 200],
+}
+
+keys   = list(GRID.keys())
+combos = list(itertools.product(*GRID.values()))
+print(f"Total combinations: {len(combos)}")
+
+results = []
+for i, combo in enumerate(combos, 1):
+    params = dict(zip(keys, combo))
+    cli_args = []
+    for k, v in params.items():
+        cli_args.extend([f"--{k}", str(v)])
+
+    print(f"\n[{i:02d}/{len(combos)}]  {params}")
+    t0 = time.time()
+
+    proc = subprocess.run(
+        [sys.executable, "train.py", *cli_args],
+        capture_output=True, text=True
+    )
+    elapsed = time.time() - t0
+
+    if proc.returncode == 0:
+        print(f"  OK  ({elapsed:.1f}s)")
+    else:
+        print(f"  FAILED ({elapsed:.1f}s)")
+        print(proc.stderr[-300:])
+
+print("\nAll done.")</code></pre>
+      </div>
+
+      <p>Run it with:</p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>python3 serial_grid.py</code></pre>
+      </div>
+
+      <p>
+        This works, but there is a clear bottleneck: <strong>every combination
+        waits for the previous one to finish</strong>. If each run takes
+        5 minutes, the full sweep takes 4.5 hours on a single machine.
+        The next section explains why we can do far better.
+      </p>
+    </section>
+
+    {# ── 3. Why parallelize ────────────────────────────────────────────── #}
+    <section class="tut-section" id="parallel">
+      <h2><span class="step-badge">3</span> Why This Problem Is Embarrassingly Parallel</h2>
+
+      <p>
+        Each of the 54 combinations is <strong>completely independent</strong>:
+        no combination needs any result from another, and there is no
+        shared state between runs. This makes the problem
+        <em>embarrassingly parallel</em> — the ideal case for a job queue.
+      </p>
+
+      <ul>
+        <li>With <strong>1 worker</strong>: 54 jobs × 5 min = 4.5 hours.</li>
+        <li>With <strong>4 workers</strong>: ≈ 1.1 hours.</li>
+        <li>With <strong>54 workers</strong>: ≈ 5 minutes (all jobs in parallel).</li>
+      </ul>
+
+      <p>
+        JobDistributor lets you launch workers on any machine — your laptop,
+        a colleague's GPU server, or hundreds of Slurm array tasks on an HPC
+        cluster — all pulling from the <em>same queue</em> without any manual
+        partitioning.
+      </p>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          You do not need to change your training script at all to enable
+          parallelism. The same <code>train.py</code> that runs serially
+          will run unchanged under <code>jd_worker</code>.
+        </span>
+      </div>
+    </section>
+
+    {# ── Step 1: Hub setup ─────────────────────────────────────────────── #}
+    <section class="tut-section" id="step1">
+      <h2><span class="step-badge step-badge--alt">①</span> Step 1 — Hub Setup</h2>
+
+      <p>
+        The Hub is the central control plane. It registers your experiments,
+        provisions public tunnels so workers can reach your server over the
+        internet, and manages your API keys. You only need to do this once per
+        experiment.
+      </p>
+
+      <h3 id="step1-account">1a. Create an account</h3>
+      <ol>
+        <li>Open <a href="/signup" target="_blank"><strong>JobDistributor Hub → Create account</strong></a>.</li>
+        <li>Enter your email address and a password of at least 10 characters.</li>
+        <li>Check your inbox for the 6-digit verification code and enter it on the verification page.</li>
+      </ol>
+
+      <h3 id="step1-experiment">1b. Create an experiment</h3>
+      <ol>
+        <li>Sign in and click <strong>Dashboard → + New Experiment</strong>.</li>
+        <li>
+          Choose a short, descriptive name, e.g. <code>digits-tune</code>.
+          <br>Rules: lowercase letters, digits, and hyphens only; must start with a letter;
+          maximum 48 characters.
+        </li>
+        <li>Click <strong>Create experiment</strong>.</li>
+      </ol>
+
+      <p>
+        After creation, two public URLs are provisioned automatically for your
+        experiment (once your server container is running):
+      </p>
+
+      <table>
+        <thead><tr><th>Service</th><th>Public URL</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Job server</td>
+            <td><code>https://digits-tune-server.&lt;hub-domain&gt;</code></td>
+          </tr>
+          <tr>
+            <td>Web dashboard</td>
+            <td><code>https://digits-tune-dashboard.&lt;hub-domain&gt;</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="step1-key">1c. Generate an API key</h3>
+      <ol>
+        <li>Click <strong>API Keys</strong> in the top navigation bar.</li>
+        <li>Click <strong>+ New key</strong>.</li>
+        <li>Enter a descriptive name for the key, e.g. <code>docker-server</code> or <code>lab-gpu</code>.</li>
+        <li>
+          Click <strong>Create key</strong>.
+          The full key is displayed once in a green banner immediately after creation.
+          <strong>Copy it now</strong> — it cannot be retrieved again without entering your password.
+        </li>
+      </ol>
+
+      <div class="tut-note tut-note--warn">
+        <span class="tut-note__icon">⚠️</span>
+        <span>
+          Treat your API key like a password. Do not commit it to version control.
+          Use environment variables or a <code>.env</code> file excluded from Git.
+        </span>
+      </div>
+
+      <p>Set the key in your shell:</p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
+      </div>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          Add <code>export JD_API_KEY=...</code> to your <code>~/.bashrc</code>
+          or <code>~/.zshrc</code> so it is set automatically in every new terminal session.
+        </span>
+      </div>
+    </section>
+
+    {# ── Step 2: Start the server ──────────────────────────────────────── #}
+    <section class="tut-section" id="step2">
+      <h2><span class="step-badge step-badge--alt">②</span> Step 2 — Start the Job Server with Docker</h2>
+
+      <p>
+        The job server is a Docker container that holds the job queue, receives
+        results from workers, and exposes the web dashboard. It connects to the
+        Hub automatically via an encrypted FRP tunnel — no manual port forwarding
+        or firewall configuration is required.
+      </p>
+
+      <h3 id="step2-docker">2a. Install Docker</h3>
+      <p>
+        Follow the official Docker installation guide for your operating system:
+      </p>
+      <ul>
+        <li>
+          <strong>All platforms (recommended):</strong>
+          <a href="https://docs.docker.com/get-docker/" target="_blank" rel="noopener">
+            docs.docker.com/get-docker/
+          </a>
+        </li>
+        <li>
+          <strong>Docker Compose</strong> (needed for the <code>docker compose</code> workflow):
+          <a href="https://docs.docker.com/compose/install/" target="_blank" rel="noopener">
+            docs.docker.com/compose/install/
+          </a>
+        </li>
+      </ul>
+
+      <p>Verify the installation:</p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>docker --version
+docker compose version</code></pre>
+      </div>
+
+      <h3 id="step2-run">2b. Clone the repository and start the server</h3>
+
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code># Clone the repository (one-time setup)
+git clone https://github.com/NWSL-UCF/job-distributor.git
+cd job-distributor/server
+
+# Start the server for your experiment
+JD_API_KEY=jd_xxxxxxxxxxxxxxxx ./run.sh digits-tune</code></pre>
+      </div>
+
+      <p>The <code>run.sh</code> script will automatically:</p>
+      <ol>
+        <li>Pull the latest <code>jobdistributor/jd-server</code> Docker image.</li>
+        <li>Contact the Hub to fetch your FRP tunnel configuration and worker credentials.</li>
+        <li>Start the frpc tunnel and register the server with the Hub.</li>
+        <li>Launch the job server and web dashboard.</li>
+        <li>Send a heartbeat to the Hub every 3 minutes so the dashboard shows the server as online.</li>
+      </ol>
+
+      <p>Verify that the server is running correctly:</p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code># Check container status
+./run.sh digits-tune status
+
+# Tail live logs
+./run.sh digits-tune logs</code></pre>
+      </div>
+
+      <p>Other useful commands:</p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code># Stop the container (data on disk is preserved)
+./run.sh digits-tune stop
+
+# Restart
+JD_API_KEY=jd_xxxxxxxxxxxxxxxx ./run.sh digits-tune start</code></pre>
+      </div>
+
+      <p>
+        All experiment data is stored on the host machine at
+        <code>~/jd_server/digits-tune/</code> (configurable via the
+        <code>JD_WORKSPACE</code> environment variable). The data persists
+        across container restarts and image updates.
+      </p>
+
+      <h3>2c. Set the dashboard PIN</h3>
+      <p>
+        Open the web dashboard URL shown in the Hub experiment detail page.
+        On first launch, you will be prompted to set a 6-digit PIN that
+        protects the dashboard from unauthorized access.
+        You can also change the PIN at any time from the Hub experiment detail page
+        (<strong>Dashboard → digits-tune → Details → Reset PIN</strong>).
+      </p>
+    </section>
+
+    {# ── Step 3: Write train.py ────────────────────────────────────────── #}
+    <section class="tut-section" id="step3">
+      <h2><span class="step-badge step-badge--alt">③</span> Step 3 — Write Your Training Script</h2>
+
+      <p>
+        JobDistributor passes each job's parameters to your script as
+        standard command-line arguments in the form <code>--key value</code>.
+        Your script does not need to know anything about the job queue;
+        it only needs to:
+      </p>
+      <ol>
+        <li>Accept parameters via <code>argparse</code>.</li>
+        <li>Save results to the per-job directory provided by the <code>jd_job_dir()</code> helper.</li>
+        <li>Optionally call <code>jd_upload()</code> to copy results to the server for central storage.</li>
+      </ol>
+
+      <h3 id="step3-script">3a. Complete entry script (<code>train.py</code>)</h3>
+
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>train.py — Python</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>#!/usr/bin/env python3
+"""
+Hyperparameter sweep entry script.
+
+JobDistributor calls this script once per job, passing parameters as CLI
+arguments: --learning_rate_init 0.01 --hidden_layer_sizes 128 ...
+"""
+import argparse
+import json
+
+from sklearn.datasets import load_digits
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score
+
+from jd import jd_job_dir    # path to this job's local working directory
+from jd import jd_upload      # optional: push files to the central server
+
+
+# ── Parse hyperparameters ────────────────────────────────────────────────────
+parser = argparse.ArgumentParser()
+parser.add_argument("--learning_rate_init", type=float, default=0.001)
+parser.add_argument("--hidden_layer_sizes", type=str,   default="128")
+parser.add_argument("--alpha",              type=float, default=1e-4)
+parser.add_argument("--max_iter",           type=int,   default=200)
+args = parser.parse_args()
+
+# Convert "64,64" → (64, 64);  "128" → (128,)
+hidden = tuple(int(x) for x in args.hidden_layer_sizes.split(","))
+
+
+# ── Load dataset and train ────────────────────────────────────────────────────
+X, y = load_digits(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+clf = MLPClassifier(
+    hidden_layer_sizes=hidden,
+    learning_rate_init=args.learning_rate_init,
+    alpha=args.alpha,
+    max_iter=args.max_iter,
+    random_state=42,
+)
+clf.fit(X_train, y_train)
+accuracy = accuracy_score(y_test, clf.predict(X_test))
+
+print(f"Accuracy: {accuracy:.4f}")
+
+
+# ── Save result to the per-job local directory ───────────────────────────────
+job_dir = jd_job_dir()       # ~/jd_data/digits-tune/<job_id>/
+job_dir.mkdir(parents=True, exist_ok=True)
+
+result = {
+    "learning_rate_init": args.learning_rate_init,
+    "hidden_layer_sizes": args.hidden_layer_sizes,
+    "alpha":              args.alpha,
+    "max_iter":           args.max_iter,
+    "accuracy":           round(accuracy, 4),
+}
+out = job_dir / "result.json"
+out.write_text(json.dumps(result, indent=2))
+print(f"Saved: {out}")
+
+
+# ── Upload result to the server (optional) ───────────────────────────────────
+# The file will appear in the server dashboard under this job's entry.
+jd_upload(str(out))</code></pre>
+      </div>
+
+      <h3 id="step3-paths">3b. Path helpers and environment variables</h3>
+
+      <p>
+        Inside your entry script, <code>jd</code> provides helper functions
+        that resolve the correct directories regardless of the machine or
+        configuration:
+      </p>
+
+      <table>
+        <thead><tr><th>Helper / Variable</th><th>Returns</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>jd_job_dir()</code></td>
+            <td>This job's local folder: <code>~/jd_data/&lt;expId&gt;/&lt;job_id&gt;/</code></td>
+          </tr>
+          <tr>
+            <td><code>jd_exp_dir()</code></td>
+            <td>All jobs for this experiment: <code>~/jd_data/&lt;expId&gt;/</code></td>
+          </tr>
+          <tr>
+            <td><code>jd_worker_workspace()</code></td>
+            <td>The <code>jd_data</code> root: <code>~/jd_data/</code></td>
+          </tr>
+          <tr>
+            <td><code>os.environ["JD_JOB_ID"]</code></td>
+            <td>Integer job ID (as a string)</td>
+          </tr>
+          <tr>
+            <td><code>os.environ["JD_EXP_ID"]</code></td>
+            <td>Experiment name, e.g. <code>digits-tune</code></td>
+          </tr>
+          <tr>
+            <td><code>os.environ["JD_SERVER"]</code></td>
+            <td>Job server base URL</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        Use <code>jd_upload(file_path)</code> to push any output file to the
+        server (maximum 100 MB per file). The file is stored server-side under
+        the corresponding job entry and is visible in the web dashboard.
+        This is particularly useful when workers run on machines that are
+        discarded after the job completes (e.g., ephemeral cloud instances or
+        Slurm nodes with temporary local storage).
+      </p>
+
+      <h3>3c. Install the <code>jd</code> library</h3>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code># Install jd-worker (includes the jd library)
+pip install jd-worker
+
+# Upgrade to the latest version at any time
+pip install --upgrade jd-worker</code></pre>
+      </div>
+    </section>
+
+    {# ── Step 4: Create jobs ───────────────────────────────────────────── #}
+    <section class="tut-section" id="step4">
+      <h2><span class="step-badge step-badge--alt">④</span> Step 4 — Create Jobs on the Server Dashboard</h2>
+
+      <p>
+        With the server running, open the dashboard URL (e.g.,
+        <code>https://digits-tune-dashboard.&lt;hub-domain&gt;</code>) in your browser
+        and enter your 6-digit PIN.
+      </p>
+
+      <p>
+        In the dashboard, locate the <strong>Create Jobs</strong> section and
+        paste the following parameter grid as JSON. The server will
+        automatically generate all 54 combinations and insert them into the job queue.
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>JSON — parameter grid</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>{
+  "learning_rate_init": [0.001, 0.01, 0.1],
+  "hidden_layer_sizes": ["64", "128", "64,64"],
+  "alpha":              [0.0001, 0.001, 0.01],
+  "max_iter":           [100, 200]
+}</code></pre>
+      </div>
+
+      <p>
+        After submission, the dashboard will confirm that
+        <strong>54 jobs</strong> have been queued with a status of
+        <em>PENDING</em>. Jobs move to <em>RUNNING</em> as workers pick them
+        up, and to <em>DONE</em> or <em>ABORTED</em> when they complete.
+      </p>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          The <strong>Replace</strong> option clears all existing jobs before
+          creating new ones. Leave it unchecked if you want to append additional
+          jobs to an existing queue.
+        </span>
+      </div>
+    </section>
+
+    {# ── Step 5: Run workers ───────────────────────────────────────────── #}
+    <section class="tut-section" id="step5">
+      <h2><span class="step-badge step-badge--alt">⑤</span> Step 5 — Run Workers with <code>jd_worker</code></h2>
+
+      <p>
+        A worker is a process that continuously polls the server for pending
+        jobs, runs your entry script with each job's parameters, and reports
+        the result. You can run as many workers in parallel as you have
+        CPU cores or GPUs available.
+      </p>
+
+      <h3 id="step5-install">5a. Install <code>jd-worker</code></h3>
+
+      <p>
+        Activate your Python virtual environment (or conda environment) and
+        install the package:
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>pip install jd-worker</code></pre>
+      </div>
+
+      <p>
+        Make sure your training dependencies are also installed in the same environment:
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>pip install scikit-learn</code></pre>
+      </div>
+
+      <h3 id="step5-run">5b. Launch a worker</h3>
+
+      <p>
+        Navigate to the directory containing <code>train.py</code>,
+        ensure <code>JD_API_KEY</code> is exported, then run:
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+jd_worker expId=digits-tune entry_script=train.py</code></pre>
+      </div>
+
+      <p>
+        In <strong>Hub mode</strong> (when <code>JD_API_KEY</code> is set),
+        <code>jd_worker</code> contacts the Hub first to obtain a signed JWT
+        and the server URL automatically — you do not need to specify the
+        server address manually.
+      </p>
+
+      <p>
+        To run <strong>multiple workers on the same machine</strong> (one per
+        CPU core or GPU), launch each in a separate terminal or as a background
+        process, using a unique <code>process_id</code>:
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code># Terminal 1
+jd_worker expId=digits-tune entry_script=train.py process_id=0 machine_type=cpu
+
+# Terminal 2
+jd_worker expId=digits-tune entry_script=train.py process_id=1 machine_type=cpu
+
+# Terminal 3
+jd_worker expId=digits-tune entry_script=train.py process_id=2 machine_type=cpu
+
+# Terminal 4
+jd_worker expId=digits-tune entry_script=train.py process_id=3 machine_type=cpu</code></pre>
+      </div>
+
+      <p>
+        The <code>machine_type</code> label is free-form text shown in the
+        dashboard so you can distinguish workers running on different hardware.
+      </p>
+
+      <p>
+        To test a single job and exit immediately (useful for debugging):
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>jd_worker expId=digits-tune entry_script=train.py once=true</code></pre>
+      </div>
+
+      <p>All available <code>jd_worker</code> options:</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Argument</th>
+            <th>Environment variable</th>
+            <th>Default</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>expId=&lt;name&gt;</code></td><td><code>JD_EXP_ID</code></td><td>required</td><td>Experiment name</td></tr>
+          <tr><td><code>entry_script=&lt;path&gt;</code></td><td><code>JD_ENTRY_SCRIPT</code></td><td>required</td><td>Python script to run per job</td></tr>
+          <tr><td><code>api_key=&lt;key&gt;</code></td><td><code>JD_API_KEY</code></td><td>—</td><td>API key (enables Hub mode)</td></tr>
+          <tr><td><code>hub=&lt;url&gt;</code></td><td><code>JD_HUB_URL</code></td><td><code>https://hub.jobdistributor.net</code></td><td>Hub base URL</td></tr>
+          <tr><td><code>machine_type=&lt;label&gt;</code></td><td><code>JD_MACHINE_TYPE</code></td><td><code>worker</code></td><td>Label shown in dashboard</td></tr>
+          <tr><td><code>process_id=&lt;N&gt;</code></td><td>—</td><td><code>0</code></td><td>ID for multiple workers on one machine</td></tr>
+          <tr><td><code>once=true</code></td><td><code>JD_ONCE</code></td><td><code>false</code></td><td>Exit after one job (debugging)</td></tr>
+          <tr><td><code>server=&lt;url&gt;</code></td><td><code>JD_SERVER</code></td><td>from Hub</td><td>Override server URL (standalone mode)</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="step5-results">5c. Retrieve results</h3>
+
+      <p>Results are stored in two locations:</p>
+
+      <ol>
+        <li>
+          <strong>Locally on the worker machine:</strong>
+          <code>~/jd_data/digits-tune/&lt;job_id&gt;/result.json</code>
+        </li>
+        <li>
+          <strong>On the server</strong> (when <code>jd_upload()</code> is called):
+          visible in the web dashboard under each job's entry.
+          You can download individual files or browse them in-browser.
+        </li>
+      </ol>
+
+      <p>
+        Worker logs are saved automatically at:
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>path</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>~/jd_data/digits-tune/jd_worker_logs/jd_worker_&lt;process_id&gt;.log</code></pre>
+      </div>
+    </section>
+
+    {# ── Step 6: Slurm ────────────────────────────────────────────────── #}
+    <section class="tut-section" id="step6">
+      <h2><span class="step-badge step-badge--alt">⑥</span> Step 6 — Scale on HPC with Slurm Array Jobs</h2>
+
+      <p>
+        If you have access to an HPC cluster managed by Slurm, you can launch
+        many workers as a Slurm array job. Each array task runs one
+        <code>jd_worker</code> process that continuously pulls jobs from the
+        queue until it is empty or the time limit is reached. No manual job
+        partitioning is required.
+      </p>
+
+      <p>
+        Save the following as <code>submit_jd.slurm</code> in the same
+        directory as <code>train.py</code>, and adjust the Slurm directives
+        to match your cluster configuration:
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>submit_jd.slurm — Slurm batch script</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>#!/bin/bash
+#SBATCH --job-name=jd-digits-tune
+#SBATCH --array=0-7%8          # 8 worker tasks; max 8 running at once
+#SBATCH --cpus-per-task=4      # CPUs per worker (adjust to your script's needs)
+#SBATCH --mem=8G
+#SBATCH --time=04:00:00        # 4-hour time limit per task
+#SBATCH --output=logs/slurm-%A_%a.out
+#SBATCH --partition=general    # replace with your cluster's partition name
+
+# ── Environment setup ─────────────────────────────────────────────────────────
+# Load the Python module appropriate for your cluster, e.g.:
+# module load python/3.11
+# or activate a conda environment:
+# source ~/miniconda3/etc/profile.d/conda.sh && conda activate ml-env
+
+source ~/venvs/ml/bin/activate   # replace with your virtual environment path
+
+# ── JobDistributor configuration ──────────────────────────────────────────────
+export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export JD_HUB_URL=https://hub.jobdistributor.net   # adjust if self-hosted
+
+# Use the Slurm array task ID as the worker process_id for unique identification
+# in the dashboard.
+jd_worker expId=digits-tune \
+          entry_script=train.py \
+          machine_type=slurm_${SLURM_CLUSTER_NAME} \
+          process_id=${SLURM_ARRAY_TASK_ID}</code></pre>
+      </div>
+
+      <p>Create the log directory and submit:</p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>mkdir -p logs
+sbatch submit_jd.slurm</code></pre>
+      </div>
+
+      <p>Monitor the job status:</p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
+          </button>
+        </div>
+        <pre><code>squeue -u $USER</code></pre>
+      </div>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          Each Slurm task is a <em>long-running worker</em> that consumes
+          multiple jobs from the queue over its lifetime, not one task per
+          parameter combination. This minimizes Slurm overhead and improves
+          throughput for large sweeps.
+        </span>
+      </div>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          You can combine Slurm workers with workers running on other machines
+          simultaneously. All workers talk to the same queue, so the jobs
+          are distributed dynamically across all available resources.
+        </span>
+      </div>
+    </section>
+
+    {# ── Checklist ────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="checklist">
+      <h2><span class="step-badge">✓</span> End-to-End Checklist</h2>
+
+      <p>
+        Use this checklist to verify that every component is in place before
+        starting a sweep:
+      </p>
+
+      <div class="form-card" style="padding:8px 0">
+        <ul class="checklist">
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>Hub account created and email verified</span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>Experiment created on the Hub Dashboard (e.g., <code>digits-tune</code>)</span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>
+              API key generated under <strong>API Keys</strong> tab
+              → copied and exported as <code>JD_API_KEY</code>
+            </span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>
+              Docker installed
+              (<a href="https://docs.docker.com/get-docker/" target="_blank">docs.docker.com/get-docker/</a>)
+            </span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>
+              Server container started:
+              <code>JD_API_KEY=jd_xxx ./run.sh digits-tune</code>
+            </span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>Server dashboard PIN set</span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>
+              <code>train.py</code> uses <code>argparse</code> for all parameters
+              and calls <code>jd_job_dir()</code> to save outputs
+            </span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>
+              <code>pip install jd-worker scikit-learn</code>
+              (and any other training dependencies) in the active Python environment
+            </span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>
+              Parameter grid submitted via the server dashboard
+              → <em>N</em> jobs show status <em>PENDING</em>
+            </span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>
+              Workers launched:
+              <code>jd_worker expId=digits-tune entry_script=train.py</code>
+            </span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>
+              (Optional) Slurm array submitted:
+              <code>sbatch submit_jd.slurm</code>
+            </span>
+          </li>
+          <li>
+            <span class="checklist__icon">✔</span>
+            <span>Results visible in server dashboard and / or
+              <code>~/jd_data/digits-tune/</code> on worker machines</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="tut-note tut-note--tip" style="margin-top:24px">
+        <span class="tut-note__icon">📦</span>
+        <span>
+          <strong>Source code:</strong>
+          <a href="https://github.com/NWSL-UCF/job-distributor" target="_blank" rel="noopener">
+            github.com/NWSL-UCF/job-distributor
+          </a>
+          &nbsp;·&nbsp;
+          <strong>PyPI:</strong>
+          <a href="https://pypi.org/project/jd-worker/" target="_blank" rel="noopener">
+            pypi.org/project/jd-worker/
+          </a>
+        </span>
+      </div>
+    </section>
+
+  </div>{# end tut-body #}
+</div>{# end tut-wrap #}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* ── Copy-code buttons ──────────────────────────────────────────────────────── */
+function copyCode(btn) {
+  const pre = btn.closest('.code-block').querySelector('pre');
+  const text = pre ? pre.textContent : '';
+  const original = btn.innerHTML;
+  const copy = function(t) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(t).then(function() {
+        btn.classList.add('copied');
+        btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+        setTimeout(function() { btn.innerHTML = original; btn.classList.remove('copied'); }, 2000);
+      });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+      btn.classList.add('copied');
+      btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+      setTimeout(function() { btn.innerHTML = original; btn.classList.remove('copied'); }, 2000);
+    }
+  };
+  copy(text);
+}
+
+/* ── Sidebar active-link tracking ───────────────────────────────────────────── */
+(function () {
+  var sections = document.querySelectorAll('.tut-section');
+  var navLinks  = document.querySelectorAll('.tut-nav a');
+
+  function onScroll() {
+    var scrollY = window.scrollY + 90;
+    var current = '';
+    sections.forEach(function(sec) {
+      if (sec.offsetTop <= scrollY) current = sec.id;
+    });
+    navLinks.forEach(function(a) {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+{% endblock %}

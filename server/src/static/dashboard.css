@@ -1336,3 +1336,28 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 border: 5px solid transparent;
                 border-top-color: #1a1f2e;
             }
+
+            /* ── NWSL / UCF footer ───────────────────────────────────────── */
+            .jd-server-footer {
+                background: #f8f9fa;
+                border-top: 1px solid #e9ecef;
+                padding: 14px 24px;
+                font-size: 0.78rem;
+                color: #868e96;
+                font-family: 'Comfortaa', Arial, sans-serif;
+            }
+            .jd-server-footer__inner {
+                max-width: 1920px;
+                margin: 0 auto;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            .jd-server-footer__logo {
+                border-radius: 50%;
+                opacity: 0.75;
+                flex-shrink: 0;
+                vertical-align: middle;
+            }

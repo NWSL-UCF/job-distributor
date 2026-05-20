@@ -39,11 +39,13 @@ def create_app() -> Flask:
     from .routes.dashboard import dashboard_bp
     from .routes.api       import api_bp
     from .routes.admin     import admin_bp
+    from .routes.pages     import pages_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(api_bp,    url_prefix="/api")
     app.register_blueprint(admin_bp,  url_prefix="/admin")
+    app.register_blueprint(pages_bp)
 
     # Trust X-Forwarded-* from nginx so request.is_secure works behind TLS termination.
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)

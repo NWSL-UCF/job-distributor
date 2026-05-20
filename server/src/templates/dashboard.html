@@ -540,7 +540,22 @@
 
             </div> <!-- End main-content -->
         </div> <!-- End container -->
-            <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+
+        <footer class="jd-server-footer">
+          <div class="jd-server-footer__inner">
+            <img src="/static/nwsl-logo.png" alt="NWSL"
+                 width="22" height="22" class="jd-server-footer__logo"
+                 onerror="this.style.display='none'">
+            <span>
+              University of Central Florida &mdash;
+              Networking and Wireless System Lab (NWSL)
+              &nbsp;&middot;&nbsp;
+              &copy; University of Central Florida. All rights reserved.
+            </span>
+          </div>
+        </footer>
+
+        <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
     </body>
     </html>
     
