@@ -525,7 +525,6 @@ def main() -> None:
             cmd = [sys.executable, cfg['entry_script']]
             for k, v in params.items():
                 cmd.extend([f"--{k}", str(v)])
-            cmd.extend(['--base_path', job_root])
             logger.info(f"Job workspace: {job_root}")
             logger.info(f"Command: {' '.join(cmd)}")
 
