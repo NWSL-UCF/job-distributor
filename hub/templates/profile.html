@@ -31,12 +31,20 @@
       <form method="post" action="{{ url_for('dashboard.update_avatar') }}"
             enctype="multipart/form-data" class="avatar-upload-form">
         <label class="btn btn--outline btn--sm avatar-upload-btn">
-          Change photo
+          {{ 'Change photo' if user.profile_photo else 'Upload photo' }}
           <input type="file" name="photo" accept="image/jpeg,image/png,image/gif,image/webp"
                  style="display:none" onchange="previewAvatar(this); this.form.submit()">
         </label>
         <p class="field__hint">JPG, PNG, GIF or WebP · max 2 MB</p>
       </form>
+      {% if user.profile_photo %}
+      <form method="post" action="{{ url_for('dashboard.delete_avatar') }}"
+            data-confirm="Remove your profile photo?">
+        <button type="submit" class="btn btn--xs btn--outline-danger" style="margin-top:4px">
+          Remove photo
+        </button>
+      </form>
+      {% endif %}
     </div>
 
     {# Info column #}

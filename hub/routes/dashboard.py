@@ -229,6 +229,26 @@ def update_avatar():
     return render_template("profile.html", user=user, profile_success="Photo updated.")
 
 
+@dashboard_bp.route("/profile/photo/delete", methods=["POST"])
+@require_login
+def delete_avatar():
+    user = g.current_user
+    if not user.profile_photo:
+        return redirect(url_for("dashboard.profile"))
+
+    upload_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "static", "uploads", "avatars",
+    )
+    file_path = os.path.join(upload_dir, user.profile_photo)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+    user.profile_photo = None
+    db.session.commit()
+    return render_template("profile.html", user=user, profile_success="Photo removed.")
+
+
 # ── Change password (logged-in flow) ─────────────────────────────────────────
 
 @dashboard_bp.route("/change-password", methods=["GET", "POST"])
