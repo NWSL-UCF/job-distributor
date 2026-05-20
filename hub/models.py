@@ -62,6 +62,7 @@ class Experiment(db.Model):
     frpc_subdomain_server   = db.Column(db.String(128))
     frpc_subdomain_dashboard= db.Column(db.String(128))
     last_activity_at        = db.Column(db.DateTime)
+    server_last_ping_at     = db.Column(db.DateTime)
     idle_warned_at          = db.Column(db.DateTime)
     expires_at              = db.Column(db.DateTime)
     created_at              = db.Column(db.DateTime, default=_now)
@@ -73,6 +74,14 @@ class Experiment(db.Model):
                                        lazy="dynamic", cascade="all, delete-orphan")
     worker_tokens    = db.relationship("WorkerToken", back_populates="experiment",
                                        lazy="dynamic", cascade="all, delete-orphan")
+
+    @property
+    def server_is_online(self) -> bool:
+        if not self.server_last_ping_at:
+            return False
+        from datetime import timedelta
+        cutoff = _now() - timedelta(minutes=10)
+        return self.server_last_ping_at > cutoff
 
 
 class TrafficSnapshot(db.Model):

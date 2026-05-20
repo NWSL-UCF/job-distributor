@@ -55,8 +55,8 @@ def create_experiment():
         name                  = name,
         status                = "ACTIVE",
         worker_shared_secret  = worker_secret,
-        frpc_subdomain_server = f"server.{name}.{config.JD_BASE_DOMAIN}",
-        frpc_subdomain_dashboard = f"dashboard.{name}.{config.JD_BASE_DOMAIN}",
+        frpc_subdomain_server = f"{name}-server.{config.JD_BASE_DOMAIN}",
+        frpc_subdomain_dashboard = f"{name}-dashboard.{config.JD_BASE_DOMAIN}",
         last_activity_at      = _now(),
     )
     db.session.add(exp)
@@ -65,8 +65,8 @@ def create_experiment():
     return jsonify({
         "experiment_id": exp.id,
         "name":          exp.name,
-        "server_url":    f"https://server.{name}.{config.JD_BASE_DOMAIN}",
-        "dashboard_url": f"https://dashboard.{name}.{config.JD_BASE_DOMAIN}",
+        "server_url":    f"https://{name}-server.{config.JD_BASE_DOMAIN}",
+        "dashboard_url": f"https://{name}-dashboard.{config.JD_BASE_DOMAIN}",
         "message":       "Experiment created. Use GET /api/experiments/<name>/runtime-config "
                          "from your server container to fetch tunnel credentials.",
     }), 201
@@ -89,8 +89,8 @@ def experiment_runtime_config(name: str):
 
     return jsonify({
         "name":                 exp.name,
-        "server_url":           f"https://server.{exp.name}.{config.JD_BASE_DOMAIN}",
-        "dashboard_url":        f"https://dashboard.{exp.name}.{config.JD_BASE_DOMAIN}",
+        "server_url":           f"https://{exp.name}-server.{config.JD_BASE_DOMAIN}",
+        "dashboard_url":        f"https://{exp.name}-dashboard.{config.JD_BASE_DOMAIN}",
         "worker_shared_secret": exp.worker_shared_secret,
         "frpc_config":          _build_frpc_config(exp),
         "frps_server_addr":     f"hub.{config.JD_BASE_DOMAIN}",
@@ -156,7 +156,9 @@ def heartbeat(name: str):
     exp = _get_owned_exp(name)
     if exp is None:
         return jsonify({"error": "Not found"}), 404
-    exp.last_activity_at = _now()
+    now = _now()
+    exp.last_activity_at    = now
+    exp.server_last_ping_at = now
     if exp.status == "IDLE":
         exp.status        = "ACTIVE"
         exp.idle_warned_at = None
@@ -212,7 +214,7 @@ def issue_worker_token():
 
     return jsonify({
         "worker_token": token,
-        "server_url":   f"https://server.{exp.name}.{config.JD_BASE_DOMAIN}",
+        "server_url":   f"https://{exp.name}-server.{config.JD_BASE_DOMAIN}",
         "exp_name":     exp.name,
         "expires_at":   (now_utc + ttl).isoformat(),
     }), 200
@@ -262,8 +264,8 @@ def _exp_to_dict(exp: Experiment) -> dict:
         "id":           exp.id,
         "name":         exp.name,
         "status":       exp.status,
-        "server_url":   f"https://server.{exp.name}.{config.JD_BASE_DOMAIN}",
-        "dashboard_url":f"https://dashboard.{exp.name}.{config.JD_BASE_DOMAIN}",
+        "server_url":   f"https://{exp.name}-server.{config.JD_BASE_DOMAIN}",
+        "dashboard_url":f"https://{exp.name}-dashboard.{config.JD_BASE_DOMAIN}",
         "created_at":   exp.created_at.isoformat() if exp.created_at else None,
         "last_activity":exp.last_activity_at.isoformat() if exp.last_activity_at else None,
     }

@@ -3,26 +3,42 @@
 # JobDistributor Server — quick-start helper
 #
 # Usage:
-#   JD_API_KEY=<key> JD_EXP_NAME=<name> ./run.sh
+#   ./run.sh <expName> [command]
+#
+# Examples:
+#   JD_API_KEY=jd_xxx ./run.sh mnist-v1         # start experiment
+#   JD_API_KEY=jd_xxx ./run.sh mnist-v1 start   # same as above
+#   ./run.sh mnist-v1 stop                       # stop & remove container
+#   ./run.sh mnist-v1 logs                       # tail container logs
+#   ./run.sh mnist-v1 status                     # show running status
+#
+# You can also pass the experiment name via the env var (legacy):
+#   JD_API_KEY=jd_xxx JD_EXP_NAME=mnist-v1 ./run.sh
 #
 # Optional env vars:
 #   JD_HUB_URL    Hub base URL  (default: https://hub.jobdistributor.net)
 #   JD_WORKSPACE  Host root dir (default: ~/jd_server)
-#                 Data will be stored at <JD_WORKSPACE>/<JD_EXP_NAME>/
-#
-# Commands (first arg):
-#   (none)  Start the server (default)
-#   stop    Stop & remove the container
-#   logs    Follow container logs
-#   status  Show container status
+#                 Data stored at <JD_WORKSPACE>/<expName>/
 # ─────────────────────────────────────────────────────────────────────────────
 set -e
 
-IMAGE="${JD_IMAGE:-abdurrouf/jd-server:latest}"
+IMAGE="${JD_IMAGE:-jobdistributor/jd-server:latest}"
 HUB_URL="${JD_HUB_URL:-https://hub.jobdistributor.net}"
 
-# ── Validate required args ───────────────────────────────────────────────────
-CMD="${1:-start}"
+# ── Parse args — support both positional and env-var style ──────────────────
+# If first arg is a known command keyword, treat it as CMD with no expName arg.
+# Otherwise first arg is expName and second (optional) arg is CMD.
+case "${1:-}" in
+  start|stop|logs|status|"")
+    CMD="${1:-start}"
+    # expName must come from env
+    ;;
+  *)
+    # First arg is the experiment name
+    JD_EXP_NAME="${1}"
+    CMD="${2:-start}"
+    ;;
+esac
 
 if [ "$CMD" != "stop" ] && [ "$CMD" != "logs" ] && [ "$CMD" != "status" ]; then
   if [ -z "$JD_API_KEY" ]; then
@@ -31,8 +47,8 @@ if [ "$CMD" != "stop" ] && [ "$CMD" != "logs" ] && [ "$CMD" != "status" ]; then
     exit 1
   fi
   if [ -z "$JD_EXP_NAME" ]; then
-    echo "Error: JD_EXP_NAME is required." >&2
-    echo "  export JD_EXP_NAME=<your experiment name>" >&2
+    echo "Error: experiment name is required." >&2
+    echo "  Usage: JD_API_KEY=<key> ./run.sh <expName>" >&2
     exit 1
   fi
 fi

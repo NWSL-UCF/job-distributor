@@ -149,7 +149,7 @@ def reset_pin(name: str):
             exp,
             pin_error="Server not registered yet. Start your Docker stack with Hub credentials.",
         )
-    dash_url = f"https://dashboard.{exp.name}.{config.JD_BASE_DOMAIN}/admin/override_pin"
+    dash_url = f"https://{exp.name}-dashboard.{config.JD_BASE_DOMAIN}/admin/override_pin"
     try:
         r = req.post(
             dash_url,
@@ -242,8 +242,8 @@ def _provision_experiment(user: User, name: str) -> Experiment:
         name                  = name,
         status                = "ACTIVE",
         worker_shared_secret  = worker_secret,
-        frpc_subdomain_server = f"server.{name}.{config.JD_BASE_DOMAIN}",
-        frpc_subdomain_dashboard = f"dashboard.{name}.{config.JD_BASE_DOMAIN}",
+        frpc_subdomain_server = f"{name}-server.{config.JD_BASE_DOMAIN}",
+        frpc_subdomain_dashboard = f"{name}-dashboard.{config.JD_BASE_DOMAIN}",
         last_activity_at      = _now(),
     )
     db.session.add(exp)

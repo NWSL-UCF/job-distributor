@@ -1,24 +1,31 @@
 version: "3.9"
 
 # ── Usage ─────────────────────────────────────────────────────────────────────
-# 1. Create an experiment on the Hub and copy your API key from Profile.
-# 2. Copy .env.example → .env and fill in JD_API_KEY and JD_EXP_NAME.
-# 3. Run:  docker compose up -d
+# Pass the experiment name directly on the command line — no .env editing needed:
 #
-# frpc is bundled inside the image — no sidecar needed.
-# Workspace data lands at ./workspace/<JD_EXP_NAME>/ on the host.
+#   JD_API_KEY=jd_xxx EXP=mnist-v1  docker compose up -d
+#   JD_API_KEY=jd_xxx EXP=tuning-01 docker compose up -d
+#
+# Run multiple experiments on the same machine by using different EXP values.
+# Each gets its own container (jd-<EXP>) and workspace folder (./workspace/<EXP>/).
+#
+# Optional overrides:
+#   JD_HUB_URL=https://hub.jobdistributor.net  (default shown)
+#
+# Prefer ./run.sh for a friendlier CLI:
+#   JD_API_KEY=jd_xxx ./run.sh mnist-v1
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
   jd_server:
     image: jobdistributor/jd-server:latest
-    container_name: jd_server
+    container_name: jd-${EXP:?Set EXP=<experiment-name> before running docker compose}
     restart: unless-stopped
 
     environment:
       - JD_HUB_URL=${JD_HUB_URL:-https://hub.jobdistributor.net}
-      - JD_API_KEY=${JD_API_KEY}
-      - JD_EXP_NAME=${JD_EXP_NAME:-my_experiment}
+      - JD_API_KEY=${JD_API_KEY:?Set JD_API_KEY=<your api key>}
+      - JD_EXP_NAME=${EXP}
 
     volumes:
-      - ./workspace/${JD_EXP_NAME:-my_experiment}:/workspace/${JD_EXP_NAME:-my_experiment}
+      - ./workspace/${EXP}:/workspace/${EXP}

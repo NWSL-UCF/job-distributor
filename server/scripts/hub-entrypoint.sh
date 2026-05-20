@@ -38,6 +38,9 @@ if [ -n "$JD_HUB_URL" ] && [ -n "$JD_API_KEY" ] && [ -n "$JD_EXP_NAME" ]; then
 
   # Register admin token with Hub once the server DB is ready
   python /app/scripts/hub_register.py &
+
+  # Send periodic heartbeat pings to the Hub (every 3 min by default)
+  python /app/scripts/hub_heartbeat.py &
 fi
 
 exec python /app/start.py \

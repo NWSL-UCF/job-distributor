@@ -45,7 +45,14 @@
   {% for exp in experiments %}
   <div class="exp-card exp-card--{{ exp.status|lower }}">
     <div class="exp-card__header">
-      <span class="exp-card__name">{{ exp.name }}</span>
+      <span class="exp-card__name">
+        {{ exp.name }}
+        {% if exp.server_is_online %}
+        <span class="server-dot server-dot--online" title="Server is online"></span>
+        {% else %}
+        <span class="server-dot server-dot--offline" title="Server is offline or has not connected yet"></span>
+        {% endif %}
+      </span>
       <span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span>
     </div>
     <div class="exp-card__dash">
@@ -68,7 +75,15 @@
     </div>
     <div class="exp-card__meta">
       <span>Created {{ exp.created_at.strftime('%b %d, %Y') if exp.created_at else '—' }}</span>
-      {% if exp.last_activity_at %}
+      {% if exp.server_last_ping_at %}
+      <span title="Last server ping">
+        {% if exp.server_is_online %}
+        <span style="color:#16a34a;font-weight:600;">Online</span>
+        {% else %}
+        Offline since {{ exp.server_last_ping_at.strftime('%b %d %H:%M') }}
+        {% endif %}
+      </span>
+      {% elif exp.last_activity_at %}
       <span>Last active {{ exp.last_activity_at.strftime('%b %d') }}</span>
       {% endif %}
     </div>

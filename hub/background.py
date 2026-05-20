@@ -94,9 +94,9 @@ def _poll_traffic() -> None:
 
     for exp in exps:
         server_domain = (exp.frpc_subdomain_server or
-                         f"server.{exp.name}.{config.JD_BASE_DOMAIN}")
+                         f"{exp.name}-server.{config.JD_BASE_DOMAIN}")
         dash_domain   = (exp.frpc_subdomain_dashboard or
-                         f"dashboard.{exp.name}.{config.JD_BASE_DOMAIN}")
+                         f"{exp.name}-dashboard.{config.JD_BASE_DOMAIN}")
 
         s_in,  s_out  = domain_map.get(server_domain,    (0, 0))
         d_in,  d_out  = domain_map.get(dash_domain,      (0, 0))

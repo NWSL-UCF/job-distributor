@@ -50,6 +50,7 @@ def create_app() -> Flask:
     # ── DB init ───────────────────────────────────────────────────────────────
     with app.app_context():
         db.create_all()
+        _apply_migrations()
         _seed_defaults()
 
     # ── Background threads ────────────────────────────────────────────────────
@@ -77,6 +78,24 @@ def create_app() -> Flask:
         return min(100, round(used / total * 100))
 
     return app
+
+
+def _apply_migrations() -> None:
+    """Idempotent schema migrations for columns added after initial deployment."""
+    import logging
+    log = logging.getLogger(__name__)
+    migrations = [
+        # v2: server heartbeat tracking
+        "ALTER TABLE experiments ADD COLUMN IF NOT EXISTS "
+        "server_last_ping_at DATETIME NULL AFTER last_activity_at",
+    ]
+    for stmt in migrations:
+        try:
+            db.session.execute(db.text(stmt))
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            log.debug("Migration skipped or failed (may already exist): %s", exc)
 
 
 def _seed_defaults() -> None:

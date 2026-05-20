@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS experiments (
 
     -- Timing
     last_activity_at        DATETIME        NULL,   -- last job API call or heartbeat
+    server_last_ping_at     DATETIME        NULL,   -- last heartbeat ping from jd_server
     idle_warned_at          DATETIME        NULL,   -- when 5-day idle warning email was sent
     expires_at              DATETIME        NULL,   -- set when experiment enters IDLE
     created_at              DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
