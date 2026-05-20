@@ -32,17 +32,9 @@
     <div class="topnav__user">
       {# Avatar button — opens dropdown #}
       <div class="nav-avatar-wrap" id="nav-avatar-toggle" title="{{ user.email }}">
-        {% if user.profile_photo %}
-        <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) }}"
-             alt="{{ user.email[0]|upper }}"
+        <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+             alt="{{ user.display_name or user.email }}"
              class="nav-avatar nav-avatar--photo">
-        {% else %}
-        <div class="nav-avatar nav-avatar--initial"
-             data-initial="{{ user.email[0]|upper }}"
-             style="--av-hue:{{ (user.email|length * 37) % 360 }}">
-          {{ user.email[0]|upper }}
-        </div>
-        {% endif %}
         <svg class="nav-avatar-caret" width="10" height="10" viewBox="0 0 24 24"
              fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
           <polyline points="6 9 12 15 18 9"/>
@@ -52,16 +44,9 @@
       {# Dropdown panel #}
       <div class="nav-avatar-dropdown" id="nav-avatar-dropdown">
         <div class="nav-avatar-dropdown__header">
-          {% if user.profile_photo %}
-          <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) }}"
-               alt="{{ user.email[0]|upper }}"
+          <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+               alt="{{ user.display_name or user.email }}"
                class="nav-avatar-dropdown__img">
-          {% else %}
-          <div class="nav-avatar-dropdown__initial"
-               style="--av-hue:{{ (user.email|length * 37) % 360 }}">
-            {{ user.email[0]|upper }}
-          </div>
-          {% endif %}
           <div class="nav-avatar-dropdown__info">
             {% if user.display_name %}
             <span class="nav-avatar-dropdown__name">{{ user.display_name }}</span>

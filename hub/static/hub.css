@@ -146,7 +146,18 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 .alert--warning { background: #f5f5f5; color: #404040; border: 1px solid #d4d4d4; }
 
 /* ── Auth ────────────────────────────────────────────────────────────────────── */
-.auth-body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.auth-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+.auth-body__center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+}
 .auth-card {
   background: var(--color-surface); padding: 40px;
   border-radius: 12px; box-shadow: var(--shadow-md);
@@ -574,11 +585,6 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 .profile-avatar {
   width: 120px; height: 120px; object-fit: cover; border-radius: 50%; display: block;
 }
-.profile-avatar--placeholder {
-  width: 120px; height: 120px; border-radius: 50%;
-  background: #f0f0f0; display: flex; align-items: center; justify-content: center;
-  color: var(--color-muted);
-}
 .avatar-upload-btn { cursor: pointer; }
 .profile-info-form { flex: 1; }
 .profile-row {
@@ -657,11 +663,6 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   flex-shrink: 0; display: block;
 }
 .nav-avatar--photo { object-fit: cover; }
-.nav-avatar--initial {
-  display: flex; align-items: center; justify-content: center;
-  font-size: .9rem; font-weight: 700; color: #fff;
-  background: hsl(var(--av-hue, 220), 55%, 52%);
-}
 .nav-avatar-caret {
   color: var(--color-muted);
   transition: transform .15s;
@@ -692,12 +693,6 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 }
 .nav-avatar-dropdown__img {
   width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
-}
-.nav-avatar-dropdown__initial {
-  width: 38px; height: 38px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1rem; font-weight: 700; color: #fff; flex-shrink: 0;
-  background: hsl(var(--av-hue, 220), 55%, 52%);
 }
 .nav-avatar-dropdown__info {
   display: flex; flex-direction: column; min-width: 0;

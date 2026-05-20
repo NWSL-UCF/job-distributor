@@ -24,18 +24,9 @@
     {# Avatar column #}
     <div class="profile-avatar-col">
       <div class="profile-avatar-wrap">
-        {% if user.profile_photo %}
         <img id="avatar-preview"
-             src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) }}"
+             src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
              alt="Profile photo" class="profile-avatar">
-        {% else %}
-        <div id="avatar-preview" class="profile-avatar profile-avatar--placeholder">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
-        </div>
-        {% endif %}
       </div>
       <form method="post" action="{{ url_for('dashboard.update_avatar') }}"
             enctype="multipart/form-data" class="avatar-upload-form">
