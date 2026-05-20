@@ -28,4 +28,6 @@ services:
       - JD_EXP_NAME=${EXP}
 
     volumes:
+      # Host: ~/jd_server/workspace/<EXP>/  →  Container: /workspace/<EXP>/
+      # Job DB, logs, and config are persisted here across container restarts.
       - ./workspace/${EXP}:/workspace/${EXP}

@@ -3,16 +3,17 @@
 set -e
 
 # ── Resolve workspace path ────────────────────────────────────────────────────
-# Priority: JD_WORKSPACE env var → default ~/jd_server/<expId>
-# Inside the container the host path is already mounted at /workspace, but
-# JD_WORKSPACE_PATH lets the server know the logical path for sub-directories.
+# On the host, experiment data lives at ~/jd_server/<expId>/
+# The docker-compose volume maps that to /workspace/<expId> inside the container.
+# JD_WORKSPACE (optional) lets users override the host root; inside the container
+# the mount is always at /workspace so that's what we pass to start.py.
 EXP="${JD_EXP_NAME:-default}"
 
+# JD_WORKSPACE_PATH = root dir passed to start.py and hub_register.py.
+# Both scripts append /<expId> internally, so this must NOT include the expId.
 if [ -n "$JD_WORKSPACE" ]; then
-  # User supplied a custom root — hub_register appends expId internally
   export JD_WORKSPACE_PATH="${JD_WORKSPACE}"
 else
-  # Default: /workspace  (host maps ~/jd_server/<expId> → /workspace/<expId>)
   export JD_WORKSPACE_PATH="/workspace"
 fi
 
@@ -45,4 +46,5 @@ fi
 
 exec python /app/start.py \
   "--expId=${EXP}" \
+  "--workspace_path=${JD_WORKSPACE_PATH}" \
   "$@"

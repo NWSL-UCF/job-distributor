@@ -24,7 +24,7 @@ def _read_admin_token(workspace: str, exp_id: str) -> str | None:
     try:
         conn = sqlite3.connect(db_path, timeout=5)
         cur = conn.execute(
-            "SELECT value FROM config WHERE key = 'admin_token' LIMIT 1"
+            "SELECT value FROM server_config WHERE key = 'admin_token' LIMIT 1"
         )
         row = cur.fetchone()
         conn.close()
