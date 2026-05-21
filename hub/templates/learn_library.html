@@ -1,0 +1,602 @@
+{% extends "base.html" %}
+{% block title %}Library Reference — jd-worker{% endblock %}
+
+{% block extra_head %}{% include '_learn_styles.html' %}{% endblock %}
+
+{% block content %}
+<div class="tut-wrap">
+
+  {# ── Sidebar ────────────────────────────────────────────────────────── #}
+  <nav class="tut-nav" id="tut-toc">
+    <div class="tut-nav__title">Library Reference</div>
+    <a href="#overview">Overview</a>
+    <a href="#install">Installation</a>
+    <a href="#cli">jd_worker_cli</a>
+    <a class="sub" href="#cli-args">All arguments</a>
+    <a class="sub" href="#cli-modes">Hub mode vs. standalone</a>
+    <a class="sub" href="#cli-examples">Examples</a>
+    <a href="#path-helpers">Path helpers</a>
+    <a class="sub" href="#jd-job-dir">jd_job_dir()</a>
+    <a class="sub" href="#jd-exp-dir">jd_exp_dir()</a>
+    <a class="sub" href="#jd-workspace">jd_worker_workspace()</a>
+    <a href="#upload">File upload</a>
+    <a class="sub" href="#jd-upload">jd_upload()</a>
+    <a href="#env-vars">Environment variables</a>
+    <a href="#logging">Worker logs</a>
+    <a href="#patterns">Usage patterns</a>
+  </nav>
+
+  {# ── Body ──────────────────────────────────────────────────────────── #}
+  <div class="tut-body">
+
+    <h1>jd-worker — Library Reference</h1>
+    <p class="tut-lead">
+      Complete reference for the <code>jd-worker</code> Python package.
+      Covers the <code>jd_worker_cli</code> command, all importable helper
+      functions, environment variables, and practical usage patterns.
+    </p>
+
+    {# ── Overview ─────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="overview">
+      <h2><span class="step-badge">?</span> Overview</h2>
+
+      <p>
+        The <code>jd-worker</code> package provides two things:
+      </p>
+      <ol>
+        <li>
+          <strong>A CLI tool (<code>jd_worker_cli</code>)</strong> — the worker
+          process you run in your terminal. It polls the job server for pending
+          jobs, invokes your script once per job, and reports results.
+        </li>
+        <li>
+          <strong>A Python library (<code>import jd</code>)</strong> — a small
+          set of helper functions your script imports to resolve correct file
+          paths and upload results to the central server.
+        </li>
+      </ol>
+
+      <p>
+        The library functions are designed to be <strong>zero-configuration</strong>.
+        They read the context (experiment name, job ID, server URL) from
+        environment variables that <code>jd_worker_cli</code> sets automatically
+        before calling your script. You never need to pass these values
+        manually.
+      </p>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          PyPI package: <a href="https://pypi.org/project/jd-worker/" target="_blank" rel="noopener">pypi.org/project/jd-worker/</a><br>
+          Source code: <a href="https://github.com/NWSL-UCF/job-distributor" target="_blank" rel="noopener">github.com/NWSL-UCF/job-distributor</a>
+        </span>
+      </div>
+    </section>
+
+    {# ── Installation ─────────────────────────────────────────────────── #}
+    <section class="tut-section" id="install">
+      <h2><span class="step-badge">1</span> Installation</h2>
+
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>pip install jd-worker
+
+# Upgrade to the latest version at any time
+pip install --upgrade jd-worker</code></pre>
+      </div>
+
+      <p>
+        Requires Python 3.8 or later. Install inside a virtual environment
+        (see the <a href="{{ url_for('pages.getting_started') }}#step5-venv">Getting Started guide</a>
+        for instructions).
+      </p>
+
+      <p>After installation, verify both the CLI and the library are available:</p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>jd_worker_cli --help
+python -c "import jd; print(jd.__version__)"</code></pre>
+      </div>
+    </section>
+
+    {# ── CLI ──────────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="cli">
+      <h2><span class="step-badge">2</span> <code>jd_worker_cli</code> — The Worker Command</h2>
+
+      <p>
+        <code>jd_worker_cli</code> is the main executable installed by the
+        package. It runs as a long-lived process that:
+      </p>
+      <ol>
+        <li>Connects to the Hub to obtain a short-lived worker token and the
+            server URL for your experiment (Hub mode).</li>
+        <li>Registers itself with the server so it appears in the dashboard.</li>
+        <li>Polls the server for the next <em>PENDING</em> job.</li>
+        <li>Sets environment variables describing the job and calls your entry
+            script as a subprocess.</li>
+        <li>Marks the job <em>DONE</em> or <em>ABORTED</em> depending on the
+            exit code, then goes back to step 3.</li>
+        <li>Exits cleanly when the queue is empty (or after one job if
+            <code>once=true</code>).</li>
+      </ol>
+
+      <h3 id="cli-args">All arguments</h3>
+
+      <p>
+        Arguments can be passed as <code>key=value</code> positional arguments
+        or as the corresponding environment variable. Both are equivalent.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Argument</th><th>Environment variable</th><th>Default</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>expId=&lt;name&gt;</code></td>
+            <td><code>JD_EXP_ID</code></td>
+            <td><em>required</em></td>
+            <td>The experiment name as created in the Hub Dashboard.</td>
+          </tr>
+          <tr>
+            <td><code>entry_script=&lt;path&gt;</code></td>
+            <td><code>JD_ENTRY_SCRIPT</code></td>
+            <td><em>required</em></td>
+            <td>Path to the Python script to execute for each job.</td>
+          </tr>
+          <tr>
+            <td><code>api_key=&lt;key&gt;</code></td>
+            <td><code>JD_API_KEY</code></td>
+            <td>—</td>
+            <td>Your Hub API key. When provided, the worker contacts the Hub to auto-discover the server URL (Hub mode). Omit only if using standalone mode.</td>
+          </tr>
+          <tr>
+            <td><code>hub=&lt;url&gt;</code></td>
+            <td><code>JD_HUB_URL</code></td>
+            <td><code>https://hub.jobdistributor.net</code></td>
+            <td>Hub base URL. Only change this if you are running a self-hosted Hub.</td>
+          </tr>
+          <tr>
+            <td><code>server=&lt;url&gt;</code></td>
+            <td><code>JD_SERVER</code></td>
+            <td>from Hub</td>
+            <td>Override the server URL directly (standalone mode — no Hub needed). Useful for local testing.</td>
+          </tr>
+          <tr>
+            <td><code>machine_type=&lt;label&gt;</code></td>
+            <td><code>JD_MACHINE_TYPE</code></td>
+            <td><code>worker</code></td>
+            <td>Free-form label shown next to the worker in the server dashboard. Use it to distinguish hardware (e.g., <code>gpu-a100</code>, <code>cpu-laptop</code>, <code>slurm-hpc</code>).</td>
+          </tr>
+          <tr>
+            <td><code>process_id=&lt;N&gt;</code></td>
+            <td>—</td>
+            <td><code>0</code></td>
+            <td>Integer ID for this worker process. Must be unique when running multiple workers on the same machine. Used in log file names and dashboard display.</td>
+          </tr>
+          <tr>
+            <td><code>once=true</code></td>
+            <td><code>JD_ONCE</code></td>
+            <td><code>false</code></td>
+            <td>Exit after completing one job. Useful for smoke-testing a new script or running one-off jobs.</td>
+          </tr>
+          <tr>
+            <td><code>poll_interval=&lt;N&gt;</code></td>
+            <td><code>JD_POLL_INTERVAL</code></td>
+            <td><code>5</code></td>
+            <td>Seconds to wait between polling the server when the queue is empty.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="cli-modes">Hub mode vs. standalone mode</h3>
+
+      <p><strong>Hub mode</strong> (recommended) — provide <code>JD_API_KEY</code>:</p>
+      <ul>
+        <li>The worker contacts the Hub first to obtain a signed short-lived token and the correct server URL.</li>
+        <li>You never need to know or hardcode the server address.</li>
+        <li>The Hub validates that the experiment is active; the worker won't start if the experiment is deleted or expired.</li>
+      </ul>
+
+      <p><strong>Standalone mode</strong> — provide <code>server=&lt;url&gt;</code> directly:</p>
+      <ul>
+        <li>No Hub or API key required.</li>
+        <li>Useful for local development where the server runs on <code>localhost</code>.</li>
+        <li>The server must have a PIN set; the worker uses the PIN for authentication.</li>
+      </ul>
+
+      <h3 id="cli-examples">Examples</h3>
+
+      <p><strong>Standard Hub mode:</strong></p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+jd_worker_cli expId=digits-tune entry_script=train.py machine_type=cpu</code></pre>
+      </div>
+
+      <p><strong>Run one job then exit (debugging):</strong></p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py once=true</code></pre>
+      </div>
+
+      <p><strong>Four workers on one machine:</strong></p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>for i in 0 1 2 3; do
+  jd_worker_cli expId=digits-tune entry_script=train.py \
+                process_id=$i machine_type=cpu &
+done
+wait</code></pre>
+      </div>
+
+      <p><strong>Standalone mode (local server, no Hub):</strong></p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>jd_worker_cli expId=my-exp entry_script=train.py \
+              server=http://localhost:5001</code></pre>
+      </div>
+    </section>
+
+    {# ── Path helpers ─────────────────────────────────────────────────── #}
+    <section class="tut-section" id="path-helpers">
+      <h2><span class="step-badge">3</span> Path Helper Functions</h2>
+
+      <p>
+        These functions return <code>pathlib.Path</code> objects pointing to
+        the correct directories on the worker machine. They work by reading
+        the <code>JD_JOB_ID</code> and <code>JD_EXP_ID</code> environment
+        variables that <code>jd_worker_cli</code> sets before calling your
+        script. You only need to import and call them — no arguments required.
+      </p>
+
+      <div class="api-card" id="jd-job-dir">
+        <div class="api-card__header">
+          <span class="api-card__badge api-card__badge--fn">function</span>
+          <span class="api-card__sig">jd.jd_job_dir() → Path</span>
+        </div>
+        <div class="api-card__body">
+          <p>
+            Returns the path to the <strong>working directory for the current
+            job</strong>. This directory is unique per job and is where your
+            script should write all its output files.
+          </p>
+          <p>
+            <strong>Path:</strong> <code>~/jd_data/&lt;exp_id&gt;/&lt;job_id&gt;/</code>
+          </p>
+          <p>
+            The directory is <em>not</em> created automatically — call
+            <code>.mkdir(parents=True, exist_ok=True)</code> before writing
+            any files.
+          </p>
+          <div class="code-block">
+            <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>from jd import jd_job_dir
+
+job_dir = jd_job_dir()
+job_dir.mkdir(parents=True, exist_ok=True)
+
+# Write a result file
+(job_dir / "result.json").write_text('{"accuracy": 0.97}')
+
+# Write a model checkpoint
+import torch
+torch.save(model.state_dict(), job_dir / "model.pt")</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="api-card" id="jd-exp-dir">
+        <div class="api-card__header">
+          <span class="api-card__badge api-card__badge--fn">function</span>
+          <span class="api-card__sig">jd.jd_exp_dir() → Path</span>
+        </div>
+        <div class="api-card__body">
+          <p>
+            Returns the path to the <strong>shared experiment directory</strong> —
+            the parent of all job directories for this experiment.
+          </p>
+          <p>
+            <strong>Path:</strong> <code>~/jd_data/&lt;exp_id&gt;/</code>
+          </p>
+          <p>
+            Use this when your script needs to read a shared resource (a dataset,
+            a pre-trained model) that should be downloaded once per machine and
+            shared across all jobs.
+          </p>
+          <div class="code-block">
+            <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>from jd import jd_exp_dir
+from pathlib import Path
+
+# Load a shared dataset stored once in the experiment directory
+dataset_path = jd_exp_dir() / "dataset.csv"
+
+if not dataset_path.exists():
+    # Download it on first use
+    download_dataset(dataset_path)</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="api-card" id="jd-workspace">
+        <div class="api-card__header">
+          <span class="api-card__badge api-card__badge--fn">function</span>
+          <span class="api-card__sig">jd.jd_worker_workspace() → Path</span>
+        </div>
+        <div class="api-card__body">
+          <p>
+            Returns the root of the <strong>jd data directory</strong> on the
+            worker machine.
+          </p>
+          <p>
+            <strong>Default path:</strong> <code>~/jd_data/</code>
+          </p>
+          <p>
+            The location can be overridden by setting the
+            <code>JD_WORKSPACE</code> environment variable before starting
+            <code>jd_worker_cli</code>. Use this function rather than
+            hardcoding the path so your script works regardless of the
+            machine configuration.
+          </p>
+          <div class="code-block">
+            <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>from jd import jd_worker_workspace
+
+workspace = jd_worker_workspace()
+# workspace = Path("/home/alice/jd_data")</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {# ── Upload ───────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="upload">
+      <h2><span class="step-badge">4</span> File Upload</h2>
+
+      <div class="api-card" id="jd-upload">
+        <div class="api-card__header">
+          <span class="api-card__badge api-card__badge--fn">function</span>
+          <span class="api-card__sig">jd.jd_upload(file_path: str | Path) → bool</span>
+        </div>
+        <div class="api-card__body">
+          <p>
+            Uploads a local file to the <strong>central job server</strong>,
+            associating it with the current job. The uploaded file is immediately
+            visible in the server dashboard under the job's entry, where it can
+            be downloaded or browsed.
+          </p>
+          <p><strong>Parameters:</strong></p>
+          <ul>
+            <li><code>file_path</code> — path to the local file to upload (string or <code>pathlib.Path</code>). Maximum file size: 100 MB.</li>
+          </ul>
+          <p><strong>Returns:</strong> <code>True</code> on success, <code>False</code> if the upload failed (a warning is logged; the job continues).</p>
+          <p>
+            <strong>When to use it:</strong> Call <code>jd_upload()</code> when workers
+            run on machines with temporary storage (cloud spot instances, Slurm nodes)
+            where files would be lost after the job ends. Uploading consolidates all
+            results on the server for easy retrieval.
+          </p>
+          <div class="code-block">
+            <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>from jd import jd_job_dir, jd_upload
+import json
+
+job_dir = jd_job_dir()
+job_dir.mkdir(parents=True, exist_ok=True)
+
+# Save result locally first
+result_path = job_dir / "result.json"
+result_path.write_text(json.dumps({"accuracy": 0.97}, indent=2))
+
+# Upload to the server so it's visible in the dashboard
+jd_upload(result_path)
+
+# You can upload multiple files from the same job
+jd_upload(job_dir / "confusion_matrix.png")
+jd_upload(job_dir / "model.pt")</code></pre>
+          </div>
+
+          <div class="tut-note tut-note--tip">
+            <span class="tut-note__icon">💡</span>
+            <span>
+              Always save the file locally with <code>jd_job_dir()</code>
+              <em>before</em> calling <code>jd_upload()</code>. The local copy
+              is useful for debugging even if the upload fails.
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {# ── Env vars ─────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="env-vars">
+      <h2><span class="step-badge">5</span> Environment Variables</h2>
+
+      <p>
+        <code>jd_worker_cli</code> sets these environment variables in the
+        subprocess that runs your script. You can read them directly with
+        <code>os.environ</code> when you need values that the path helpers
+        do not expose.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Value</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>JD_JOB_ID</code></td>
+            <td>Integer job ID (as a string)</td>
+            <td><code>"42"</code></td>
+          </tr>
+          <tr>
+            <td><code>JD_EXP_ID</code></td>
+            <td>Experiment name</td>
+            <td><code>"digits-tune"</code></td>
+          </tr>
+          <tr>
+            <td><code>JD_SERVER</code></td>
+            <td>Job server base URL</td>
+            <td><code>"https://digits-tune-server.jobdistributor.net"</code></td>
+          </tr>
+          <tr>
+            <td><code>JD_WORKSPACE</code></td>
+            <td>Root data directory</td>
+            <td><code>"/home/alice/jd_data"</code></td>
+          </tr>
+          <tr>
+            <td><code>JD_PROCESS_ID</code></td>
+            <td>Worker process ID (from <code>process_id=</code> argument)</td>
+            <td><code>"0"</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>Example — read job ID and experiment name directly:</p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>import os
+
+job_id  = int(os.environ["JD_JOB_ID"])
+exp_id  = os.environ["JD_EXP_ID"]
+print(f"Running job {job_id} for experiment '{exp_id}'")</code></pre>
+      </div>
+
+      <p>
+        Additionally, the following variables from the worker's own environment
+        are inherited by your script and can also be used to control
+        <code>jd_worker_cli</code> itself:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Controls</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>JD_API_KEY</code></td><td>API key for Hub authentication</td></tr>
+          <tr><td><code>JD_HUB_URL</code></td><td>Hub base URL (override if self-hosted)</td></tr>
+          <tr><td><code>JD_ENTRY_SCRIPT</code></td><td>Default entry script path</td></tr>
+          <tr><td><code>JD_MACHINE_TYPE</code></td><td>Default machine type label</td></tr>
+          <tr><td><code>JD_ONCE</code></td><td>Set to <code>true</code> to run one job then exit</td></tr>
+          <tr><td><code>JD_POLL_INTERVAL</code></td><td>Seconds between polls when queue is empty</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    {# ── Logging ──────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="logging">
+      <h2><span class="step-badge">6</span> Worker Logs</h2>
+
+      <p>
+        <code>jd_worker_cli</code> writes a log file for each worker process.
+        The log captures the worker's own activity (job fetches, status updates,
+        errors) as well as the combined stdout and stderr from your entry script.
+      </p>
+
+      <p><strong>Log file location:</strong></p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>path</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>~/jd_data/&lt;exp_id&gt;/jd_worker_logs/jd_worker_&lt;process_id&gt;.log</code></pre>
+      </div>
+
+      <p>For example, with four workers running on experiment <code>digits-tune</code>:</p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>~/jd_data/digits-tune/jd_worker_logs/jd_worker_0.log
+~/jd_data/digits-tune/jd_worker_logs/jd_worker_1.log
+~/jd_data/digits-tune/jd_worker_logs/jd_worker_2.log
+~/jd_data/digits-tune/jd_worker_logs/jd_worker_3.log</code></pre>
+      </div>
+
+      <p>Tail a live log while workers are running:</p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>tail -f ~/jd_data/digits-tune/jd_worker_logs/jd_worker_0.log</code></pre>
+      </div>
+    </section>
+
+    {# ── Patterns ─────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="patterns">
+      <h2><span class="step-badge">7</span> Effective Usage Patterns</h2>
+
+      <h3>Pattern 1 — Minimal script (result only)</h3>
+      <p>
+        For quick experiments where you only need a single JSON result and no
+        file upload:
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>import argparse, json
+from jd import jd_job_dir
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--lr", type=float)
+parser.add_argument("--epochs", type=int)
+args = parser.parse_args()
+
+# ... train ...
+accuracy = 0.95
+
+job_dir = jd_job_dir()
+job_dir.mkdir(parents=True, exist_ok=True)
+(job_dir / "result.json").write_text(json.dumps({
+    "lr": args.lr, "epochs": args.epochs, "accuracy": accuracy
+}))</code></pre>
+      </div>
+
+      <h3>Pattern 2 — Ephemeral nodes (Slurm / cloud) with upload</h3>
+      <p>
+        When nodes lose their local storage after the job ends, upload
+        everything important before the script exits:
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>from jd import jd_job_dir, jd_upload
+
+job_dir = jd_job_dir()
+job_dir.mkdir(parents=True, exist_ok=True)
+
+# ... train and save outputs ...
+
+# Upload all files in the job directory
+for f in job_dir.iterdir():
+    if f.is_file():
+        jd_upload(f)</code></pre>
+      </div>
+
+      <h3>Pattern 3 — Shared dataset across jobs</h3>
+      <p>
+        Download a dataset once per machine to the experiment directory, then
+        load it for every job without re-downloading:
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>from jd import jd_exp_dir
+import filelock
+
+dataset_path = jd_exp_dir() / "data.csv"
+lock_path    = jd_exp_dir() / "data.csv.lock"
+
+# Thread-safe: only the first worker downloads; others wait and reuse
+with filelock.FileLock(str(lock_path)):
+    if not dataset_path.exists():
+        download_dataset(dataset_path)
+
+df = pd.read_csv(dataset_path)</code></pre>
+      </div>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          Install <code>filelock</code> with <code>pip install filelock</code>
+          to safely share resources between concurrent workers on the same machine.
+        </span>
+      </div>
+    </section>
+
+  </div>{# end tut-body #}
+</div>{# end tut-wrap #}
+{% endblock %}
+
+{% block extra_scripts %}{% include '_learn_scripts.html' %}{% endblock %}

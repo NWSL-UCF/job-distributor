@@ -1,0 +1,63 @@
+{# Shared JS for all Learn pages — included inside {% block extra_scripts %} #}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+/* ── Syntax highlighting ────────────────────────────────────────────────────── */
+(function () {
+  var langMap = {
+    'python': 'python', 'bash': 'bash', 'shell': 'bash',
+    'json': 'json', 'slurm': 'bash', 'yaml': 'yaml',
+    'ini': 'ini', 'path': 'plaintext', 'text': 'plaintext',
+  };
+  document.querySelectorAll('.code-block').forEach(function (block) {
+    var labelEl = block.querySelector('.code-block__lang span');
+    var codeEl  = block.querySelector('pre code');
+    if (!labelEl || !codeEl) return;
+    var label = labelEl.textContent.toLowerCase();
+    var lang  = 'plaintext';
+    Object.keys(langMap).forEach(function (key) {
+      if (label.indexOf(key) !== -1) lang = langMap[key];
+    });
+    codeEl.classList.add('language-' + lang);
+  });
+  if (typeof hljs !== 'undefined') {
+    hljs.configure({ ignoreUnescapedHTML: true });
+    hljs.highlightAll();
+  }
+})();
+
+/* ── Copy-code buttons ──────────────────────────────────────────────────────── */
+function copyCode(btn) {
+  var pre  = btn.closest('.code-block').querySelector('pre');
+  var text = pre ? pre.textContent : '';
+  var orig = btn.innerHTML;
+  var done = function () {
+    btn.classList.add('copied');
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+    setTimeout(function () { btn.innerHTML = orig; btn.classList.remove('copied'); }, 2000);
+  };
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(done);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta); done();
+  }
+}
+
+/* ── Sidebar active-link tracking ───────────────────────────────────────────── */
+(function () {
+  var sections = document.querySelectorAll('.tut-section');
+  var navLinks = document.querySelectorAll('.tut-nav a');
+  function onScroll() {
+    var scrollY = window.scrollY + 90;
+    var current = '';
+    sections.forEach(function (sec) { if (sec.offsetTop <= scrollY) current = sec.id; });
+    navLinks.forEach(function (a) {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>

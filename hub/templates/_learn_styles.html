@@ -1,0 +1,199 @@
+{# Shared CSS for all Learn pages — included inside {% block extra_head %} #}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css">
+<style>
+  /* ── Learn layout ────────────────────────────────────────────────────────── */
+  .tut-wrap {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 36px;
+    align-items: flex-start;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+  .tut-nav {
+    position: sticky;
+    top: calc(var(--topnav-h) + 20px);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    font-size: .85rem;
+    max-height: calc(100vh - var(--topnav-h) - 40px);
+    overflow-y: auto;
+  }
+  .tut-nav__title {
+    font-size: .65rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    color: var(--color-muted); margin-bottom: 8px;
+  }
+  .tut-nav a {
+    display: block; padding: 5px 8px; border-radius: 4px;
+    color: var(--color-muted); text-decoration: none;
+    line-height: 1.4; transition: background .12s, color .12s;
+  }
+  .tut-nav a:hover, .tut-nav a.active {
+    background: #f0f0f0; color: var(--color-text);
+  }
+  .tut-nav a.sub { padding-left: 18px; font-size: .8rem; }
+  .tut-nav__section-sep { height: 1px; background: var(--color-border); margin: 8px 0; }
+
+  /* ── Body ─────────────────────────────────────────────────────────────────── */
+  .tut-body { min-width: 0; }
+  .tut-body h1 { font-size: 1.9rem; font-weight: 700; margin-bottom: 6px; }
+  .tut-body .tut-lead {
+    font-size: 1rem; color: var(--color-muted);
+    margin-bottom: 32px; line-height: 1.75;
+  }
+  .tut-section { margin-bottom: 52px; scroll-margin-top: calc(var(--topnav-h) + 20px); }
+  .tut-section h2 {
+    font-size: 1.35rem; font-weight: 700;
+    border-bottom: 2px solid var(--color-border);
+    padding-bottom: 8px; margin-bottom: 18px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .tut-section h3 { font-size: 1.05rem; font-weight: 700; margin: 22px 0 8px; }
+  .tut-section p  { margin-bottom: 13px; line-height: 1.75; }
+  .tut-section ul, .tut-section ol {
+    padding-left: 22px; margin-bottom: 13px; line-height: 1.8;
+  }
+  .tut-section li { margin-bottom: 4px; }
+  .tut-section table {
+    width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: .88rem;
+  }
+  .tut-section th, .tut-section td {
+    padding: 8px 12px; text-align: left; border: 1px solid var(--color-border);
+  }
+  .tut-section th { background: #f5f5f5; font-weight: 600; }
+  .tut-section tr:nth-child(even) td { background: #fafafa; }
+
+  /* ── Step badge ──────────────────────────────────────────────────────────── */
+  .step-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--color-text); color: #fff;
+    font-size: .8rem; font-weight: 700; flex-shrink: 0;
+  }
+  .step-badge--alt { background: #4f46e5; }
+
+  /* ── Code blocks ─────────────────────────────────────────────────────────── */
+  .code-block {
+    position: relative; padding: 0; white-space: normal;
+    background: #fafafa; border: 1px solid #e2e4e8;
+    border-radius: 6px; margin: 12px 0; overflow: hidden;
+    font-size: unset; color: unset;
+  }
+  .code-block__lang {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 12px 3px; border-bottom: 1px solid #e2e4e8;
+    background: #f2f3f5; font-size: .67rem;
+    font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+    color: #888; text-transform: uppercase; letter-spacing: .06em;
+  }
+  .code-block__copy {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 3px;
+    background: transparent; color: #888;
+    border: 1px solid transparent; cursor: pointer;
+    font-size: .7rem; font-family: var(--font);
+    transition: all .14s;
+  }
+  .code-block__copy:hover  { background: #e6e8ec; color: #333; border-color: #ccc; }
+  .code-block__copy.copied { background: #e3f5e8; color: #1a7f4b; border-color: #a6dfc0; }
+  .code-block pre {
+    margin: 0; padding: 10px 14px 12px; overflow-x: auto;
+    background: transparent; font-size: .865rem; line-height: 1.55;
+    font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  }
+  .code-block .hljs, .code-block pre code.hljs {
+    background: transparent !important; padding: 0 !important;
+    font-size: inherit; font-family: inherit;
+  }
+  .code-block pre code { font-size: inherit; font-family: inherit; }
+
+  /* ── Info / tip boxes ───────────────────────────────────────────────────── */
+  .tut-note {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 13px 15px; border-radius: var(--radius);
+    margin: 14px 0; font-size: .88rem; line-height: 1.65;
+  }
+  .tut-note--info  { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+  .tut-note--tip   { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+  .tut-note--warn  { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+  .tut-note__icon  { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+
+  /* ── Checklist ───────────────────────────────────────────────────────────── */
+  .checklist { list-style: none; padding: 0; }
+  .checklist li {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 12px; border-bottom: 1px solid var(--color-border-light);
+    font-size: .9rem;
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist__icon { color: #16a34a; flex-shrink: 0; margin-top: 2px; font-size: 1rem; }
+
+  /* ── Tag pills ───────────────────────────────────────────────────────────── */
+  .grid-tag {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    background: #f0f0f0; font-size: .8rem; font-family: monospace; margin: 2px;
+  }
+
+  /* ── API ref card ────────────────────────────────────────────────────────── */
+  .api-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    margin: 20px 0;
+    overflow: hidden;
+  }
+  .api-card__header {
+    background: #f8f9fa;
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .api-card__sig {
+    font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+    font-size: .92rem; font-weight: 600;
+  }
+  .api-card__body { padding: 14px 16px; }
+  .api-card__body p { margin-bottom: 10px; }
+  .api-card__badge {
+    font-size: .68rem; padding: 2px 8px; border-radius: 12px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .api-card__badge--fn  { background: #dbeafe; color: #1e40af; }
+  .api-card__badge--env { background: #fef3c7; color: #92400e; }
+  .api-card__badge--cli { background: #ede9fe; color: #4f46e5; }
+
+  /* ── Dashboard guide: feature card ──────────────────────────────────────── */
+  .feat-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    margin: 18px 0;
+    overflow: hidden;
+  }
+  .feat-card__title {
+    background: #f8f9fa;
+    border-bottom: 1px solid var(--color-border);
+    padding: 9px 14px;
+    font-weight: 700; font-size: .92rem;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .feat-card__body { padding: 14px 16px; }
+  .feat-card__body p { margin-bottom: 10px; }
+
+  /* ── Responsive ──────────────────────────────────────────────────────────── */
+  @media (max-width: 840px) {
+    .tut-wrap { grid-template-columns: 1fr; padding: 20px 16px 48px; gap: 20px; }
+    .tut-nav  { position: static; max-height: none; }
+    .tut-body h1 { font-size: 1.4rem; }
+  }
+  @media (max-width: 640px) {
+    .tut-wrap { padding: 12px 12px 36px; }
+    .tut-body h1 { font-size: 1.25rem; }
+    .tut-body .tut-lead { font-size: .93rem; }
+    .tut-section h2 { font-size: 1.15rem; }
+    .tut-section table { font-size: .8rem; display: block; overflow-x: auto; }
+    .code-block pre { font-size: .8rem; }
+  }
+</style>

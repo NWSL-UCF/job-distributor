@@ -69,6 +69,81 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
 .topnav__admin:hover { background: #fef2f2 !important; }
 .topnav__user { display: flex; align-items: center; gap: 12px; margin-left: auto; position: relative; }
 
+/* ── Learn dropdown ─────────────────────────────────────────────────────────── */
+.topnav__dropdown-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.topnav__dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+  /* inherits .topnav__link sizing from the class applied in HTML */
+}
+.topnav__dropdown-btn .caret {
+  transition: transform .18s;
+}
+.topnav__dropdown-btn[aria-expanded="true"] .caret {
+  transform: rotate(180deg);
+}
+.topnav__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0,0,0,.1);
+  padding: 4px 0;
+  z-index: 300;
+  display: none;
+}
+.topnav__dropdown--open { display: block; }
+.topnav__dropdown__item {
+  display: block;
+  padding: 9px 16px;
+  font-size: .875rem;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background .12s;
+  white-space: nowrap;
+}
+.topnav__dropdown__item:hover { background: #f3f4f6; }
+.topnav__dropdown__item.active { color: var(--color-primary); font-weight: 600; }
+.topnav__dropdown__divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 0;
+}
+
+/* ── Mobile drawer — Learn expandable group ─────────────────────────────────── */
+.nav-drawer__group-btn {
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+}
+.nav-drawer__group-btn .caret { transition: transform .18s; }
+.nav-drawer__group-btn[aria-expanded="true"] .caret { transform: rotate(180deg); }
+.nav-drawer__group-body { display: none; }
+.nav-drawer__group-body--open { display: block; }
+.nav-drawer__link--sub {
+  padding-left: 40px;
+  font-size: .85rem;
+  color: var(--color-muted);
+}
+
 /* ── Main content ───────────────────────────────────────────────────────────── */
 .main-content {
   max-width: 1100px;

@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+{% block title %}Server Dashboard Guide — JobDistributor{% endblock %}
+
+{% block extra_head %}{% include '_learn_styles.html' %}{% endblock %}
+
+{% block content %}
+<div class="tut-wrap">
+
+  {# ── Sidebar ────────────────────────────────────────────────────────── #}
+  <nav class="tut-nav" id="tut-toc">
+    <div class="tut-nav__title">Server Dashboard</div>
+    <a href="#overview">Overview</a>
+    <a href="#access">Accessing the Dashboard</a>
+    <a class="sub" href="#access-url">Finding the URL</a>
+    <a class="sub" href="#access-pin">PIN authentication</a>
+    <a href="#stats">Statistics Bar</a>
+    <a href="#jobs">Job Management</a>
+    <a class="sub" href="#jobs-create-form">Create jobs — Form</a>
+    <a class="sub" href="#jobs-create-json">Create jobs — JSON</a>
+    <a class="sub" href="#jobs-list">Viewing the job list</a>
+    <a class="sub" href="#jobs-filter">Filtering &amp; search</a>
+    <a class="sub" href="#jobs-edit">Editing a pending job</a>
+    <a class="sub" href="#jobs-delete">Deleting jobs</a>
+    <a href="#workers">Worker Monitor</a>
+    <a href="#results">Results &amp; File Downloads</a>
+    <a href="#settings">Settings</a>
+    <a class="sub" href="#settings-pin">Change PIN</a>
+  </nav>
+
+  {# ── Body ──────────────────────────────────────────────────────────── #}
+  <div class="tut-body">
+
+    <h1>Server Dashboard Guide</h1>
+    <p class="tut-lead">
+      A complete walkthrough of every feature in the JobDistributor server
+      dashboard — from creating your first jobs to downloading results and
+      managing settings.
+    </p>
+
+    {# ── Overview ─────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="overview">
+      <h2><span class="step-badge">?</span> Overview</h2>
+
+      <p>
+        The <strong>server dashboard</strong> is a web interface built into
+        the job server container. It gives you a real-time view of everything
+        happening in your experiment:
+      </p>
+
+      <ul>
+        <li>How many jobs are pending, running, done, or failed</li>
+        <li>Which workers are currently connected and what they are doing</li>
+        <li>Individual job parameters, status, and output files</li>
+        <li>Tools to create, edit, and manage the job queue</li>
+        <li>Configuration such as the dashboard PIN</li>
+      </ul>
+
+      <p>
+        The dashboard is served by the same Docker container as the job API.
+        It is accessible through a public URL managed by the Hub —
+        no VPN or special network setup is required.
+      </p>
+    </section>
+
+    {# ── Accessing ────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="access">
+      <h2><span class="step-badge">1</span> Accessing the Dashboard</h2>
+
+      <h3 id="access-url">Finding the URL</h3>
+      <p>
+        Every experiment has a dedicated server dashboard URL. You can find it
+        in two places:
+      </p>
+      <ol>
+        <li>
+          <strong>Hub Dashboard:</strong> Sign in to the Hub, click your
+          experiment, and click <strong>Open Server Dashboard</strong>.
+          The Hub will take you directly to the dashboard URL.
+        </li>
+        <li>
+          <strong>Email notification:</strong> When your server comes online,
+          JobDistributor sends an email containing a direct link to the dashboard.
+        </li>
+      </ol>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          The dashboard URL is only accessible while the server container is
+          running. If the container is stopped, the URL returns a connection
+          error. Start it with
+          <code>JD_API_KEY=jd_xxx ./run.sh &lt;experiment-name&gt;</code>.
+        </span>
+      </div>
+
+      <h3 id="access-pin">PIN authentication</h3>
+      <p>
+        The dashboard is protected by a 6-digit PIN to prevent unauthorized
+        access. You will be prompted to enter it every time you open the
+        dashboard in a new browser session.
+      </p>
+
+      <p>There are three ways to manage the PIN:</p>
+
+      <div class="feat-card">
+        <div class="feat-card__title">🔢 View or reset PIN from the Hub</div>
+        <div class="feat-card__body">
+          <p>
+            Go to <strong>Hub Dashboard → your experiment → Details</strong>.
+            The current PIN is shown here. You can also set a new PIN from
+            this page at any time without needing to know the old one.
+            This is the easiest option if you have forgotten your PIN.
+          </p>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card__title">🔧 Update PIN from the server dashboard</div>
+        <div class="feat-card__body">
+          <p>
+            While logged into the server dashboard, go to
+            <strong>Settings → PIN</strong>. You can change the PIN here by
+            entering your current PIN and choosing a new one.
+            This option requires knowing the current PIN.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    {# ── Stats bar ────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="stats">
+      <h2><span class="step-badge">2</span> Statistics Bar</h2>
+
+      <p>
+        At the top of the dashboard, a row of summary cards gives you an
+        instant overview of the current experiment state:
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Card</th><th>What it shows</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Total Jobs</strong></td>
+            <td>Total number of jobs ever created for this experiment.</td>
+          </tr>
+          <tr>
+            <td><strong>Pending</strong></td>
+            <td>Jobs waiting to be picked up by a worker. A high number here means workers are needed.</td>
+          </tr>
+          <tr>
+            <td><strong>Running</strong></td>
+            <td>Jobs currently being executed by a worker. Each running job is held by one worker.</td>
+          </tr>
+          <tr>
+            <td><strong>Done</strong></td>
+            <td>Jobs that completed successfully (your script exited with code 0).</td>
+          </tr>
+          <tr>
+            <td><strong>Aborted</strong></td>
+            <td>Jobs where your script exited with a non-zero code, crashed, or timed out.</td>
+          </tr>
+          <tr>
+            <td><strong>Workers</strong></td>
+            <td>Number of worker processes currently connected and active.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        The statistics bar refreshes automatically every few seconds. You can
+        use the Done / Total ratio to estimate progress at a glance.
+      </p>
+    </section>
+
+    {# ── Jobs ─────────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="jobs">
+      <h2><span class="step-badge">3</span> Job Management</h2>
+
+      <p>
+        The <strong>Add Jobs</strong> section lets you populate the queue.
+        The <strong>Job List</strong> section below it lets you inspect,
+        filter, edit, and manage individual jobs.
+      </p>
+
+      <h3 id="jobs-create-form">Create jobs — Form mode</h3>
+
+      <div class="feat-card">
+        <div class="feat-card__title">📋 Form-based job creation</div>
+        <div class="feat-card__body">
+          <p>
+            The <strong>Form</strong> tab provides a graphical interface for
+            defining a parameter grid. Each row represents one hyperparameter:
+          </p>
+          <ol>
+            <li>Enter a parameter name (e.g., <code>learning_rate</code>).</li>
+            <li>Add the values you want to test, separated by commas or one per field.</li>
+            <li>Click <strong>+ Add Parameter</strong> to add more rows.</li>
+          </ol>
+          <p>
+            The dashboard computes the total number of combinations
+            (Cartesian product of all values) and shows a live preview
+            of a few example jobs before you submit.
+          </p>
+          <p>
+            The <strong>Replace existing jobs</strong> checkbox determines
+            behaviour on submission:
+          </p>
+          <ul>
+            <li><strong>Checked:</strong> All existing PENDING jobs are deleted and replaced with the new set. Running and Done jobs are unaffected.</li>
+            <li><strong>Unchecked (default):</strong> New jobs are appended to the existing queue.</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3 id="jobs-create-json">Create jobs — JSON mode</h3>
+
+      <div class="feat-card">
+        <div class="feat-card__title">{ } JSON-based job creation</div>
+        <div class="feat-card__body">
+          <p>
+            The <strong>JSON</strong> tab accepts a plain JSON object where
+            each key is a parameter name and each value is an array of options.
+            The server generates all combinations automatically.
+          </p>
+          <div class="code-block">
+            <div class="code-block__lang"><span>JSON</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>{
+  "learning_rate": [0.001, 0.01, 0.1],
+  "hidden_units":  [64, 128, 256],
+  "dropout":       [0.0, 0.3, 0.5]
+}</code></pre>
+          </div>
+          <p>
+            This creates 3 × 3 × 3 = <strong>27 jobs</strong>, one per combination.
+          </p>
+          <p><strong>Format button:</strong> Automatically pretty-prints and re-indents your JSON.</p>
+          <p><strong>Validate button:</strong> Checks the JSON for syntax errors and confirms the number of jobs that will be created before you submit.</p>
+          <p><strong>Live preview:</strong> A sample of the first few generated jobs is shown below the editor so you can verify the combinations look correct.</p>
+          <p>
+            The JSON tab is the most efficient method for large grids
+            — you can paste a grid directly from your experiment notes or
+            a script without clicking through individual form fields.
+          </p>
+        </div>
+      </div>
+
+      <h3 id="jobs-list">Viewing the job list</h3>
+
+      <div class="feat-card">
+        <div class="feat-card__title">📄 Job list table</div>
+        <div class="feat-card__body">
+          <p>
+            Below the Add Jobs section, every job is listed in a table with
+            the following columns:
+          </p>
+          <table>
+            <thead><tr><th>Column</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><strong>ID</strong></td><td>Auto-assigned integer job identifier. Jobs within the same experiment are numbered sequentially.</td></tr>
+              <tr><td><strong>Parameters</strong></td><td>The key-value pairs passed to your script as CLI arguments.</td></tr>
+              <tr><td><strong>Status</strong></td><td>PENDING, RUNNING, DONE, or ABORTED — colour-coded for easy scanning.</td></tr>
+              <tr><td><strong>Worker</strong></td><td>The machine type and process ID of the worker currently handling (or last handled) this job.</td></tr>
+              <tr><td><strong>Started / Finished</strong></td><td>Timestamps for when the job was picked up and when it completed.</td></tr>
+              <tr><td><strong>Files</strong></td><td>Number of files uploaded to the server by this job via <code>jd_upload()</code>.</td></tr>
+              <tr><td><strong>Actions</strong></td><td>Buttons to view details, edit (PENDING only), or delete the job.</td></tr>
+            </tbody>
+          </table>
+          <p>
+            Click on any row to expand the job detail view, which shows the
+            full parameter list, stdout/stderr output, and any uploaded files.
+          </p>
+        </div>
+      </div>
+
+      <h3 id="jobs-filter">Filtering and search</h3>
+
+      <div class="feat-card">
+        <div class="feat-card__title">🔍 Filter bar</div>
+        <div class="feat-card__body">
+          <p>Use the filter bar above the job list to narrow the view:</p>
+          <ul>
+            <li>
+              <strong>Status filter:</strong> Buttons to show All, Pending,
+              Running, Done, or Aborted jobs only.
+            </li>
+            <li>
+              <strong>Search:</strong> Type any text to filter jobs by parameter
+              name or value. For example, typing <code>0.01</code> shows only
+              jobs where any parameter equals <code>0.01</code>.
+            </li>
+          </ul>
+          <p>
+            Filters can be combined — e.g., show only <em>Aborted</em> jobs
+            containing <code>lr=0.1</code> to identify which learning rate
+            caused failures.
+          </p>
+        </div>
+      </div>
+
+      <h3 id="jobs-edit">Editing a pending job</h3>
+
+      <div class="feat-card">
+        <div class="feat-card__title">✏️ Edit job parameters</div>
+        <div class="feat-card__body">
+          <p>
+            Only <strong>PENDING</strong> jobs can be edited — jobs that have
+            not yet been assigned to a worker. Once a worker picks up a job,
+            it moves to RUNNING and can no longer be modified.
+          </p>
+          <p>To edit a job:</p>
+          <ol>
+            <li>Find the job in the job list (use the filter to show PENDING jobs).</li>
+            <li>Click the <strong>Edit</strong> button in the Actions column.</li>
+            <li>Modify the parameter values in the edit form.</li>
+            <li>Click <strong>Save</strong>. The change takes effect immediately.</li>
+          </ol>
+          <p>
+            Use this to correct a typo in a parameter value or adjust a
+            combination before it runs — without having to delete and recreate
+            the entire job set.
+          </p>
+        </div>
+      </div>
+
+      <h3 id="jobs-delete">Deleting jobs</h3>
+
+      <div class="feat-card">
+        <div class="feat-card__title">🗑️ Delete jobs</div>
+        <div class="feat-card__body">
+          <p>
+            Individual jobs can be deleted from the Actions column regardless
+            of their status. Deleting a RUNNING job cancels it — the worker
+            finishes its current subprocess but the result is not recorded.
+          </p>
+          <p>
+            To delete <em>all</em> jobs in a specific status at once, use the
+            <strong>Clear queue</strong> button that appears at the top of the
+            job list when filters are active:
+          </p>
+          <ul>
+            <li>Filter to <em>Aborted</em> → Clear → removes all failed jobs.</li>
+            <li>Filter to <em>Pending</em> → Clear → empties the queue without affecting completed jobs.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    {# ── Workers ──────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="workers">
+      <h2><span class="step-badge">4</span> Worker Monitor</h2>
+
+      <div class="feat-card">
+        <div class="feat-card__title">🖥️ Active workers</div>
+        <div class="feat-card__body">
+          <p>
+            The <strong>Workers</strong> section shows every worker process
+            currently connected to the server. For each worker you can see:
+          </p>
+          <table>
+            <thead><tr><th>Field</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Process ID</strong></td><td>The <code>process_id=</code> value passed to <code>jd_worker_cli</code>.</td></tr>
+              <tr><td><strong>Machine type</strong></td><td>The <code>machine_type=</code> label (e.g., <code>cpu</code>, <code>gpu-a100</code>, <code>slurm-hpc</code>).</td></tr>
+              <tr><td><strong>Status</strong></td><td>Idle (waiting for a job) or Active (executing a job).</td></tr>
+              <tr><td><strong>Current job</strong></td><td>ID of the job currently being processed, if any.</td></tr>
+              <tr><td><strong>Last seen</strong></td><td>Timestamp of the last communication from this worker. Workers that have gone silent will appear stale.</td></tr>
+              <tr><td><strong>Jobs completed</strong></td><td>Total jobs this worker has finished in this session.</td></tr>
+            </tbody>
+          </table>
+          <p>
+            The worker list updates automatically. If a worker disconnects
+            (machine powered off, network dropped), it will disappear from
+            the list after a short timeout and any job it held will return
+            to PENDING status.
+          </p>
+        </div>
+      </div>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          Use meaningful <code>machine_type</code> labels (e.g.,
+          <code>laptop-cpu</code>, <code>lab-gpu-rtx3090</code>,
+          <code>slurm-gpu</code>) to distinguish workers from different
+          machines in the dashboard.
+        </span>
+      </div>
+    </section>
+
+    {# ── Results ──────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="results">
+      <h2><span class="step-badge">5</span> Results and File Downloads</h2>
+
+      <div class="feat-card">
+        <div class="feat-card__title">📁 Per-job file storage</div>
+        <div class="feat-card__body">
+          <p>
+            When your entry script calls <code>jd_upload(file_path)</code>,
+            the file is stored on the server and associated with that job.
+            The server dashboard provides a direct interface for browsing and
+            downloading these files.
+          </p>
+          <p>To access uploaded files:</p>
+          <ol>
+            <li>Click on a job row in the job list to expand its detail view.</li>
+            <li>Scroll to the <strong>Uploaded Files</strong> section.</li>
+            <li>Click any filename to download it directly to your browser.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card__title">📥 Bulk download</div>
+        <div class="feat-card__body">
+          <p>
+            To download results from all completed jobs at once, use the
+            <strong>Download All Results</strong> button at the top of the
+            job list. This creates a ZIP archive containing the uploaded files
+            from all DONE jobs, organized by job ID.
+          </p>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card__title">📋 Script output (stdout / stderr)</div>
+        <div class="feat-card__body">
+          <p>
+            The last portion of your script's standard output and error output
+            is captured and stored per job. It is visible in the job detail
+            view under <strong>Output</strong>. This is particularly useful
+            for diagnosing ABORTED jobs without needing to SSH into the worker
+            machine.
+          </p>
+          <p>
+            For the full output of any job, check the worker log file on the
+            machine where the job ran:
+          </p>
+          <div class="code-block">
+            <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>~/jd_data/&lt;exp_id&gt;/jd_worker_logs/jd_worker_&lt;process_id&gt;.log</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {# ── Settings ─────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="settings">
+      <h2><span class="step-badge">6</span> Settings</h2>
+
+      <p>
+        The <strong>Settings</strong> page is accessible from the navigation
+        bar inside the server dashboard. It provides configuration options
+        for the running server instance.
+      </p>
+
+      <div class="feat-card" id="settings-pin">
+        <div class="feat-card__title">🔑 Change dashboard PIN</div>
+        <div class="feat-card__body">
+          <p>
+            You can update the 6-digit dashboard PIN from the Settings page.
+            This requires entering your <strong>current PIN</strong> to
+            authorize the change.
+          </p>
+          <p>
+            If you have forgotten the current PIN, go to the
+            <strong>Hub Dashboard → experiment details</strong> to view and
+            reset it from there (no current PIN required).
+          </p>
+          <ol>
+            <li>Navigate to <strong>Settings</strong> in the dashboard nav.</li>
+            <li>Enter your current PIN in the first field.</li>
+            <li>Enter the new PIN twice to confirm.</li>
+            <li>Click <strong>Update PIN</strong>.</li>
+          </ol>
+          <p>
+            The new PIN takes effect immediately. You will be asked to enter
+            it the next time you open the dashboard in a new browser session.
+          </p>
+        </div>
+      </div>
+
+      <div class="tut-note tut-note--warn">
+        <span class="tut-note__icon">⚠️</span>
+        <span>
+          The server dashboard is publicly accessible via its Hub-provided URL.
+          Always set a strong, unique PIN — especially if your experiment
+          involves sensitive data or you are running the server on a shared
+          network.
+        </span>
+      </div>
+    </section>
+
+  </div>{# end tut-body #}
+</div>{# end tut-wrap #}
+{% endblock %}
+
+{% block extra_scripts %}{% include '_learn_scripts.html' %}{% endblock %}

@@ -28,7 +28,20 @@
     <a href="{{ url_for('dashboard.extensions') }}" class="topnav__link {% if request.endpoint and 'extension' in request.endpoint %}active{% endif %}">Extensions</a>
     <a href="{{ url_for('dashboard.api_keys') }}"   class="topnav__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
     <a href="{{ url_for('dashboard.profile') }}"    class="topnav__link {% if request.endpoint in ['dashboard.profile','dashboard.change_password'] %}active{% endif %}">Profile</a>
-    <a href="{{ url_for('pages.tutorials') }}"      class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
+    {# ── Learn dropdown ────────────────────────────────────────────────────── #}
+    {% set learn_active = request.endpoint in ['pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.tutorials'] %}
+    <div class="topnav__dropdown-wrap">
+      <button class="topnav__link topnav__dropdown-btn {% if learn_active %}active{% endif %}"
+              id="learn-dd-btn" aria-haspopup="true" aria-expanded="false">
+        Learn
+        <svg class="caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="topnav__dropdown" id="learn-dd">
+        <a href="{{ url_for('pages.getting_started') }}"       class="topnav__dropdown__item {% if request.endpoint in ['pages.getting_started','pages.tutorials'] %}active{% endif %}">Getting Started</a>
+        <a href="{{ url_for('pages.library_reference') }}"     class="topnav__dropdown__item {% if request.endpoint == 'pages.library_reference' %}active{% endif %}">Library Reference</a>
+        <a href="{{ url_for('pages.server_dashboard_guide') }}" class="topnav__dropdown__item {% if request.endpoint == 'pages.server_dashboard_guide' %}active{% endif %}">Server Dashboard Guide</a>
+      </div>
+    </div>
     {% if user.is_admin %}
     <a href="{{ url_for('admin.index') }}" class="topnav__link topnav__admin">Admin</a>
     {% endif %}
@@ -95,7 +108,19 @@
   {% else %}
   {# ── Anonymous nav ───────────────────────────────────────────────────── #}
   <div class="topnav__links">
-    <a href="{{ url_for('pages.tutorials') }}" class="topnav__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">Tutorials</a>
+    {% set learn_active = request.endpoint in ['pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.tutorials'] %}
+    <div class="topnav__dropdown-wrap">
+      <button class="topnav__link topnav__dropdown-btn {% if learn_active %}active{% endif %}"
+              id="learn-dd-btn" aria-haspopup="true" aria-expanded="false">
+        Learn
+        <svg class="caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="topnav__dropdown" id="learn-dd">
+        <a href="{{ url_for('pages.getting_started') }}"        class="topnav__dropdown__item {% if request.endpoint in ['pages.getting_started','pages.tutorials'] %}active{% endif %}">Getting Started</a>
+        <a href="{{ url_for('pages.library_reference') }}"      class="topnav__dropdown__item {% if request.endpoint == 'pages.library_reference' %}active{% endif %}">Library Reference</a>
+        <a href="{{ url_for('pages.server_dashboard_guide') }}" class="topnav__dropdown__item {% if request.endpoint == 'pages.server_dashboard_guide' %}active{% endif %}">Server Dashboard Guide</a>
+      </div>
+    </div>
   </div>
   <div class="topnav__user">
     <a href="{{ url_for('auth.login') }}"  class="btn btn--outline btn--sm">Sign in</a>
@@ -162,10 +187,23 @@
       <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Profile
     </a>
-    <a href="{{ url_for('pages.tutorials') }}" class="nav-drawer__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">
-      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-      Tutorials
-    </a>
+    {# ── Learn expandable group ──────────────────────────────────────────── #}
+    {% set learn_active = request.endpoint in ['pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.tutorials'] %}
+    <div class="nav-drawer__group">
+      <button class="nav-drawer__link nav-drawer__group-btn" id="drawer-learn-btn"
+              aria-expanded="{{ 'true' if learn_active else 'false' }}">
+        <span style="display:flex;align-items:center;gap:10px;">
+          <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          Learn
+        </span>
+        <svg class="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="nav-drawer__group-body {% if learn_active %}nav-drawer__group-body--open{% endif %}" id="drawer-learn-body">
+        <a href="{{ url_for('pages.getting_started') }}"        class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint in ['pages.getting_started','pages.tutorials'] %}active{% endif %}">Getting Started</a>
+        <a href="{{ url_for('pages.library_reference') }}"      class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.library_reference' %}active{% endif %}">Library Reference</a>
+        <a href="{{ url_for('pages.server_dashboard_guide') }}" class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.server_dashboard_guide' %}active{% endif %}">Server Dashboard Guide</a>
+      </div>
+    </div>
     {% if user.is_admin %}
     <a href="{{ url_for('admin.index') }}" class="nav-drawer__link nav-drawer__link--admin">
       <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
@@ -180,10 +218,23 @@
       </button>
     </form>
     {% else %}
-    <a href="{{ url_for('pages.tutorials') }}" class="nav-drawer__link {% if request.endpoint == 'pages.tutorials' %}active{% endif %}">
-      <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-      Tutorials
-    </a>
+    {# ── Learn expandable group (anonymous) ────────────────────────────── #}
+    {% set learn_active = request.endpoint in ['pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.tutorials'] %}
+    <div class="nav-drawer__group">
+      <button class="nav-drawer__link nav-drawer__group-btn" id="drawer-learn-btn"
+              aria-expanded="{{ 'true' if learn_active else 'false' }}">
+        <span style="display:flex;align-items:center;gap:10px;">
+          <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          Learn
+        </span>
+        <svg class="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="nav-drawer__group-body {% if learn_active %}nav-drawer__group-body--open{% endif %}" id="drawer-learn-body">
+        <a href="{{ url_for('pages.getting_started') }}"        class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint in ['pages.getting_started','pages.tutorials'] %}active{% endif %}">Getting Started</a>
+        <a href="{{ url_for('pages.library_reference') }}"      class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.library_reference' %}active{% endif %}">Library Reference</a>
+        <a href="{{ url_for('pages.server_dashboard_guide') }}" class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.server_dashboard_guide' %}active{% endif %}">Server Dashboard Guide</a>
+      </div>
+    </div>
     <div class="nav-drawer__divider"></div>
     <a href="{{ url_for('auth.login') }}" class="nav-drawer__link">
       <svg class="nav-drawer__icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
@@ -217,7 +268,7 @@
       </div>
     </div>
     <div class="site-footer__links">
-      <a href="{{ url_for('pages.tutorials') }}">Tutorials</a>
+      <a href="{{ url_for('pages.getting_started') }}">Learn</a>
       <a href="https://github.com/NWSL-UCF/job-distributor" target="_blank" rel="noopener">GitHub</a>
       <a href="https://pypi.org/project/jd-worker/" target="_blank" rel="noopener">PyPI</a>
       <a href="https://hub.docker.com/repositories/jobdistributor" target="_blank" rel="noopener">Docker Hub</a>
@@ -226,6 +277,36 @@
 </footer>
 
 <script src="{{ url_for('static', filename='hub.js') }}"></script>
+<script>
+/* ── Learn nav dropdown ─────────────────────────────────────────────────────── */
+(function () {
+  var btn  = document.getElementById('learn-dd-btn');
+  var dd   = document.getElementById('learn-dd');
+  if (!btn || !dd) return;
+
+  function open()  { dd.classList.add('topnav__dropdown--open');    btn.setAttribute('aria-expanded','true');  }
+  function close() { dd.classList.remove('topnav__dropdown--open'); btn.setAttribute('aria-expanded','false'); }
+  function toggle() { dd.classList.contains('topnav__dropdown--open') ? close() : open(); }
+
+  btn.addEventListener('click', function(e) { e.stopPropagation(); toggle(); });
+  document.addEventListener('click', function(e) {
+    if (!btn.contains(e.target) && !dd.contains(e.target)) close();
+  });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') close(); });
+})();
+
+/* ── Mobile drawer — Learn group toggle ─────────────────────────────────────── */
+(function () {
+  var btn  = document.getElementById('drawer-learn-btn');
+  var body = document.getElementById('drawer-learn-body');
+  if (!btn || !body) return;
+
+  btn.addEventListener('click', function () {
+    var open = body.classList.toggle('nav-drawer__group-body--open');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+})();
+</script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>
