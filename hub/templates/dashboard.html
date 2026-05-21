@@ -152,16 +152,14 @@ document.querySelector('.usage-card__month') && (
 
 // ── Data Transfer Heatmap ────────────────────────────────────────────────────
 (function () {
-  const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const CELL_SIZE = 11, CELL_GAP = 2;
 
   // Colour thresholds in bytes: 0, 1 KB, 10 MB, 100 MB, 1 GB
   const THRESHOLDS = [0, 1024, 10485760, 104857600, 1073741824];
 
   function level(bytes) {
     if (bytes <= 0) return 0;
-    for (let i = THRESHOLDS.length - 1; i >= 1; i--) {
+    for (var i = THRESHOLDS.length - 1; i >= 1; i--) {
       if (bytes >= THRESHOLDS[i]) return i;
     }
     return 1;
@@ -169,20 +167,20 @@ document.querySelector('.usage-card__month') && (
 
   function fmtBytes(b) {
     if (b === 0) return '0 B';
-    const units = ['B','KB','MB','GB','TB'];
-    const i = Math.min(Math.floor(Math.log2(b) / 10), units.length - 1);
+    var units = ['B','KB','MB','GB','TB'];
+    var i = Math.min(Math.floor(Math.log2(b) / 10), units.length - 1);
     return (b / Math.pow(1024, i)).toFixed(i > 0 ? 2 : 0) + '\u202f' + units[i];
   }
 
   function fmtDate(dateStr) {
-    const d = new Date(dateStr + 'T00:00:00');
+    var d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('default', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
   }
 
-  const tooltip = document.getElementById('heatmap-tooltip');
+  var tooltip = document.getElementById('heatmap-tooltip');
 
   function showTooltip(e, dateStr, bytesIn, bytesOut) {
-    const total = bytesIn + bytesOut;
+    var total = bytesIn + bytesOut;
     tooltip.innerHTML =
       '<div class="heatmap-tooltip__date">' + fmtDate(dateStr) + '</div>' +
       '<div class="heatmap-tooltip__row"><span class="heatmap-tooltip__key">\u2191 Upload</span><span class="heatmap-tooltip__val">' + fmtBytes(bytesIn)  + '</span></div>' +
@@ -193,8 +191,8 @@ document.querySelector('.usage-card__month') && (
   }
 
   function positionTooltip(e) {
-    const ttW = tooltip.offsetWidth, ttH = tooltip.offsetHeight;
-    let x = e.clientX + 12, y = e.clientY - ttH - 6;
+    var ttW = tooltip.offsetWidth, ttH = tooltip.offsetHeight;
+    var x = e.clientX + 12, y = e.clientY - ttH - 6;
     if (x + ttW > window.innerWidth  - 8) x = e.clientX - ttW - 12;
     if (y < 8) y = e.clientY + 16;
     tooltip.style.left = x + 'px';
@@ -207,95 +205,63 @@ document.querySelector('.usage-card__month') && (
   function hideTooltip() { tooltip.style.display = 'none'; }
 
   function renderHeatmap(data, year) {
-    const wrap = document.getElementById('heatmap-wrap');
+    var wrap = document.getElementById('heatmap-wrap');
     wrap.innerHTML = '';
 
-    const lookup = {};
+    var lookup = {};
     data.days.forEach(function(d) { lookup[d.date] = d; });
 
-    const jan1     = new Date(year, 0, 1);
-    const dec31    = new Date(year, 11, 31);
-    const startDow = jan1.getDay();
-    const totalDays = Math.round((dec31 - jan1) / 86400000) + 1;
-    const totalCells = startDow + totalDays;
-    const numWeeks   = Math.ceil(totalCells / 7);
+    // Container: 12 equal-width month chunks
+    var months = document.createElement('div');
+    months.className = 'heatmap-months';
 
-    // Month labels
-    const monthRow = document.createElement('div');
-    monthRow.className = 'heatmap-month-labels';
-    var monthStarts = {};
-    for (var d = 0; d < totalDays; d++) {
-      var date = new Date(year, 0, 1 + d);
-      if (date.getDate() === 1) {
-        var weekIdx = Math.floor((startDow + d) / 7);
-        monthStarts[weekIdx] = MONTHS[date.getMonth()];
+    for (var m = 0; m < 12; m++) {
+      var monthDiv = document.createElement('div');
+      monthDiv.className = 'heatmap-month';
+
+      // Month name header
+      var lbl = document.createElement('div');
+      lbl.className = 'heatmap-month__name';
+      lbl.textContent = MONTHS[m];
+      monthDiv.appendChild(lbl);
+
+      // Cell grid: 7 rows (Sun–Sat), columns auto-flow left-to-right
+      var grid = document.createElement('div');
+      grid.className = 'heatmap-month__grid';
+
+      var firstDow   = new Date(year, m, 1).getDay();   // 0=Sun
+      var daysInMonth = new Date(year, m + 1, 0).getDate();
+
+      // Padding cells to align the first day to correct column
+      for (var p = 0; p < firstDow; p++) {
+        var empty = document.createElement('span');
+        empty.className = 'heatmap-cell heatmap-cell--empty';
+        grid.appendChild(empty);
       }
-    }
-    for (var w = 0; w < numWeeks; w++) {
-      var lbl = document.createElement('span');
-      lbl.className = 'heatmap-month-label';
-      lbl.style.width = (CELL_SIZE + CELL_GAP) + 'px';
-      lbl.textContent = monthStarts[w] || '';
-      monthRow.appendChild(lbl);
-    }
 
-    // Body
-    var body = document.createElement('div');
-    body.className = 'heatmap-body';
-
-    // Day-of-week labels (Mon, Wed, Fri)
-    var dayLabels = document.createElement('div');
-    dayLabels.className = 'heatmap-daylabels';
-    for (var r = 0; r < 7; r++) {
-      var dl = document.createElement('div');
-      dl.className = 'heatmap-daylabel';
-      dl.textContent = (r === 1 || r === 3 || r === 5) ? DAYS[r] : '';
-      dayLabels.appendChild(dl);
-    }
-
-    // Week columns
-    var weeksEl = document.createElement('div');
-    weeksEl.className = 'heatmap-weeks';
-
-    for (var w2 = 0; w2 < numWeeks; w2++) {
-      var col = document.createElement('div');
-      col.className = 'heatmap-week';
-      for (var r2 = 0; r2 < 7; r2++) {
-        var cellIdx = w2 * 7 + r2;
-        var dayIdx  = cellIdx - startDow;
-        var cell    = document.createElement('span');
-        if (dayIdx < 0 || dayIdx >= totalDays) {
-          cell.className = 'heatmap-cell heatmap-cell--empty';
-        } else {
-          var dateObj = new Date(year, 0, 1 + dayIdx);
-          var dateStr = dateObj.getFullYear() + '-' +
-            String(dateObj.getMonth() + 1).padStart(2, '0') + '-' +
-            String(dateObj.getDate()).padStart(2, '0');
-          var entry    = lookup[dateStr];
-          var bytesIn  = entry ? entry.bytes_in  : 0;
-          var bytesOut = entry ? entry.bytes_out : 0;
-          var total    = bytesIn + bytesOut;
-          cell.className = 'heatmap-cell heatmap-cell--' + level(total);
-          cell.dataset.date = dateStr;
-          (function(ds, bi, bo) {
-            cell.addEventListener('mouseenter', function(e) { showTooltip(e, ds, bi, bo); });
-            cell.addEventListener('mouseleave', hideTooltip);
-          })(dateStr, bytesIn, bytesOut);
-        }
-        col.appendChild(cell);
+      // One cell per calendar day
+      for (var d = 1; d <= daysInMonth; d++) {
+        var dateStr = year + '-' +
+          String(m + 1).padStart(2, '0') + '-' +
+          String(d).padStart(2, '0');
+        var entry    = lookup[dateStr];
+        var bytesIn  = entry ? entry.bytes_in  : 0;
+        var bytesOut = entry ? entry.bytes_out : 0;
+        var cell = document.createElement('span');
+        cell.className = 'heatmap-cell heatmap-cell--' + level(bytesIn + bytesOut);
+        cell.dataset.date = dateStr;
+        (function(ds, bi, bo) {
+          cell.addEventListener('mouseenter', function(e) { showTooltip(e, ds, bi, bo); });
+          cell.addEventListener('mouseleave', hideTooltip);
+        })(dateStr, bytesIn, bytesOut);
+        grid.appendChild(cell);
       }
-      weeksEl.appendChild(col);
+
+      monthDiv.appendChild(grid);
+      months.appendChild(monthDiv);
     }
 
-    body.appendChild(dayLabels);
-    body.appendChild(weeksEl);
-
-    var grid = document.createElement('div');
-    grid.className = 'heatmap-grid';
-    grid.appendChild(monthRow);
-    grid.appendChild(body);
-    wrap.appendChild(grid);
-
+    wrap.appendChild(months);
     document.getElementById('heatmap-active-days').textContent = data.active_days;
     document.getElementById('heatmap-year-label').textContent  = year;
   }
