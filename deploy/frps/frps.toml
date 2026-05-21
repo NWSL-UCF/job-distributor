@@ -54,4 +54,4 @@ log.maxDays = 7
 name = "hub-auth"
 addr = "http://hub:5000"         # hub container on the same Docker network
 path = "/api/internal/frp/new-proxy"
-ops  = ["NewProxy"]
+ops  = ["NewProxy", "CloseProxy"]

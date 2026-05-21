@@ -7,6 +7,7 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Dict
 
 import jwt
 from flask import Blueprint, g, jsonify, request
@@ -288,28 +289,49 @@ def _build_frpc_config(exp: Experiment) -> str:
     )
 
 
-# ── frp Server Plugin — proxy authorisation ───────────────────────────────────
+# ── frp Server Plugin — proxy authorisation & lifecycle notifications ─────────
 #
-# frps calls this endpoint (POST) before accepting every frpc proxy registration.
-# We approve only if ALL of the following are true for each requested domain:
-#   1. An active (non-DELETED, non-EXPIRED) experiment owns this subdomain.
-#   2. That experiment's server has sent a heartbeat within the last 10 minutes.
+# frps calls this endpoint for NewProxy (before accepting a tunnel) and
+# CloseProxy (when a tunnel closes).  We:
+#   • NewProxy : approve only if the experiment is active AND recently heartbeated;
+#                send a "server connected" email to the owner (once per 5 min).
+#   • CloseProxy: look up the experiment by proxy name; send a "server
+#                 disconnected" email to the owner (once per 5 min).
 #
-# This endpoint is intentionally unauthenticated at the HTTP level — it is only
-# reachable from inside the Docker network (frps → hub) and is never exposed to
-# the internet.  We also enforce that the caller's IP is an RFC-1918 address for
-# defence in depth.
+# Security: port 5000 is never exposed outside the Docker network.  We also
+# verify the caller's IP is RFC-1918 for defence in depth.
 #
 # frp plugin response contract:
-#   {"reject": false, "unchange": true}          → allow the proxy
-#   {"reject": true,  "reject_reason": "..."}    → deny the proxy
-#
+#   {"reject": false, "unchange": true}       → allow
+#   {"reject": true,  "reject_reason": "..."} → deny
+
+# Per-experiment cooldown to avoid spamming users when frpc reconnects rapidly.
+# Key: "{event}:{exp_name}"  Value: last notification datetime
+_notif_cooldown: Dict[str, datetime] = {}
+_NOTIF_COOLDOWN_SECS = 300   # 5 minutes
+
+
+def _can_notify(event: str, exp_name: str) -> bool:
+    key = f"{event}:{exp_name}"
+    last = _notif_cooldown.get(key)
+    if last and (_now() - last).total_seconds() < _NOTIF_COOLDOWN_SECS:
+        return False
+    _notif_cooldown[key] = _now()
+    return True
+
+
+def _exp_from_proxy_name(proxy_name: str) -> "Experiment | None":
+    """Derive experiment name from frpc proxy name (server-<name> or dashboard-<name>)."""
+    for prefix in ("server-", "dashboard-"):
+        if proxy_name.startswith(prefix):
+            return Experiment.query.filter_by(name=proxy_name[len(prefix):]).first()
+    return None
+
+
 @api_bp.route("/internal/frp/new-proxy", methods=["POST"])
-def frp_new_proxy():
-    # This endpoint is internal-only: the Hub's port 5000 is never exposed
-    # outside the Docker Compose network, so only containers on that network
-    # (i.e., frps) can reach it.  We add a belt-and-suspenders check by
-    # rejecting requests that do not originate from an RFC-1918 address.
+def frp_plugin_hook():
+    from ..email_service import send_server_connected, send_server_disconnected
+
     remote_ip = request.remote_addr or ""
     is_private = (
         remote_ip.startswith("10.")
@@ -321,13 +343,28 @@ def frp_new_proxy():
         return jsonify({"reject": True, "reject_reason": "Forbidden"}), 200
 
     data    = request.get_json(silent=True) or {}
+    op      = data.get("op", "NewProxy")
     content = data.get("content", {})
+
+    # ── CloseProxy ────────────────────────────────────────────────────────────
+    if op == "CloseProxy":
+        proxy_name = content.get("proxy_name", "")
+        # Only notify once per tunnel pair (server proxy, not dashboard proxy)
+        if proxy_name.startswith("server-"):
+            exp = _exp_from_proxy_name(proxy_name)
+            if exp and exp.status not in ("DELETED", "EXPIRED"):
+                if _can_notify("disconnected", exp.name):
+                    send_server_disconnected(exp.user.email, exp.name)
+        # CloseProxy responses are ignored by frps — just return OK
+        return jsonify({"reject": False, "unchange": True}), 200
+
+    # ── NewProxy ──────────────────────────────────────────────────────────────
     domains = content.get("custom_domains") or []
 
     if not domains:
-        # No custom_domains — not a virtual-host proxy we manage; allow it.
         return jsonify({"reject": False, "unchange": True}), 200
 
+    approved_exp = None
     for domain in domains:
         exp = Experiment.query.filter(
             db.or_(
@@ -351,5 +388,13 @@ def frp_new_proxy():
                     "last 10 minutes — proxy registration denied"
                 ),
             }), 200
+
+        approved_exp = exp
+
+    # Send "connected" email once per tunnel pair (server proxy, not dashboard)
+    proxy_name = content.get("proxy_name", "")
+    if approved_exp and proxy_name.startswith("server-"):
+        if _can_notify("connected", approved_exp.name):
+            send_server_connected(approved_exp.user.email, approved_exp.name)
 
     return jsonify({"reject": False, "unchange": True}), 200

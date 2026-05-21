@@ -155,6 +155,64 @@ def send_expired(user_email: str, user_id: int, exp_name: str) -> bool:
                      f"Experiment '{exp_name}' has expired", html)
 
 
+def send_server_connected(user_email: str, exp_name: str) -> bool:
+    dashboard_url = f"{config.HUB_BASE_URL}/dashboard"
+    html = f"""
+    <h2 style="color:#1a1f2e;">&#x1F7E2; Server connected — <em>{exp_name}</em></h2>
+    <p>Your <strong>JobDistributor</strong> server for experiment
+       <strong>{exp_name}</strong> has just established its tunnel with the Hub
+       and is ready to accept worker connections.</p>
+    <table style="border-collapse:collapse; margin:16px 0; font-size:0.9em;">
+      <tr>
+        <td style="padding:4px 12px 4px 0; color:#6c757d;">Experiment</td>
+        <td style="padding:4px 0;"><strong>{exp_name}</strong></td>
+      </tr>
+      <tr>
+        <td style="padding:4px 12px 4px 0; color:#6c757d;">Server URL</td>
+        <td style="padding:4px 0;">
+          <a href="https://{exp_name}-server.{config.JD_BASE_DOMAIN}">
+            {exp_name}-server.{config.JD_BASE_DOMAIN}
+          </a>
+        </td>
+      </tr>
+    </table>
+    <p><a href="{dashboard_url}" style="display:inline-block; padding:10px 20px;
+       background:#007bff; color:white; text-decoration:none; border-radius:5px;">
+       Open Hub Dashboard</a></p>
+    <p style="color:#6c757d; font-size:0.85em;">
+      You are receiving this because you own the experiment <strong>{exp_name}</strong>.
+    </p>
+    """
+    return send_email(user_email, f"[JobDistributor] Server connected — {exp_name}", html)
+
+
+def send_server_disconnected(user_email: str, exp_name: str) -> bool:
+    dashboard_url = f"{config.HUB_BASE_URL}/dashboard"
+    html = f"""
+    <h2 style="color:#1a1f2e;">&#x1F534; Server disconnected — <em>{exp_name}</em></h2>
+    <p>The <strong>JobDistributor</strong> server for experiment
+       <strong>{exp_name}</strong> has disconnected from the Hub. Its public
+       tunnel is no longer active.</p>
+    <p><strong>What this usually means:</strong></p>
+    <ul>
+      <li>The server Docker container was stopped or restarted.</li>
+      <li>The machine running the server lost network connectivity.</li>
+      <li>The container exited due to an error — check <code>docker logs jd-{exp_name}</code>.</li>
+    </ul>
+    <p>To reconnect, start the server container again on your machine:</p>
+    <pre style="background:#f4f4f4; padding:10px; border-radius:5px;
+                font-family:monospace; font-size:0.88em;">
+JD_API_KEY=&lt;your-key&gt; ./run.sh {exp_name}</pre>
+    <p><a href="{dashboard_url}" style="display:inline-block; padding:10px 20px;
+       background:#dc3545; color:white; text-decoration:none; border-radius:5px;">
+       Open Hub Dashboard</a></p>
+    <p style="color:#6c757d; font-size:0.85em;">
+      You are receiving this because you own the experiment <strong>{exp_name}</strong>.
+    </p>
+    """
+    return send_email(user_email, f"[JobDistributor] Server disconnected — {exp_name}", html)
+
+
 def send_extension_result(user_email: str, user_id: int,
                           req_id: int, approved: bool, note: str = "") -> bool:
     if approved:
