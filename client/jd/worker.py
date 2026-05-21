@@ -50,6 +50,10 @@ Other optional arguments
                             (default: worker, env: JD_MACHINE_TYPE)
     process_id=<N>          Numeric ID when running multiple workers on the
                             same machine  (default: 0)
+    num_workers=<N>         Spawn N parallel worker processes on this machine
+                            (default: 1).  Each process gets an auto-assigned
+                            process_id (0 … N-1).  Cannot be combined with
+                            a manual process_id=.
     once=true               Exit after completing a single job instead of
                             looping until no jobs remain.
 
@@ -164,6 +168,7 @@ def _resolve(cfg: dict) -> dict:
         'log_dir_override': log_override,
         'machine_type':     get('machine_type', 'JD_MACHINE_TYPE', 'worker'),
         'process_id':       get('process_id',   None,              '0'),
+        'num_workers':      int(get('num_workers', 'JD_NUM_WORKERS', '1')),
         'once':             get('once',         'JD_ONCE',         'false').lower() == 'true',
         # Hub authentication — defaults to the public hub; override with hub= or JD_HUB_URL
         'hub_url':          (cfg.get('hub') or get('hub_url', 'JD_HUB_URL',
@@ -401,30 +406,9 @@ def _ping_loop(url: str, job_id: int,
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def main() -> None:
-    argv = sys.argv[1:]
-
-    # Show help
-    if not argv or any(a in argv for a in ('help', '-h', '--help')):
-        print(__doc__)
-        sys.exit(0)
-
-    kv  = _parse_kv(argv)
-    cfg = _resolve(kv)
-
-    # Validate required arguments
-    errors = []
-    if not cfg['exp_id']:
-        errors.append("expId is required")
-    if not cfg['entry_script']:
-        errors.append("entry_script is required")
-    elif not os.path.isfile(cfg['entry_script']):
-        errors.append(f"entry_script '{cfg['entry_script']}' not found")
-    if errors:
-        for e in errors:
-            print(f"Error: {e}")
-        print("Run `jd_worker_cli help` for usage.")
-        sys.exit(1)
+def _run_worker(cfg: dict) -> None:
+    """Run a single worker loop.  Called directly for num_workers=1, or
+    launched in a subprocess (via _worker_subprocess_entry) for N > 1."""
 
     # Build a unique runner ID visible in the dashboard
     username  = os.getenv('USER') or os.getenv('USERNAME') or 'user'
@@ -440,24 +424,27 @@ def main() -> None:
     logger  = _setup_logger(log_dir, runner_id)
 
     # ── Hub authentication (optional) ────────────────────────────────────────
-    worker_token = ""
-    if cfg['hub_url'] and cfg['api_key']:
-        logger.info(f"Hub mode: authenticating via {cfg['hub_url']}")
-        result = _hub_get_worker_token(
-            cfg['hub_url'], cfg['api_key'], cfg['exp_id'], logger
-        )
-        if result is None:
-            logger.error("Failed to obtain worker token from Hub. Exiting.")
-            sys.exit(1)
-        worker_token, hub_server_url = result
-        if hub_server_url:
-            cfg['base_url'] = hub_server_url
-            logger.info(f"Server URL from Hub: {hub_server_url}")
-    elif cfg['hub_url'] or cfg['api_key']:
-        logger.warning(
-            "Both hub_url (JD_HUB_URL) and api_key (JD_API_KEY) must be set "
-            "for Hub authentication. Running in standalone mode."
-        )
+    # When num_workers > 1, the parent process already authenticated and
+    # stored the token in cfg['_worker_token'] — reuse it here directly.
+    worker_token = cfg.get('_worker_token', '')
+    if not worker_token:
+        if cfg['hub_url'] and cfg['api_key']:
+            logger.info(f"Hub mode: authenticating via {cfg['hub_url']}")
+            result = _hub_get_worker_token(
+                cfg['hub_url'], cfg['api_key'], cfg['exp_id'], logger
+            )
+            if result is None:
+                logger.error("Failed to obtain worker token from Hub. Exiting.")
+                sys.exit(1)
+            worker_token, hub_server_url = result
+            if hub_server_url:
+                cfg['base_url'] = hub_server_url
+                logger.info(f"Server URL from Hub: {hub_server_url}")
+        elif cfg['hub_url'] or cfg['api_key']:
+            logger.warning(
+                "Both hub_url (JD_HUB_URL) and api_key (JD_API_KEY) must be set "
+                "for Hub authentication. Running in standalone mode."
+            )
 
     urls = {
         'request': f"{cfg['base_url']}/request_job",
@@ -618,6 +605,122 @@ def main() -> None:
             break
 
         time.sleep(3)   # brief pause before requesting the next job
+
+
+def _worker_subprocess_entry() -> None:
+    """Entry point used by each child process when num_workers > 1.
+
+    The parent serialises the resolved config via the JD_WORKER_CFG_JSON
+    environment variable so the child skips re-parsing argv and re-running
+    Hub authentication (the parent already obtained the token).
+    """
+    import json as _json
+    raw = os.environ.get("JD_WORKER_CFG_JSON", "")
+    if not raw:
+        sys.exit("JD_WORKER_CFG_JSON not set — internal error")
+    cfg = _json.loads(raw)
+    _run_worker(cfg)
+
+
+def main() -> None:
+    argv = sys.argv[1:]
+
+    # Show help
+    if not argv or any(a in argv for a in ('help', '-h', '--help')):
+        print(__doc__)
+        sys.exit(0)
+
+    kv  = _parse_kv(argv)
+    cfg = _resolve(kv)
+
+    # ── Validate num_workers ─────────────────────────────────────────────────
+    num_workers = cfg.get('num_workers', 1)
+    if not isinstance(num_workers, int) or num_workers < 1:
+        print("Error: num_workers must be a positive integer.")
+        sys.exit(1)
+
+    # If the user explicitly set process_id alongside num_workers, warn them.
+    if num_workers > 1 and kv.get('process_id') is not None:
+        print("Warning: process_id is ignored when num_workers > 1. "
+              "IDs are assigned automatically (0 … N-1).")
+
+    # ── Validate required arguments ──────────────────────────────────────────
+    errors = []
+    if not cfg['exp_id']:
+        errors.append("expId is required")
+    if not cfg['entry_script']:
+        errors.append("entry_script is required")
+    elif not os.path.isfile(cfg['entry_script']):
+        errors.append(f"entry_script '{cfg['entry_script']}' not found")
+    if errors:
+        for e in errors:
+            print(f"Error: {e}")
+        print("Run `jd_worker_cli help` for usage.")
+        sys.exit(1)
+
+    if num_workers == 1:
+        # ── Single worker — run directly in this process ─────────────────────
+        _run_worker(cfg)
+    else:
+        # ── Multiple workers — spawn N child processes ────────────────────────
+        import json as _json
+
+        # Hub authentication once in the parent so all children share the same
+        # token.  Children inherit it via JD_WORKER_CFG_JSON.
+        if cfg['hub_url'] and cfg['api_key']:
+            # Perform auth now so children don't all hit the Hub simultaneously.
+            dummy_logger = logging.getLogger("jd_worker_cli.launcher")
+            dummy_logger.addHandler(logging.StreamHandler())
+            dummy_logger.setLevel(logging.INFO)
+            dummy_logger.info(
+                f"Hub mode: authenticating once for {num_workers} workers …"
+            )
+            result = _hub_get_worker_token(
+                cfg['hub_url'], cfg['api_key'], cfg['exp_id'], dummy_logger
+            )
+            if result is None:
+                dummy_logger.error("Failed to obtain worker token from Hub. Exiting.")
+                sys.exit(1)
+            worker_token, hub_server_url = result
+            cfg['_worker_token']   = worker_token
+            if hub_server_url:
+                cfg['base_url'] = hub_server_url
+            dummy_logger.info(
+                f"Spawning {num_workers} workers (process IDs 0–{num_workers-1}) …"
+            )
+
+        procs = []
+        for i in range(num_workers):
+            child_cfg = dict(cfg)
+            child_cfg['process_id']  = str(i)
+            child_cfg['num_workers'] = 1   # children run as single workers
+
+            env = os.environ.copy()
+            env["JD_WORKER_CFG_JSON"] = _json.dumps(child_cfg)
+
+            # Re-invoke the same Python executable with the internal entry point
+            p = subprocess.Popen(
+                [sys.executable, "-c",
+                 "from jd.worker import _worker_subprocess_entry; "
+                 "_worker_subprocess_entry()"],
+                env=env,
+            )
+            procs.append(p)
+
+        # Wait for all children; propagate Ctrl+C cleanly
+        def _kill_all(signum=None, frame=None):
+            for p in procs:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT,  _kill_all)
+        signal.signal(signal.SIGTERM, _kill_all)
+
+        for p in procs:
+            p.wait()
 
 
 if __name__ == '__main__':
