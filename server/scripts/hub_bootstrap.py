@@ -68,6 +68,22 @@ def main() -> int:
 
     print(f"hub_bootstrap: wrote {FRPC_PATH} and {ENV_FILE}", file=sys.stderr)
     print(f"hub_bootstrap: server_url={data.get('server_url')}", file=sys.stderr)
+
+    # Send an initial heartbeat NOW, before frpc starts, so the Hub considers
+    # this experiment online when frps fires the NewProxy authorisation hook.
+    # hub_heartbeat.py handles all subsequent periodic pings.
+    hb_url = f"{hub_url}/api/experiments/{exp_name}/heartbeat"
+    try:
+        r = requests.post(
+            hb_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        print(f"hub_bootstrap: initial heartbeat → HTTP {r.status_code}", file=sys.stderr)
+    except requests.RequestException as exc:
+        # Non-fatal: frpc will retry on reconnect; log and continue.
+        print(f"hub_bootstrap: initial heartbeat failed: {exc}", file=sys.stderr)
+
     return 0
 
 
