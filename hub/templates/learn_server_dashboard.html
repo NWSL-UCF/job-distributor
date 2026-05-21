@@ -21,7 +21,6 @@
     <a class="sub" href="#jobs-filter">Filtering &amp; search</a>
     <a class="sub" href="#jobs-edit">Editing a pending job</a>
     <a class="sub" href="#jobs-delete">Deleting jobs</a>
-    <a href="#workers">Worker Monitor</a>
     <a href="#results">Results &amp; File Downloads</a>
     <a href="#settings">Settings</a>
     <a class="sub" href="#settings-pin">Change PIN</a>
@@ -161,10 +160,6 @@
             <td><strong>Aborted</strong></td>
             <td>Jobs where your script exited with a non-zero code, crashed, or timed out.</td>
           </tr>
-          <tr>
-            <td><strong>Workers</strong></td>
-            <td>Number of worker processes currently connected and active.</td>
-          </tr>
         </tbody>
       </table>
 
@@ -263,7 +258,6 @@
               <tr><td><strong>Status</strong></td><td>PENDING, RUNNING, DONE, or ABORTED — colour-coded for easy scanning.</td></tr>
               <tr><td><strong>Worker</strong></td><td>The machine type and process ID of the worker currently handling (or last handled) this job.</td></tr>
               <tr><td><strong>Started / Finished</strong></td><td>Timestamps for when the job was picked up and when it completed.</td></tr>
-              <tr><td><strong>Files</strong></td><td>Number of files uploaded to the server by this job via <code>jd_upload()</code>.</td></tr>
               <tr><td><strong>Actions</strong></td><td>Buttons to view details, edit (PENDING only), or delete the job.</td></tr>
             </tbody>
           </table>
@@ -291,11 +285,6 @@
               jobs where any parameter equals <code>0.01</code>.
             </li>
           </ul>
-          <p>
-            Filters can be combined — e.g., show only <em>Aborted</em> jobs
-            containing <code>lr=0.1</code> to identify which learning rate
-            caused failures.
-          </p>
         </div>
       </div>
 
@@ -334,64 +323,13 @@
             of their status. Deleting a RUNNING job cancels it — the worker
             finishes its current subprocess but the result is not recorded.
           </p>
-          <p>
-            To delete <em>all</em> jobs in a specific status at once, use the
-            <strong>Clear queue</strong> button that appears at the top of the
-            job list when filters are active:
-          </p>
-          <ul>
-            <li>Filter to <em>Aborted</em> → Clear → removes all failed jobs.</li>
-            <li>Filter to <em>Pending</em> → Clear → empties the queue without affecting completed jobs.</li>
-          </ul>
         </div>
-      </div>
-    </section>
-
-    {# ── Workers ──────────────────────────────────────────────────────── #}
-    <section class="tut-section" id="workers">
-      <h2><span class="step-badge">4</span> Worker Monitor</h2>
-
-      <div class="feat-card">
-        <div class="feat-card__title">🖥️ Active workers</div>
-        <div class="feat-card__body">
-          <p>
-            The <strong>Workers</strong> section shows every worker process
-            currently connected to the server. For each worker you can see:
-          </p>
-          <table>
-            <thead><tr><th>Field</th><th>Description</th></tr></thead>
-            <tbody>
-              <tr><td><strong>Process ID</strong></td><td>The <code>process_id=</code> value passed to <code>jd_worker_cli</code>.</td></tr>
-              <tr><td><strong>Machine type</strong></td><td>The <code>machine_type=</code> label (e.g., <code>cpu</code>, <code>gpu-a100</code>, <code>slurm-hpc</code>).</td></tr>
-              <tr><td><strong>Status</strong></td><td>Idle (waiting for a job) or Active (executing a job).</td></tr>
-              <tr><td><strong>Current job</strong></td><td>ID of the job currently being processed, if any.</td></tr>
-              <tr><td><strong>Last seen</strong></td><td>Timestamp of the last communication from this worker. Workers that have gone silent will appear stale.</td></tr>
-              <tr><td><strong>Jobs completed</strong></td><td>Total jobs this worker has finished in this session.</td></tr>
-            </tbody>
-          </table>
-          <p>
-            The worker list updates automatically. If a worker disconnects
-            (machine powered off, network dropped), it will disappear from
-            the list after a short timeout and any job it held will return
-            to PENDING status.
-          </p>
-        </div>
-      </div>
-
-      <div class="tut-note tut-note--tip">
-        <span class="tut-note__icon">💡</span>
-        <span>
-          Use meaningful <code>machine_type</code> labels (e.g.,
-          <code>laptop-cpu</code>, <code>lab-gpu-rtx3090</code>,
-          <code>slurm-gpu</code>) to distinguish workers from different
-          machines in the dashboard.
-        </span>
       </div>
     </section>
 
     {# ── Results ──────────────────────────────────────────────────────── #}
     <section class="tut-section" id="results">
-      <h2><span class="step-badge">5</span> Results and File Downloads</h2>
+      <h2><span class="step-badge">4</span> Results and File Downloads</h2>
 
       <div class="feat-card">
         <div class="feat-card__title">📁 Per-job file storage</div>
@@ -408,18 +346,6 @@
             <li>Scroll to the <strong>Uploaded Files</strong> section.</li>
             <li>Click any filename to download it directly to your browser.</li>
           </ol>
-        </div>
-      </div>
-
-      <div class="feat-card">
-        <div class="feat-card__title">📥 Bulk download</div>
-        <div class="feat-card__body">
-          <p>
-            To download results from all completed jobs at once, use the
-            <strong>Download All Results</strong> button at the top of the
-            job list. This creates a ZIP archive containing the uploaded files
-            from all DONE jobs, organized by job ID.
-          </p>
         </div>
       </div>
 
@@ -447,7 +373,7 @@
 
     {# ── Settings ─────────────────────────────────────────────────────── #}
     <section class="tut-section" id="settings">
-      <h2><span class="step-badge">6</span> Settings</h2>
+      <h2><span class="step-badge">5</span> Settings</h2>
 
       <p>
         The <strong>Settings</strong> page is accessible from the navigation
