@@ -216,7 +216,7 @@
     <h1>Getting Started with JobDistributor</h1>
     <p class="tut-lead">
       A practical, end-to-end guide to running large hyperparameter sweeps
-      across one machine, multiple machines, or an HPC cluster — without
+      across one machine, multiple machines, or one or more HPC clusters — without
       changing a single line of your training code.
     </p>
 
@@ -443,9 +443,9 @@ print("\nAll done.")</code></pre>
 
       <p>
         JobDistributor lets you launch workers on any machine — your laptop,
-        a colleague's GPU server, or hundreds of Slurm array tasks on an HPC
-        cluster — all pulling from the <em>same queue</em> without any manual
-        partitioning.
+        a colleague's GPU server, hundreds of Slurm array tasks across one or
+        more HPC clusters, multiple VPS instances, or any combination — all
+        pulling from the <em>same queue</em> without any manual partitioning.
       </p>
 
       <div class="tut-note tut-note--tip">
@@ -1067,8 +1067,8 @@ jd_worker_cli expId=digits-tune entry_script=train.py process_id=3 machine_type=
       <h2><span class="step-badge step-badge--alt">⑥</span> Step 6 — Scale on HPC with Slurm Array Jobs</h2>
 
       <p>
-        If you have access to an HPC cluster managed by Slurm, you can launch
-        many workers as a Slurm array job. Each array task runs one
+        If you have access to one or more HPC clusters managed by Slurm, you
+        can launch many workers as a Slurm array job. Each array task runs one
         <code>jd_worker_cli</code> process that continuously pulls jobs from the
         queue until it is empty or the time limit is reached. No manual job
         partitioning is required.

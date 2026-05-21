@@ -40,7 +40,7 @@
     <h1>Getting Started with JobDistributor</h1>
     <p class="tut-lead">
       A practical, end-to-end guide to running large hyperparameter sweeps
-      across one machine, multiple machines, or an HPC cluster — without
+      across one machine, multiple machines, or one or more HPC clusters — without
       changing a single line of your training code.
     </p>
 
@@ -70,7 +70,7 @@
           <tr>
             <td><strong>Worker</strong> (<code>jd_worker_cli</code>)</td>
             <td>Pulls jobs from the server, runs your script, reports completion</td>
-            <td>Any compute node — laptop, GPU server, or Slurm node</td>
+            <td>Any compute node — laptop, desktop, GPU server, Slurm nodes on one or more HPC clusters, VPS instances, or cloud VMs</td>
           </tr>
         </tbody>
       </table>
@@ -302,8 +302,8 @@ print("\nAll done.")</code></pre>
         JobDistributor removes that ceiling. Instead of being confined to one
         machine, you can point <strong>any machine you have access to</strong>
         at the same experiment and let it pick up jobs from the shared queue —
-        your laptop, a colleague's desktop, a university HPC cluster, a cloud
-        VM, or all of them simultaneously. Each machine runs
+        your laptop, a colleague's desktop, one or more HPC clusters, multiple
+        VPS instances, cloud VMs, or any combination of these simultaneously. Each machine runs
         <code>jd_worker_cli</code>, and the server distributes work across all
         of them automatically. There is no configuration change required to add
         or remove a machine mid-sweep.
@@ -328,7 +328,7 @@ print("\nAll done.")</code></pre>
           </tr>
           <tr>
             <td><strong>JobDistributor</strong></td>
-            <td><strong>Any number</strong> — laptop, desktop, HPC, VPS, cloud</td>
+            <td><strong>Any number</strong> — laptops, desktops, multiple HPC clusters, multiple VPS, cloud VMs</td>
             <td>Install <code>jd-worker</code>, set API key</td>
             <td><strong>Yes</strong></td>
           </tr>
@@ -847,8 +847,8 @@ jd_worker_cli expId=digits-tune entry_script=train.py \
       <h2><span class="step-badge step-badge--alt">⑥</span> Step 6 — Scale on HPC with Slurm Array Jobs</h2>
 
       <p>
-        If you have access to an HPC cluster managed by Slurm, you can launch
-        many workers as a Slurm array job. Each array task runs one
+        If you have access to one or more HPC clusters managed by Slurm, you
+        can launch many workers as a Slurm array job. Each array task runs one
         <code>jd_worker_cli</code> process that continuously pulls jobs from the
         queue until the queue is empty or the time limit is reached.
         No manual partitioning is required — workers across all machines
