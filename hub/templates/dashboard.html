@@ -207,6 +207,31 @@ document.querySelector('.usage-card__month') && (
   });
   function hideTooltip() { tooltip.style.display = 'none'; }
 
+  var MONTH_GAP = 6;  // px gap between month chunks
+  var CELL_GAP  = 2;  // px gap between cells within a month
+
+  function computeCellSize(year) {
+    var wrap = document.getElementById('heatmap-wrap');
+    var containerWidth = wrap.clientWidth || wrap.offsetWidth || 800;
+
+    // Number of week-columns per month
+    var weeksArr = [];
+    for (var m = 0; m < 12; m++) {
+      var dow  = new Date(year, m, 1).getDay();
+      var days = new Date(year, m + 1, 0).getDate();
+      weeksArr.push(Math.ceil((dow + days) / 7));
+    }
+    var totalWeeks = weeksArr.reduce(function(a, b) { return a + b; }, 0);
+
+    // Solve: containerWidth = totalWeeks * cellSize
+    //                       + (totalWeeks - 12) * CELL_GAP   (intra-month gaps)
+    //                       + 11 * MONTH_GAP                 (inter-month gaps)
+    var cellSize = Math.floor(
+      (containerWidth - (totalWeeks - 12) * CELL_GAP - 11 * MONTH_GAP) / totalWeeks
+    );
+    return { cellSize: Math.max(7, Math.min(16, cellSize)), weeksArr: weeksArr };
+  }
+
   function renderHeatmap(data, year) {
     var wrap = document.getElementById('heatmap-wrap');
     wrap.innerHTML = '';
@@ -214,28 +239,32 @@ document.querySelector('.usage-card__month') && (
     var lookup = {};
     data.days.forEach(function(d) { lookup[d.date] = d; });
 
-    // Container: 12 equal-width month chunks
+    var computed  = computeCellSize(year);
+    var cellSize  = computed.cellSize;
+
     var months = document.createElement('div');
     months.className = 'heatmap-months';
+    months.style.gap = MONTH_GAP + 'px';
 
     for (var m = 0; m < 12; m++) {
+      var firstDow    = new Date(year, m, 1).getDay();
+      var daysInMonth = new Date(year, m + 1, 0).getDate();
+
       var monthDiv = document.createElement('div');
       monthDiv.className = 'heatmap-month';
 
-      // Month name header
       var lbl = document.createElement('div');
       lbl.className = 'heatmap-month__name';
       lbl.textContent = MONTHS[m];
       monthDiv.appendChild(lbl);
 
-      // Cell grid: 7 rows (Sun–Sat), columns auto-flow left-to-right
       var grid = document.createElement('div');
       grid.className = 'heatmap-month__grid';
+      grid.style.gridTemplateRows = 'repeat(7, ' + cellSize + 'px)';
+      grid.style.gridAutoColumns  = cellSize + 'px';
+      grid.style.gap              = CELL_GAP + 'px';
 
-      var firstDow   = new Date(year, m, 1).getDay();   // 0=Sun
-      var daysInMonth = new Date(year, m + 1, 0).getDate();
-
-      // Padding cells to align the first day to correct column
+      // Empty padding cells so the first day lands on the right row
       for (var p = 0; p < firstDow; p++) {
         var empty = document.createElement('span');
         empty.className = 'heatmap-cell heatmap-cell--empty';
@@ -288,6 +317,15 @@ document.querySelector('.usage-card__month') && (
   }
   sel.addEventListener('change', function() { loadYear(parseInt(sel.value)); });
   loadYear(curY);
+
+  // Re-render on resize so cell sizes stay correct
+  var _resizeTimer;
+  window.addEventListener('resize', function() {
+    clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(function() {
+      loadYear(parseInt(sel.value));
+    }, 200);
+  });
 })();
 </script>
 {% endblock %}
