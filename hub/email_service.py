@@ -175,6 +175,41 @@ def send_expired(user_email: str, user_id: int, exp_name: str) -> bool:
                      f"Experiment '{exp_name}' has expired", html)
 
 
+def send_experiment_created(user_email: str, exp_name: str) -> bool:
+    server_url    = f"https://{exp_name}-server.{config.JD_BASE_DOMAIN}"
+    dashboard_url = f"{config.HUB_BASE_URL}/experiments/{exp_name}"
+    html = _email_header() + f"""
+    <h2>Experiment created — <em>{exp_name}</em></h2>
+    <p>Your new experiment <strong>{exp_name}</strong> is ready.</p>
+    <table style="border-collapse:collapse; margin:14px 0; font-size:0.9em;">
+      <tr>
+        <td style="padding:4px 14px 4px 0; color:#6c757d;">Server URL</td>
+        <td><a href="{server_url}">{server_url}</a></td>
+      </tr>
+    </table>
+    <p>Start your server with:</p>
+    <pre style="background:#f4f4f4; padding:10px; border-radius:4px;
+                font-family:monospace; font-size:0.88em; display:inline-block;">JD_API_KEY=&lt;your-key&gt; ./run.sh {exp_name}</pre>
+    <p style="margin:12px 0;">
+      <a href="{dashboard_url}"
+         style="padding:9px 18px; background:#007bff; color:#fff;
+                text-decoration:none; border-radius:4px;">View Experiment</a>
+    </p>
+    """ + _email_footer()
+    return send_email(user_email, f"[JobDistributor] Experiment created — {exp_name}", html)
+
+
+def send_experiment_deleted(user_email: str, exp_name: str) -> bool:
+    html = _email_header() + f"""
+    <h2>Experiment deleted — <em>{exp_name}</em></h2>
+    <p>Your experiment <strong>{exp_name}</strong> has been deleted from the Hub.</p>
+    <p>If you have a server container still running on your machine, stop it with:</p>
+    <pre style="background:#f4f4f4; padding:10px; border-radius:4px;
+                font-family:monospace; font-size:0.88em; display:inline-block;">docker stop jd-{exp_name}</pre>
+    """ + _email_footer()
+    return send_email(user_email, f"[JobDistributor] Experiment deleted — {exp_name}", html)
+
+
 def send_server_connected(user_email: str, exp_name: str) -> bool:
     server_dashboard_url = f"https://{exp_name}-dashboard.{config.JD_BASE_DOMAIN}"
     html = _email_header() + f"""

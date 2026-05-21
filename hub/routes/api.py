@@ -157,14 +157,19 @@ def heartbeat(name: str):
     exp = _get_owned_exp(name)
     if exp is None:
         return jsonify({"error": "Not found"}), 404
+
+    # Reject deleted/expired experiments so the server shuts itself down.
+    if exp.status in ("DELETED", "EXPIRED"):
+        return jsonify({"status": exp.status, "error": f"Experiment is {exp.status}"}), 403
+
     now = _now()
     exp.last_activity_at    = now
     exp.server_last_ping_at = now
     if exp.status == "IDLE":
-        exp.status        = "ACTIVE"
+        exp.status         = "ACTIVE"
         exp.idle_warned_at = None
     db.session.commit()
-    return jsonify({"message": "OK"}), 200
+    return jsonify({"status": exp.status}), 200
 
 
 # ── Worker token ──────────────────────────────────────────────────────────────

@@ -37,7 +37,16 @@ def main() -> None:
         try:
             r = requests.post(url, headers=headers, timeout=15)
             if r.status_code == 200:
-                print(f"hub_heartbeat: OK", file=sys.stderr)
+                status = r.json().get("status", "ACTIVE")
+                print(f"hub_heartbeat: OK (status={status})", file=sys.stderr)
+            elif r.status_code == 403:
+                # Hub signals the experiment is DELETED or EXPIRED — shut down.
+                status = r.json().get("status", "DELETED")
+                print(
+                    f"hub_heartbeat: experiment is {status} — shutting down server.",
+                    file=sys.stderr,
+                )
+                sys.exit(0)
             else:
                 print(f"hub_heartbeat: HTTP {r.status_code} — {r.text[:200]}", file=sys.stderr)
         except requests.RequestException as exc:

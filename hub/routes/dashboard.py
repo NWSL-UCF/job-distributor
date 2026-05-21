@@ -99,6 +99,8 @@ def create_experiment():
         )
 
     exp = _provision_experiment(user, name)
+    from ..email_service import send_experiment_created
+    send_experiment_created(user.email, exp.name)
     return redirect(url_for("dashboard.experiment_detail", name=name))
 
 
@@ -122,6 +124,8 @@ def delete_experiment(name: str):
     exp.deleted_at = _now()
     db.session.commit()
     _disconnect_frp(exp)
+    from ..email_service import send_experiment_deleted
+    send_experiment_deleted(g.current_user.email, exp.name)
     return redirect(url_for("dashboard.index"))
 
 
