@@ -223,11 +223,11 @@ document.querySelector('.usage-card__month') && (
     }
     var totalWeeks = weeksArr.reduce(function(a, b) { return a + b; }, 0);
 
-    // Solve: containerWidth = totalWeeks * cellSize
-    //                       + (totalWeeks - 12) * CELL_GAP   (intra-month gaps)
-    //                       + 11 * MONTH_GAP                 (inter-month gaps)
+    // Fill the container with the 12 month grids; inter-month spacing is
+    // handled by justify-content:space-between so we don't reserve a fixed gap here.
+    // Solve: containerWidth = totalWeeks * cellSize + (totalWeeks - 12) * CELL_GAP
     var cellSize = Math.floor(
-      (containerWidth - (totalWeeks - 12) * CELL_GAP - 11 * MONTH_GAP) / totalWeeks
+      (containerWidth - (totalWeeks - 12) * CELL_GAP) / totalWeeks
     );
     return { cellSize: Math.max(7, Math.min(16, cellSize)), weeksArr: weeksArr };
   }
@@ -244,7 +244,7 @@ document.querySelector('.usage-card__month') && (
 
     var months = document.createElement('div');
     months.className = 'heatmap-months';
-    months.style.gap = MONTH_GAP + 'px';
+    months.style.justifyContent = 'space-between';
 
     for (var m = 0; m < 12; m++) {
       var firstDow    = new Date(year, m, 1).getDay();

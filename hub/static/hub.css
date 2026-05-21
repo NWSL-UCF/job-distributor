@@ -1184,7 +1184,8 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   text-align: center;
 }
 
-/* Month chunks sit side by side; width of each is driven by JS cell size */
+/* Month chunks sit side by side; justify-content is set by JS to space-between
+   so the 12 chunks fill the full container width end-to-end with equal gaps. */
 .heatmap-months {
   display: flex;
   flex-wrap: nowrap;

@@ -1,0 +1,450 @@
+{% extends "base.html" %}
+{% block title %}Checkpointing Guide — jd-worker{% endblock %}
+
+{% block extra_head %}{% include '_learn_styles.html' %}{% endblock %}
+
+{% block content %}
+<div class="tut-wrap">
+
+  {# ── Sidebar ────────────────────────────────────────────────────────── #}
+  <nav class="tut-nav" id="tut-toc">
+    <div class="tut-nav__title">Checkpointing</div>
+    <a href="#overview">Overview</a>
+    <a href="#why">Why checkpoint?</a>
+    <a href="#api">API Reference</a>
+    <a class="sub" href="#jd-update-checkpoint">jd_update_checkpoint()</a>
+    <a class="sub" href="#jd-get-checkpoint">jd_get_last_checkpoint()</a>
+    <a href="#patterns">Usage Patterns</a>
+    <a class="sub" href="#pattern-basic">Basic periodic save</a>
+    <a class="sub" href="#pattern-resume">Resume on restart</a>
+    <a class="sub" href="#pattern-best">Save best model</a>
+    <a class="sub" href="#pattern-non-torch">Non-PyTorch objects</a>
+    <a href="#limits">Size limits &amp; tips</a>
+  </nav>
+
+  {# ── Body ──────────────────────────────────────────────────────────── #}
+  <div class="tut-body">
+
+    <h1>Checkpointing</h1>
+    <p class="tut-lead">
+      A complete guide to saving and restoring training progress with
+      <code>jd_update_checkpoint()</code> and <code>jd_get_last_checkpoint()</code>.
+    </p>
+
+    {# ── Overview ─────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="overview">
+      <h2><span class="step-badge">?</span> Overview</h2>
+
+      <p>
+        The <code>jd-worker</code> library provides two checkpointing functions
+        that your entry script can call to save intermediate training state to
+        the central job server:
+      </p>
+
+      <table>
+        <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>jd_update_checkpoint(obj)</code></td>
+            <td>Serialises <em>any Python object</em> with pickle and uploads it to the server as a versioned checkpoint file.</td>
+          </tr>
+          <tr>
+            <td><code>jd_get_last_checkpoint()</code></td>
+            <td>Downloads the most recent checkpoint for the current job and returns it as a Python object. Returns <code>None</code> if no checkpoint exists yet.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        Both functions are <strong>zero-configuration inside your script</strong>.
+        They automatically read <code>JD_JOB_ID</code> and <code>JD_SERVER</code>
+        from the environment — values that <code>jd_worker_cli</code> injects
+        before calling your script. You never need to pass job IDs or server
+        URLs explicitly.
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>from jd import jd_update_checkpoint, jd_get_last_checkpoint
+
+# At the start of training — try to resume
+ckpt = jd_get_last_checkpoint()    # None on first run
+
+# During training — save progress
+jd_update_checkpoint({"epoch": 5, "model": model.state_dict()})</code></pre>
+      </div>
+    </section>
+
+    {# ── Why ───────────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="why">
+      <h2><span class="step-badge">?</span> Why Use Server-Side Checkpoints?</h2>
+
+      <p>
+        When you save a file locally with <code>jd_job_dir()</code>, it stays
+        on the worker's disk — it is lost if the node is preempted, rebooted,
+        or deallocated. Server-side checkpoints address this in two ways:
+      </p>
+
+      <ol>
+        <li>
+          <strong>Fault tolerance on preemptible hardware.</strong>
+          Slurm jobs, cloud spot instances, and shared HPC nodes can be
+          killed at any time. When a checkpoint is stored on the server,
+          any subsequent restart of the same job — on any machine — can
+          download it and continue from the last saved epoch instead of
+          restarting from scratch.
+        </li>
+        <li>
+          <strong>Centralised access across machines.</strong>
+          In a heterogeneous sweep running on 10 different machines, the
+          checkpoint for job #42 is always reachable from the server
+          dashboard regardless of which machine ran it. You can view and
+          download checkpoint files from the dashboard's job result panel.
+        </li>
+      </ol>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          For jobs that run quickly (under a few minutes), checkpointing is
+          not necessary. Focus on jobs that take tens of minutes or more —
+          those are the ones where an unexpected interruption is costly.
+        </span>
+      </div>
+    </section>
+
+    {# ── API ───────────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="api">
+      <h2><span class="step-badge">1</span> API Reference</h2>
+
+      <div class="api-card" id="jd-update-checkpoint">
+        <div class="api-card__header">
+          <span class="api-card__badge api-card__badge--fn">function</span>
+          <span class="api-card__sig">jd.jd_update_checkpoint(obj) → dict</span>
+        </div>
+        <div class="api-card__body">
+          <p>
+            Serialises <code>obj</code> using Python's <code>pickle</code> and
+            uploads it to the job server. Each call creates a new versioned
+            file — previous versions are never overwritten, so you always have
+            a history of checkpoints:
+          </p>
+          <div class="code-block">
+            <div class="code-block__lang"><span>path</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>checkpoint_v0_2026-05-20T14-31-22.pkl   ← first call
+checkpoint_v1_2026-05-20T15-10-05.pkl   ← second call
+checkpoint_v2_2026-05-20T16-02-44.pkl   ← third call  (this is "latest")</code></pre>
+          </div>
+
+          <p><strong>Parameter:</strong></p>
+          <ul>
+            <li>
+              <code>obj</code> — any picklable Python object. Typically a
+              <code>dict</code> containing the model state dict, optimizer
+              state, current epoch, and any other metadata needed to resume.
+              Maximum serialised size: <strong>100 MB</strong>.
+            </li>
+          </ul>
+
+          <p>
+            <strong>Returns:</strong>
+            <code>{"success": True, "filename": "checkpoint_v0_…", "version": 0, "size_bytes": …}</code>
+          </p>
+
+          <div class="code-block">
+            <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>from jd import jd_update_checkpoint
+
+result = jd_update_checkpoint({
+    "epoch":     5,
+    "model":     model.state_dict(),
+    "optimizer": optimizer.state_dict(),
+    "val_acc":   0.913,
+})
+print(result["filename"])   # checkpoint_v0_2026-05-20T14-31-22.pkl
+print(result["version"])    # 0</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="api-card" id="jd-get-checkpoint">
+        <div class="api-card__header">
+          <span class="api-card__badge api-card__badge--fn">function</span>
+          <span class="api-card__sig">jd.jd_get_last_checkpoint() → object | None</span>
+        </div>
+        <div class="api-card__body">
+          <p>
+            Downloads the highest-versioned checkpoint for the current job
+            and deserialises it directly in memory — no temporary file is
+            written to disk.
+          </p>
+
+          <p>
+            <strong>Returns:</strong> the Python object that was originally
+            passed to <code>jd_update_checkpoint()</code>, or <code>None</code>
+            if no checkpoint has been saved yet for this job.
+          </p>
+
+          <p>
+            Call this <strong>at the very beginning of your script</strong>,
+            before creating the model. If a checkpoint is returned, load it
+            immediately. If <code>None</code>, initialise from scratch.
+          </p>
+
+          <div class="code-block">
+            <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code>from jd import jd_get_last_checkpoint
+
+ckpt = jd_get_last_checkpoint()
+
+if ckpt is not None:
+    # Resume from the last checkpoint
+    model.load_state_dict(ckpt["model"])
+    optimizer.load_state_dict(ckpt["optimizer"])
+    start_epoch = ckpt["epoch"] + 1
+    print(f"Resumed from epoch {ckpt['epoch']}, val_acc={ckpt.get('val_acc')}")
+else:
+    # First run — start from scratch
+    start_epoch = 0</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {# ── Patterns ──────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="patterns">
+      <h2><span class="step-badge">2</span> Usage Patterns</h2>
+
+      {# Pattern 1 #}
+      <h3 id="pattern-basic">Pattern 1 — Basic periodic checkpoint</h3>
+      <p>
+        The simplest approach: save a checkpoint every N epochs.
+        No resumption logic is needed — the checkpoint is just a safety net
+        in case the job is interrupted.
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>import argparse
+import torch
+from jd import jd_update_checkpoint
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--lr",     type=float, default=0.01)
+parser.add_argument("--epochs", type=int,   default=50)
+args = parser.parse_args()
+
+model     = MyModel()
+optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+CHECKPOINT_EVERY = 5   # save every 5 epochs
+
+for epoch in range(args.epochs):
+    loss = train_one_epoch(model, optimizer)
+
+    if (epoch + 1) % CHECKPOINT_EVERY == 0:
+        jd_update_checkpoint({
+            "epoch":     epoch,
+            "model":     model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "loss":      loss,
+        })
+        print(f"Epoch {epoch}: checkpoint saved.")</code></pre>
+      </div>
+
+      {# Pattern 2 #}
+      <h3 id="pattern-resume">Pattern 2 — Full resume on restart</h3>
+      <p>
+        This is the recommended pattern for long-running jobs on preemptible
+        hardware. The script checks for an existing checkpoint at startup and
+        resumes seamlessly. If the node is killed and the job is requeued, it
+        continues from the last saved epoch automatically.
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>import argparse, json
+import torch
+from jd import jd_job_dir, jd_upload, jd_update_checkpoint, jd_get_last_checkpoint
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--lr",     type=float)
+parser.add_argument("--layers", type=int)
+parser.add_argument("--epochs", type=int)
+args = parser.parse_args()
+
+model     = build_model(layers=args.layers)
+optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+# ── Resume from checkpoint if one exists ─────────────────────────────
+ckpt        = jd_get_last_checkpoint()
+start_epoch = 0
+if ckpt is not None:
+    model.load_state_dict(ckpt["model"])
+    optimizer.load_state_dict(ckpt["optimizer"])
+    start_epoch = ckpt["epoch"] + 1
+    print(f"Resumed from epoch {ckpt['epoch']}")
+else:
+    print("No checkpoint found — starting from scratch.")
+
+# ── Training loop ─────────────────────────────────────────────────────
+best_acc = 0.0
+for epoch in range(start_epoch, args.epochs):
+    loss, val_acc = train_one_epoch(model, optimizer)
+    best_acc      = max(best_acc, val_acc)
+
+    # Checkpoint every 5 epochs
+    if (epoch + 1) % 5 == 0:
+        jd_update_checkpoint({
+            "epoch":     epoch,
+            "model":     model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "val_acc":   val_acc,
+        })
+
+# ── Save and upload final result ──────────────────────────────────────
+job_dir = jd_job_dir()
+job_dir.mkdir(parents=True, exist_ok=True)
+result  = {"lr": args.lr, "layers": args.layers, "best_acc": best_acc}
+(job_dir / "result.json").write_text(json.dumps(result, indent=2))
+jd_upload(job_dir / "result.json")</code></pre>
+      </div>
+
+      {# Pattern 3 #}
+      <h3 id="pattern-best">Pattern 3 — Save only the best model</h3>
+      <p>
+        Instead of checkpointing at fixed intervals, checkpoint only when
+        validation accuracy improves. This keeps the number of checkpoint
+        versions small and ensures the server always holds the best model seen
+        so far.
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>from jd import jd_update_checkpoint, jd_get_last_checkpoint
+
+ckpt         = jd_get_last_checkpoint()
+start_epoch  = 0
+best_val_acc = 0.0
+
+if ckpt is not None:
+    model.load_state_dict(ckpt["model"])
+    optimizer.load_state_dict(ckpt["optimizer"])
+    start_epoch  = ckpt["epoch"] + 1
+    best_val_acc = ckpt.get("best_val_acc", 0.0)
+
+for epoch in range(start_epoch, args.epochs):
+    loss, val_acc = train_one_epoch(model, optimizer)
+
+    if val_acc > best_val_acc:
+        best_val_acc = val_acc
+        jd_update_checkpoint({
+            "epoch":        epoch,
+            "model":        model.state_dict(),
+            "optimizer":    optimizer.state_dict(),
+            "best_val_acc": best_val_acc,
+        })
+        print(f"Epoch {epoch}: new best val_acc={val_acc:.4f} — checkpoint saved.")</code></pre>
+      </div>
+
+      {# Pattern 4 #}
+      <h3 id="pattern-non-torch">Pattern 4 — Non-PyTorch objects</h3>
+      <p>
+        Checkpoints are not limited to PyTorch models. Any picklable Python
+        object works — scikit-learn pipelines, XGBoost models, NumPy arrays,
+        plain dictionaries, or custom classes. The pattern is identical.
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>from sklearn.ensemble import GradientBoostingClassifier
+from jd import jd_update_checkpoint, jd_get_last_checkpoint
+
+# Try to resume a partially-fitted GBM
+ckpt  = jd_get_last_checkpoint()
+model = ckpt["model"] if ckpt else GradientBoostingClassifier(n_estimators=500)
+
+# … fit additional stages or continue fitting …
+model.fit(X_train, y_train)
+
+jd_update_checkpoint({"model": model, "score": model.score(X_val, y_val)})</code></pre>
+      </div>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          Checkpoints use Python's standard <code>pickle</code> format. Any
+          object that can be pickled — including third-party models, custom
+          dataclasses, and nested containers — can be checkpointed. Objects
+          that contain open file handles, database connections, or OS-level
+          resources cannot be pickled and will raise an error.
+        </span>
+      </div>
+    </section>
+
+    {# ── Limits ────────────────────────────────────────────────────────── #}
+    <section class="tut-section" id="limits">
+      <h2><span class="step-badge">3</span> Size Limits &amp; Practical Tips</h2>
+
+      <table>
+        <thead><tr><th>Topic</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Maximum checkpoint size</td>
+            <td>100 MB (serialised pickle bytes). Use <code>jd_upload()</code> for larger artefacts.</td>
+          </tr>
+          <tr>
+            <td>Versioning</td>
+            <td>Every call to <code>jd_update_checkpoint()</code> creates a new version. Old versions are kept on the server and are visible in the dashboard under the job's result files.</td>
+          </tr>
+          <tr>
+            <td>What <code>jd_get_last_checkpoint()</code> returns</td>
+            <td>Always the <em>highest-numbered</em> version (not necessarily the last by time). On first run it returns <code>None</code>.</td>
+          </tr>
+          <tr>
+            <td>Frequency</td>
+            <td>Checkpoint every 5–10 epochs for deep-learning jobs. More frequent is safer but slower; for very fast epochs, checkpointing every N minutes by wall-clock time may be preferable.</td>
+          </tr>
+          <tr>
+            <td>Complementary to <code>jd_upload()</code></td>
+            <td>Checkpoints are for <em>intermediate resumption state</em>. Use <code>jd_upload()</code> at the end of training to store final model weights, result files, plots, and any artefact you want to download later.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Checkpoint vs. local file save — when to use which</h3>
+      <table>
+        <thead>
+          <tr><th></th><th><code>jd_update_checkpoint()</code></th><th>Local file via <code>jd_job_dir()</code></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Survives node preemption</td>
+            <td>✅ Yes — stored on the server</td>
+            <td>❌ No — lost if local disk is wiped</td>
+          </tr>
+          <tr>
+            <td>Accessible from dashboard</td>
+            <td>✅ Yes</td>
+            <td>Only if you also call <code>jd_upload()</code></td>
+          </tr>
+          <tr>
+            <td>Max size</td>
+            <td>100 MB per checkpoint</td>
+            <td>Limited by local disk only</td>
+          </tr>
+          <tr>
+            <td>Speed</td>
+            <td>Network upload (~seconds)</td>
+            <td>Local I/O (~milliseconds)</td>
+          </tr>
+          <tr>
+            <td>Best for</td>
+            <td>Resumption state (model + optimizer)</td>
+            <td>Final artefacts, large models, datasets</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+  </div>{# end tut-body #}
+</div>{# end tut-wrap #}
+{% endblock %}
+
+{% block extra_scripts %}{% include '_learn_scripts.html' %}{% endblock %}

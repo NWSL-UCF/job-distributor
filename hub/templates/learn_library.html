@@ -13,14 +13,15 @@
     <a href="#install">Installation</a>
     <a href="#cli">jd_worker_cli</a>
     <a class="sub" href="#cli-args">All arguments</a>
-    <a class="sub" href="#cli-modes">Hub mode vs. standalone</a>
     <a class="sub" href="#cli-examples">Examples</a>
+    <a class="sub" href="#cli-multi-worker">Multiple workers</a>
     <a href="#path-helpers">Path helpers</a>
     <a class="sub" href="#jd-job-dir">jd_job_dir()</a>
     <a class="sub" href="#jd-exp-dir">jd_exp_dir()</a>
     <a class="sub" href="#jd-workspace">jd_worker_workspace()</a>
     <a href="#upload">File upload</a>
     <a class="sub" href="#jd-upload">jd_upload()</a>
+    <a href="#checkpoints">Checkpoints</a>
     <a href="#env-vars">Environment variables</a>
     <a href="#logging">Worker logs</a>
     <a href="#patterns">Usage patterns</a>
@@ -148,19 +149,13 @@ python -c "import jd; print(jd.__version__)"</code></pre>
             <td><code>api_key=&lt;key&gt;</code></td>
             <td><code>JD_API_KEY</code></td>
             <td>—</td>
-            <td>Your Hub API key. When provided, the worker contacts the Hub to auto-discover the server URL (Hub mode). Omit only if using standalone mode.</td>
+            <td>Your Hub API key. The worker contacts the Hub to obtain a signed token and the correct server URL automatically. Set this via the environment variable rather than passing it on the command line.</td>
           </tr>
           <tr>
             <td><code>hub=&lt;url&gt;</code></td>
             <td><code>JD_HUB_URL</code></td>
             <td><code>https://hub.jobdistributor.net</code></td>
             <td>Hub base URL. Only change this if you are running a self-hosted Hub.</td>
-          </tr>
-          <tr>
-            <td><code>server=&lt;url&gt;</code></td>
-            <td><code>JD_SERVER</code></td>
-            <td>from Hub</td>
-            <td>Override the server URL directly (standalone mode — no Hub needed). Useful for local testing.</td>
           </tr>
           <tr>
             <td><code>machine_type=&lt;label&gt;</code></td>
@@ -172,7 +167,19 @@ python -c "import jd; print(jd.__version__)"</code></pre>
             <td><code>process_id=&lt;N&gt;</code></td>
             <td>—</td>
             <td><code>0</code></td>
-            <td>Integer ID for this worker process. Must be unique when running multiple workers on the same machine. Used in log file names and dashboard display.</td>
+            <td>Integer ID for this worker process. Ignored when <code>num_workers &gt; 1</code> (IDs are assigned automatically). Used in log file names and dashboard display.</td>
+          </tr>
+          <tr>
+            <td><code>num_workers=&lt;N&gt;</code></td>
+            <td><code>JD_NUM_WORKERS</code></td>
+            <td><code>1</code></td>
+            <td>
+              Spawn <em>N</em> parallel worker processes with a single command.
+              Each process gets an auto-assigned <code>process_id</code> (0 … N-1).
+              The parent process performs Hub authentication once and shares the
+              token with all children, so N workers do not cause N authentication
+              requests. Cannot be combined with a manual <code>process_id=</code>.
+            </td>
           </tr>
           <tr>
             <td><code>once=true</code></td>
@@ -180,30 +187,8 @@ python -c "import jd; print(jd.__version__)"</code></pre>
             <td><code>false</code></td>
             <td>Exit after completing one job. Useful for smoke-testing a new script or running one-off jobs.</td>
           </tr>
-          <tr>
-            <td><code>poll_interval=&lt;N&gt;</code></td>
-            <td><code>JD_POLL_INTERVAL</code></td>
-            <td><code>5</code></td>
-            <td>Seconds to wait between polling the server when the queue is empty.</td>
-          </tr>
         </tbody>
       </table>
-
-      <h3 id="cli-modes">Hub mode vs. standalone mode</h3>
-
-      <p><strong>Hub mode</strong> (recommended) — provide <code>JD_API_KEY</code>:</p>
-      <ul>
-        <li>The worker contacts the Hub first to obtain a signed short-lived token and the correct server URL.</li>
-        <li>You never need to know or hardcode the server address.</li>
-        <li>The Hub validates that the experiment is active; the worker won't start if the experiment is deleted or expired.</li>
-      </ul>
-
-      <p><strong>Standalone mode</strong> — provide <code>server=&lt;url&gt;</code> directly:</p>
-      <ul>
-        <li>No Hub or API key required.</li>
-        <li>Useful for local development where the server runs on <code>localhost</code>.</li>
-        <li>The server must have a PIN set; the worker uses the PIN for authentication.</li>
-      </ul>
 
       <h3 id="cli-examples">Examples</h3>
 
@@ -221,21 +206,91 @@ jd_worker_cli expId=digits-tune entry_script=train.py machine_type=cpu</code></p
         <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py once=true</code></pre>
       </div>
 
-      <p><strong>Four workers on one machine:</strong></p>
+      <p>
+        <strong>Four workers on one machine</strong> —
+        use <code>num_workers=N</code> to launch N parallel processes with a
+        single command. Process IDs (0 … N-1) are assigned automatically:
+      </p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>for i in 0 1 2 3; do
-  jd_worker_cli expId=digits-tune entry_script=train.py \
-                process_id=$i machine_type=cpu &
-done
-wait</code></pre>
+        <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py \
+              num_workers=4 machine_type=cpu</code></pre>
       </div>
 
-      <p><strong>Standalone mode (local server, no Hub):</strong></p>
+      <p>
+        The command blocks in the foreground and waits for all workers to
+        finish or until the job queue is empty. Press <kbd>Ctrl+C</kbd> to
+        stop all workers gracefully at once. Hub authentication is performed
+        once in the parent process and shared with all children — N workers
+        do not produce N simultaneous authentication requests.
+      </p>
+
+      <h3 id="cli-multi-worker">Running Multiple Workers with One Command</h3>
+
+      <p>
+        By default, each <code>jd_worker_cli</code> invocation starts a single
+        worker process. If your machine has multiple CPU cores or GPU slots,
+        you can use the <code>num_workers=N</code> argument to spawn N workers
+        in parallel with a single command — no shell loops or multiple terminal
+        windows required.
+      </p>
+
+      <table class="ref-table">
+        <thead><tr><th>Argument</th><th>Env var</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>num_workers=&lt;N&gt;</code></td>
+            <td><code>JD_NUM_WORKERS</code></td>
+            <td><code>1</code></td>
+            <td>
+              Number of parallel worker processes to spawn on this machine.
+              Each process is assigned a unique <code>process_id</code> in the
+              range 0 … N-1 automatically. When N = 1 (the default), the
+              worker runs directly in the current process as usual.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p><strong>Example — 4 workers on one machine:</strong></p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>jd_worker_cli expId=my-exp entry_script=train.py \
-              server=http://localhost:5001</code></pre>
+        <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py \
+              num_workers=4 machine_type=cpu</code></pre>
+      </div>
+
+      <p>
+        This starts 4 worker processes. Each process picks up and runs jobs
+        from the queue independently. The dashboard will show them as
+        <code>…_0_…</code>, <code>…_1_…</code>, <code>…_2_…</code>,
+        <code>…_3_…</code> (the suffix of the runner ID reflects the
+        process_id). All four workers share a single Hub authentication
+        token — the parent requests it once and passes it to the children.
+      </p>
+
+      <p><strong>Run inside tmux for persistence (recommended on a remote machine):</strong></p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code># Start a named tmux session (so it survives SSH disconnects)
+tmux new -s workers
+
+# Inside the tmux session, run 4 workers:
+jd_worker_cli expId=digits-tune entry_script=train.py \
+              num_workers=4 machine_type=gpu
+
+# Detach from tmux: Ctrl+B, then D
+# Re-attach later: tmux attach -t workers</code></pre>
+      </div>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          <strong>How many workers should I run?</strong> A safe starting
+          point is one worker per physical CPU core for CPU-bound jobs, or
+          one worker per GPU for GPU-bound jobs.
+          Check available cores on Linux with <code>nproc</code>, or on
+          macOS with <code>sysctl -n hw.physicalcpu</code>.
+        </span>
       </div>
     </section>
 
@@ -328,24 +383,41 @@ if not dataset_path.exists():
         <div class="api-card__body">
           <p>
             Returns the root of the <strong>jd data directory</strong> on the
-            worker machine.
+            worker machine. All job output, logs, and cached shared data live
+            under this directory.
           </p>
           <p>
             <strong>Default path:</strong> <code>~/jd_data/</code>
           </p>
           <p>
-            The location can be overridden by setting the
-            <code>JD_WORKSPACE</code> environment variable before starting
-            <code>jd_worker_cli</code>. Use this function rather than
-            hardcoding the path so your script works regardless of the
-            machine configuration.
+            The root can be redirected by setting <code>JD_WORKSPACE_PATH</code>
+            in the environment <em>before</em> launching <code>jd_worker_cli</code>.
+            This is useful on shared HPC clusters, scratch disks, or any machine
+            where the home directory has limited quota.
+          </p>
+          <div class="code-block">
+            <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+            <pre><code># Store all job data on a fast scratch disk instead of ~
+export JD_WORKSPACE_PATH=/scratch/$USER
+
+jd_worker_cli expId=digits-tune entry_script=train.py num_workers=4</code></pre>
+          </div>
+          <p>
+            With the above, all job directories resolve to
+            <code>/scratch/&lt;user&gt;/jd_data/&lt;exp_id&gt;/&lt;job_id&gt;/</code>
+            instead of <code>~/jd_data/…</code>. Inside your entry script,
+            always use <code>jd_job_dir()</code> or <code>jd_worker_workspace()</code>
+            rather than constructing paths manually — they honour
+            <code>JD_WORKSPACE_PATH</code> automatically.
           </p>
           <div class="code-block">
             <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
             <pre><code>from jd import jd_worker_workspace
 
 workspace = jd_worker_workspace()
-# workspace = Path("/home/alice/jd_data")</code></pre>
+# ~/jd_data/  (default)   or   /scratch/alice/jd_data/  (if JD_WORKSPACE_PATH is set)
+
+print(workspace)  # Path object — e.g. /home/alice/jd_data</code></pre>
           </div>
         </div>
       </div>
@@ -410,9 +482,59 @@ jd_upload(job_dir / "model.pt")</code></pre>
       </div>
     </section>
 
+    {# ── Checkpoints ──────────────────────────────────────────────────── #}
+    <section class="tut-section" id="checkpoints">
+      <h2><span class="step-badge">5</span> Checkpoints</h2>
+
+      <p>
+        Two functions let your entry script save intermediate training state
+        to the server and resume from it on restart:
+      </p>
+
+      <table>
+        <thead><tr><th>Function</th><th>Signature</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>jd_update_checkpoint</code></td>
+            <td><code>(obj) → dict</code></td>
+            <td>Serialises any Python object with pickle and uploads it as a versioned checkpoint. Max 100 MB.</td>
+          </tr>
+          <tr>
+            <td><code>jd_get_last_checkpoint</code></td>
+            <td><code>() → object | None</code></td>
+            <td>Downloads the latest checkpoint for the current job and returns it as a Python object. Returns <code>None</code> on first run.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="code-block">
+        <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>from jd import jd_update_checkpoint, jd_get_last_checkpoint
+
+# Resume if a checkpoint exists (returns None on first run)
+ckpt        = jd_get_last_checkpoint()
+start_epoch = ckpt["epoch"] + 1 if ckpt else 0
+if ckpt:
+    model.load_state_dict(ckpt["model"])
+
+# Save a checkpoint every 5 epochs
+for epoch in range(start_epoch, args.epochs):
+    train_one_epoch(model, optimizer)
+    if (epoch + 1) % 5 == 0:
+        jd_update_checkpoint({"epoch": epoch, "model": model.state_dict()})</code></pre>
+      </div>
+
+      <p>
+        For the full guide — including patterns for saving the best model,
+        non-PyTorch objects, size limits, and a comparison with local file
+        saves — see the dedicated
+        <a href="{{ url_for('pages.checkpoints_guide') }}">Checkpointing Guide</a>.
+      </p>
+    </section>
+
     {# ── Env vars ─────────────────────────────────────────────────────── #}
     <section class="tut-section" id="env-vars">
-      <h2><span class="step-badge">5</span> Environment Variables</h2>
+      <h2><span class="step-badge">6</span> Environment Variables</h2>
 
       <p>
         <code>jd_worker_cli</code> sets these environment variables in the
@@ -442,14 +564,14 @@ jd_upload(job_dir / "model.pt")</code></pre>
             <td><code>"https://digits-tune-server.jobdistributor.net"</code></td>
           </tr>
           <tr>
-            <td><code>JD_WORKSPACE</code></td>
-            <td>Root data directory</td>
+            <td><code>JD_WORKER_WORKSPACE_ROOT</code></td>
+            <td>Root data directory (<code>jd_data/</code> parent)</td>
             <td><code>"/home/alice/jd_data"</code></td>
           </tr>
           <tr>
-            <td><code>JD_PROCESS_ID</code></td>
-            <td>Worker process ID (from <code>process_id=</code> argument)</td>
-            <td><code>"0"</code></td>
+            <td><code>JD_WORKER_JOB_DIR</code></td>
+            <td>Full path to this job's output directory</td>
+            <td><code>"/home/alice/jd_data/digits-tune/42"</code></td>
           </tr>
         </tbody>
       </table>
@@ -475,18 +597,20 @@ print(f"Running job {job_id} for experiment '{exp_id}'")</code></pre>
         </thead>
         <tbody>
           <tr><td><code>JD_API_KEY</code></td><td>API key for Hub authentication</td></tr>
-          <tr><td><code>JD_HUB_URL</code></td><td>Hub base URL (override if self-hosted)</td></tr>
+          <tr><td><code>JD_HUB_URL</code></td><td>Hub base URL (override only if self-hosting the Hub)</td></tr>
+          <tr><td><code>JD_EXP_ID</code></td><td>Default experiment name (replaces <code>expId=</code> CLI argument)</td></tr>
           <tr><td><code>JD_ENTRY_SCRIPT</code></td><td>Default entry script path</td></tr>
-          <tr><td><code>JD_MACHINE_TYPE</code></td><td>Default machine type label</td></tr>
+          <tr><td><code>JD_MACHINE_TYPE</code></td><td>Machine type label shown in the server dashboard</td></tr>
+          <tr><td><code>JD_WORKSPACE_PATH</code></td><td>Redirect the <code>jd_data/</code> root to a custom directory (default: <code>~</code>)</td></tr>
+          <tr><td><code>JD_NUM_WORKERS</code></td><td>Number of parallel workers to spawn (default: <code>1</code>)</td></tr>
           <tr><td><code>JD_ONCE</code></td><td>Set to <code>true</code> to run one job then exit</td></tr>
-          <tr><td><code>JD_POLL_INTERVAL</code></td><td>Seconds between polls when queue is empty</td></tr>
         </tbody>
       </table>
     </section>
 
     {# ── Logging ──────────────────────────────────────────────────────── #}
     <section class="tut-section" id="logging">
-      <h2><span class="step-badge">6</span> Worker Logs</h2>
+      <h2><span class="step-badge">7</span> Worker Logs</h2>
 
       <p>
         <code>jd_worker_cli</code> writes a log file for each worker process.
@@ -518,7 +642,7 @@ print(f"Running job {job_id} for experiment '{exp_id}'")</code></pre>
 
     {# ── Patterns ─────────────────────────────────────────────────────── #}
     <section class="tut-section" id="patterns">
-      <h2><span class="step-badge">7</span> Effective Usage Patterns</h2>
+      <h2><span class="step-badge">8</span> Effective Usage Patterns</h2>
 
       <h3>Pattern 1 — Minimal script (result only)</h3>
       <p>
@@ -593,6 +717,17 @@ df = pd.read_csv(dataset_path)</code></pre>
           to safely share resources between concurrent workers on the same machine.
         </span>
       </div>
+
+      <h3>Pattern 4 — Resumable training with checkpoints</h3>
+      <p>
+        For long-running jobs on preemptible hardware, use
+        <code>jd_update_checkpoint()</code> periodically and
+        <code>jd_get_last_checkpoint()</code> at startup to resume
+        automatically from the last saved epoch. See the
+        <a href="{{ url_for('pages.checkpoints_guide') }}">Checkpointing Guide</a>
+        for complete examples including best-model saving, non-PyTorch objects,
+        and a full resume pattern.
+      </p>
     </section>
 
   </div>{# end tut-body #}

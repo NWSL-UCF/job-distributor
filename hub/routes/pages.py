@@ -27,6 +27,11 @@ def server_dashboard_guide():
     return render_template("learn_server_dashboard.html", user=_user())
 
 
+@pages_bp.route("/learn/checkpoints")
+def checkpoints_guide():
+    return render_template("learn_checkpoints.html", user=_user())
+
+
 # Legacy redirect — keeps old links working
 @pages_bp.route("/tutorials")
 def tutorials():

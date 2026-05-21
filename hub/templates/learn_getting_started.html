@@ -155,11 +155,92 @@
 
       <h3 id="serial">Serial baseline — running all combinations on one machine</h3>
       <p>
-        Before distributing anything, here is the naïve approach: iterate over
-        every combination and run them one by one. Save this as
-        <code>serial_grid.py</code>.
+        Before distributing anything, here is the naïve approach. We need two
+        files: <code>train.py</code>, which trains the model for a single
+        parameter combination, and <code>serial_grid.py</code>, which calls
+        <code>train.py</code> in a loop over all 54 combinations.
       </p>
 
+      <p><strong>train.py</strong> — trains and evaluates the model for one combination of hyperparameters:</p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>train.py — Python</span>
+          <button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>
+        </div>
+        <pre><code>#!/usr/bin/env python3
+"""Train an MLP on the digits dataset for one hyperparameter combination.
+
+Usage:
+    python train.py --learning_rate_init 0.01 --hidden_layer_sizes 128 \
+                    --alpha 0.001 --max_iter 200
+"""
+import argparse
+import json
+import os
+
+from sklearn.datasets   import load_digits
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network  import MLPClassifier
+from sklearn.preprocessing   import StandardScaler
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--learning_rate_init", type=float, required=True)
+parser.add_argument("--hidden_layer_sizes", type=str,   required=True,
+                    help="Single int (e.g. 128) or comma-separated (e.g. 64,64)")
+parser.add_argument("--alpha",              type=float, required=True)
+parser.add_argument("--max_iter",           type=int,   required=True)
+args = parser.parse_args()
+
+# Parse hidden_layer_sizes: "64" → (64,)   "64,64" → (64, 64)
+hidden = tuple(int(x) for x in args.hidden_layer_sizes.split(","))
+
+# Load and split data
+X, y = load_digits(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Normalise
+scaler  = StandardScaler().fit(X_train)
+X_train = scaler.transform(X_train)
+X_test  = scaler.transform(X_test)
+
+# Train
+clf = MLPClassifier(
+    hidden_layer_sizes=hidden,
+    learning_rate_init=args.learning_rate_init,
+    alpha=args.alpha,
+    max_iter=args.max_iter,
+    random_state=42,
+)
+clf.fit(X_train, y_train)
+
+accuracy = clf.score(X_test, y_test)
+
+result = {
+    "learning_rate_init": args.learning_rate_init,
+    "hidden_layer_sizes": args.hidden_layer_sizes,
+    "alpha":              args.alpha,
+    "max_iter":           args.max_iter,
+    "accuracy":           round(accuracy, 4),
+}
+print(json.dumps(result))</code></pre>
+      </div>
+
+      <p>
+        You can run it directly to verify it works before wiring it into a sweep:
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang">
+          <span>bash</span>
+          <button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>
+        </div>
+        <pre><code>python train.py --learning_rate_init 0.01 --hidden_layer_sizes 128 \
+               --alpha 0.001 --max_iter 200
+# {"learning_rate_init": 0.01, "hidden_layer_sizes": "128", ..., "accuracy": 0.9722}</code></pre>
+      </div>
+
+      <p><strong>serial_grid.py</strong> — iterates over every combination and calls <code>train.py</code> once per run:</p>
       <div class="code-block">
         <div class="code-block__lang">
           <span>serial_grid.py — Python</span>
@@ -181,15 +262,17 @@ combos = list(itertools.product(*GRID.values()))
 print(f"Total combinations: {len(combos)}")
 
 for i, combo in enumerate(combos, 1):
-    params  = dict(zip(keys, combo))
-    cli_args = [f"--{k} {v}" for k, v in params.items()]
+    params = dict(zip(keys, combo))
     print(f"\n[{i:02d}/{len(combos)}]  {params}")
     t0   = time.time()
-    proc = subprocess.run([sys.executable, "train.py"] +
-                          [x for pair in [[f"--{k}", str(v)]
-                           for k, v in params.items()] for x in pair],
-                          capture_output=True, text=True)
+    proc = subprocess.run(
+        [sys.executable, "train.py"] +
+        [x for k, v in params.items() for x in (f"--{k}", str(v))],
+        capture_output=True, text=True,
+    )
     print(f"  {'OK' if proc.returncode == 0 else 'FAILED'}  ({time.time()-t0:.1f}s)")
+    if proc.stdout:
+        print(" ", proc.stdout.strip())
 
 print("\nAll done.")</code></pre>
       </div>
@@ -207,12 +290,59 @@ print("\nAll done.")</code></pre>
         <li>With <strong>54 workers</strong>: ≈ 5 minutes — all jobs in parallel.</li>
       </ul>
 
+      <p>
+        You might be thinking: <em>"I can already use Python's
+        <code>multiprocessing</code> or <code>concurrent.futures</code> to run
+        jobs in parallel."</em> That is true — and it is a perfectly reasonable
+        first step. However, multiprocessing is limited to the cores of a
+        <strong>single machine</strong>. Once that machine's CPU is fully
+        occupied, you cannot go faster without provisioning more hardware.
+      </p>
+      <p>
+        JobDistributor removes that ceiling. Instead of being confined to one
+        machine, you can point <strong>any machine you have access to</strong>
+        at the same experiment and let it pick up jobs from the shared queue —
+        your laptop, a colleague's desktop, a university HPC cluster, a cloud
+        VM, or all of them simultaneously. Each machine runs
+        <code>jd_worker_cli</code>, and the server distributes work across all
+        of them automatically. There is no configuration change required to add
+        or remove a machine mid-sweep.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Approach</th><th>Machines</th><th>Setup needed</th><th>Scales beyond one machine?</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Serial loop</td>
+            <td>1</td>
+            <td>None</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td>Python <code>multiprocessing</code></td>
+            <td>1</td>
+            <td>Minimal</td>
+            <td>No — limited to local CPU cores</td>
+          </tr>
+          <tr>
+            <td><strong>JobDistributor</strong></td>
+            <td><strong>Any number</strong> — laptop, desktop, HPC, VPS, cloud</td>
+            <td>Install <code>jd-worker</code>, set API key</td>
+            <td><strong>Yes</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
       <div class="tut-note tut-note--tip">
         <span class="tut-note__icon">💡</span>
         <span>
-          You do not need to modify your training script to enable parallelism.
-          The same <code>train.py</code> runs unchanged whether called by the
-          serial loop or by <code>jd_worker_cli</code>.
+          Notice that <code>train.py</code> above has no dependency on the
+          <code>jd</code> library — it is pure scikit-learn. You will add a
+          few <code>jd</code> calls in Step 3, but the core training logic
+          stays exactly the same. The same script runs whether it is called
+          by the serial loop or by <code>jd_worker_cli</code>.
         </span>
       </div>
     </section>
@@ -660,28 +790,33 @@ jd_worker_cli expId=digits-tune entry_script=train.py machine_type=cpu</code></p
 
       <p>
         If your machine has multiple CPU cores or GPUs, you can run one
-        worker per core to fully utilize the hardware. The most convenient
-        way on a local machine is to launch several workers in one command
-        using a shell loop:
+        worker per core to fully utilize the hardware. Use the
+        <code>num_workers=N</code> argument to launch N parallel workers
+        with a single command — no shell loops or multiple terminals needed:
       </p>
 
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code># Spawn 4 parallel workers (adjust N to match your CPU count)
-N=4
-for i in $(seq 0 $((N-1))); do
-  jd_worker_cli expId=digits-tune entry_script=train.py \
-                process_id=$i machine_type=cpu &
-done
-wait   # block until all workers finish</code></pre>
+        <pre><code># Spawn 4 parallel workers (process IDs 0–3 are assigned automatically)
+jd_worker_cli expId=digits-tune entry_script=train.py \
+              num_workers=4 machine_type=cpu</code></pre>
       </div>
 
       <p>
-        Each worker gets a unique <code>process_id</code> so they appear as
-        separate entries in the server dashboard. The <code>machine_type</code>
-        label is free-form text — use it to distinguish hardware types when
-        running workers across multiple machines simultaneously.
+        Each worker gets an auto-assigned <code>process_id</code> (0, 1, 2, …)
+        so they appear as separate entries in the server dashboard.
+        The command blocks until all workers finish or the queue is empty.
+        Press <kbd>Ctrl+C</kbd> to stop all workers at once.
       </p>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          A good rule of thumb: set <code>num_workers</code> to the number of
+          available CPU cores (or GPUs). On Linux you can check with
+          <code>nproc</code>; on macOS with <code>sysctl -n hw.physicalcpu</code>.
+        </span>
+      </div>
 
       <p>All available <code>jd_worker_cli</code> options:</p>
       <table>
@@ -694,6 +829,7 @@ wait   # block until all workers finish</code></pre>
           <tr><td><code>api_key=&lt;key&gt;</code></td><td><code>JD_API_KEY</code></td><td>—</td><td>API key — enables Hub mode (auto-discovers server URL)</td></tr>
           <tr><td><code>machine_type=&lt;label&gt;</code></td><td><code>JD_MACHINE_TYPE</code></td><td><code>worker</code></td><td>Label shown in dashboard</td></tr>
           <tr><td><code>process_id=&lt;N&gt;</code></td><td>—</td><td><code>0</code></td><td>Unique ID for multiple workers on one machine</td></tr>
+          <tr><td><code>num_workers=&lt;N&gt;</code></td><td><code>JD_NUM_WORKERS</code></td><td><code>1</code></td><td>Spawn N parallel workers in one command (process IDs assigned automatically)</td></tr>
           <tr><td><code>once=true</code></td><td><code>JD_ONCE</code></td><td><code>false</code></td><td>Run one job then exit (useful for debugging)</td></tr>
           <tr><td><code>hub=&lt;url&gt;</code></td><td><code>JD_HUB_URL</code></td><td>hub.jobdistributor.net</td><td>Hub base URL</td></tr>
         </tbody>
