@@ -27,6 +27,7 @@ from ..models import (
     Experiment,
     LimitExtensionRequest,
     MonthlyUsage,
+    TrafficSnapshot,
     User,
     UserLimitOverride,
 )
@@ -61,6 +62,41 @@ def index():
         limit_in=limit_in,
         limit_out=limit_out,
     )
+
+
+# ── Traffic heatmap data ──────────────────────────────────────────────────────
+
+@dashboard_bp.route("/traffic-heatmap")
+@require_login
+def traffic_heatmap():
+    from sqlalchemy import func, cast, Date as SADate
+    year = request.args.get("year", _now().year, type=int)
+    user = g.current_user
+
+    exp_ids = [e.id for e in user.experiments.all()]
+    if not exp_ids:
+        return jsonify({"active_days": 0, "days": [], "year": year})
+
+    rows = (
+        db.session.query(
+            cast(TrafficSnapshot.recorded_at, SADate).label("day"),
+            func.sum(TrafficSnapshot.bytes_in).label("bytes_in"),
+            func.sum(TrafficSnapshot.bytes_out).label("bytes_out"),
+        )
+        .filter(
+            TrafficSnapshot.experiment_id.in_(exp_ids),
+            func.extract("year", TrafficSnapshot.recorded_at) == year,
+        )
+        .group_by("day")
+        .all()
+    )
+
+    days = [
+        {"date": str(r.day), "bytes_in": int(r.bytes_in or 0), "bytes_out": int(r.bytes_out or 0)}
+        for r in rows
+    ]
+    active_days = sum(1 for d in days if d["bytes_in"] + d["bytes_out"] > 0)
+    return jsonify({"active_days": active_days, "days": days, "year": year})
 
 
 # ── Experiment views ──────────────────────────────────────────────────────────
