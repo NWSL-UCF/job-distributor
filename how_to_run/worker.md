@@ -1,6 +1,6 @@
-# How to Run the Worker (`jd_worker`)
+# How to Run the Worker (`jd_worker_cli`)
 
-`jd_worker` is the command-line tool that runs on your compute node (laptop,
+`jd_worker_cli` is the command-line tool that runs on your compute node (laptop,
 GPU server, cluster, etc.). It requests jobs from the server, runs your entry
 script with each job's parameters, sends heartbeats every 57 seconds, and
 reports DONE or ABORTED when the script finishes.
@@ -15,13 +15,13 @@ reports DONE or ABORTED when the script finishes.
 
 ---
 
-## 1. Install `jd_worker`
+## 1. Install `jd_worker_cli`
 
 ```bash
 pip install jd-worker
 ```
 
-After installation, `jd_worker` is available as a command in your active
+After installation, `jd_worker_cli` is available as a command in your active
 Python environment.
 
 ### Upgrade to the latest version
@@ -42,7 +42,7 @@ pip install -e job-distributor/client
 ## 2. Hub mode (recommended — internet access via FRP tunnel)
 
 Use this when your server is running via Docker and exposed through the Hub's
-FRP tunnel. `jd_worker` contacts the Hub first to get a JWT and the server URL,
+FRP tunnel. `jd_worker_cli` contacts the Hub first to get a JWT and the server URL,
 then communicates with the server through the public subdomain.
 
 ### Step 1 — Get your API key
@@ -60,10 +60,10 @@ export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ### Step 3 — Run the worker
 
 ```bash
-jd_worker expId=my-experiment entry_script=train.py
+jd_worker_cli expId=my-experiment entry_script=train.py
 ```
 
-That's it. `jd_worker` will:
+That's it. `jd_worker_cli` will:
 1. Call the Hub with your API key to get a JWT worker token and the server URL
 2. Use the token as `Authorization: Bearer` on every server request
 3. Request jobs, run your script, report results
@@ -75,7 +75,7 @@ No `server=` argument needed — the Hub provides the URL automatically.
 ```bash
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-jd_worker expId=my-experiment entry_script=train.py machine_type=gpu_a100
+jd_worker_cli expId=my-experiment entry_script=train.py machine_type=gpu_a100
 ```
 
 ---
@@ -85,14 +85,14 @@ jd_worker expId=my-experiment entry_script=train.py machine_type=gpu_a100
 Use this when the server is on your local network or reachable directly.
 
 ```bash
-jd_worker expId=my-experiment entry_script=train.py \
+jd_worker_cli expId=my-experiment entry_script=train.py \
           server=http://10.0.0.5 port=8000
 ```
 
 For a server on the same machine:
 
 ```bash
-jd_worker expId=my-experiment entry_script=train.py
+jd_worker_cli expId=my-experiment entry_script=train.py
 # defaults to server=http://localhost port=5000
 ```
 
@@ -207,7 +207,7 @@ else:
 
 ## 7. Where data is stored locally
 
-`jd_worker` stores logs and a local job workspace under:
+`jd_worker_cli` stores logs and a local job workspace under:
 
 ```
 ~/jd_data/<expId>/<job_id>/
@@ -229,13 +229,13 @@ the dashboard can distinguish them:
 
 ```bash
 # Terminal 1
-jd_worker expId=my-experiment entry_script=train.py machine_type=gpu process_id=0
+jd_worker_cli expId=my-experiment entry_script=train.py machine_type=gpu process_id=0
 
 # Terminal 2
-jd_worker expId=my-experiment entry_script=train.py machine_type=gpu process_id=1
+jd_worker_cli expId=my-experiment entry_script=train.py machine_type=gpu process_id=1
 
 # Terminal 3
-jd_worker expId=my-experiment entry_script=train.py machine_type=gpu process_id=2
+jd_worker_cli expId=my-experiment entry_script=train.py machine_type=gpu process_id=2
 ```
 
 Workers stop automatically when no more `PENDING` jobs remain.
@@ -261,5 +261,5 @@ Override with `log_dir=<path>` or `JD_LOG_DIR`.
 [ ] pip install jd-worker
 [ ] Jobs have been added in the dashboard
 [ ] (Hub mode) export JD_API_KEY=jd_xxxx
-[ ] Run: jd_worker expId=<name> entry_script=<script.py>
+[ ] Run: jd_worker_cli expId=<name> entry_script=<script.py>
 ```

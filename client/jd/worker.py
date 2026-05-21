@@ -1,5 +1,5 @@
 """
-jd_worker — Job Distributor Worker CLI
+jd_worker_cli — Job Distributor Worker CLI
 =======================================
 Requests jobs from a jd server, runs the entry script with the job's
 parameters as CLI flags, sends a heartbeat ping every 57 seconds, and
@@ -7,7 +7,7 @@ reports DONE or ABORTED when the script finishes.
 
 Usage
 -----
-    jd_worker expId=<id> entry_script=<script.py> [options]
+    jd_worker_cli expId=<id> entry_script=<script.py> [options]
 
 Required
 --------
@@ -22,15 +22,15 @@ Hub mode (recommended) — auto-discovers the server URL
     The worker connects to https://hub.jobdistributor.net by default —
     no ``hub=`` or ``server=`` needed.  Just supply your API key:
 
-        jd_worker expId=mnist-v1 entry_script=train.py api_key=jd_xxxx
+        jd_worker_cli expId=mnist-v1 entry_script=train.py api_key=jd_xxxx
 
     Or set it once as an env var (recommended):
         export JD_API_KEY=jd_xxxx
-        jd_worker expId=mnist-v1 entry_script=train.py
+        jd_worker_cli expId=mnist-v1 entry_script=train.py
 
     To use a self-hosted hub, override with:
         hub=<url>           Hub base URL (env: JD_HUB_URL).
-        jd_worker expId=mnist-v1 entry_script=train.py \\
+        jd_worker_cli expId=mnist-v1 entry_script=train.py \\
                   hub=https://my-hub.example.com api_key=jd_xxxx
 
 Standalone mode — connect directly to the job server
@@ -210,7 +210,7 @@ def _setup_logger(log_dir: str, runner_id: str) -> logging.Logger:
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"jd_worker_{runner_id}.log")
 
-    logger = logging.getLogger(f'jd_worker.{runner_id}')
+    logger = logging.getLogger(f'jd_worker_cli.{runner_id}')
     logger.setLevel(logging.INFO)
 
     fmt = logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s")
@@ -423,7 +423,7 @@ def main() -> None:
     if errors:
         for e in errors:
             print(f"Error: {e}")
-        print("Run `jd_worker help` for usage.")
+        print("Run `jd_worker_cli help` for usage.")
         sys.exit(1)
 
     # Build a unique runner ID visible in the dashboard
@@ -465,7 +465,7 @@ def main() -> None:
         'ping':    f"{cfg['base_url']}/ping",
     }
 
-    logger.info(f"jd_worker v{__version__}  |  runner: {runner_id}")
+    logger.info(f"jd_worker_cli v{__version__}  |  runner: {runner_id}")
     logger.info(f"Server:        {cfg['base_url']}")
     logger.info(f"Entry script:   {cfg['entry_script']}")
     logger.info(f"Hub mode:       {'enabled' if worker_token else 'disabled'}")
@@ -489,7 +489,7 @@ def main() -> None:
                     os.killpg(os.getpgid(p.pid), signal.SIGTERM)
             except Exception:
                 pass
-        logger.info("jd_worker shut down.")
+        logger.info("jd_worker_cli shut down.")
         sys.exit(0)
 
     signal.signal(signal.SIGINT,  _shutdown)

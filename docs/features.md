@@ -15,7 +15,7 @@ server/start.py
   ├── src/dashboard.py       (monitoring UI, port 5050)
   └── src/job_cleaner.py     (background maintenance process)
 
-jd_worker                    (install from client/; runs on each worker machine)
+jd_worker_cli                    (install from client/; runs on each worker machine)
 ```
 
 All four server processes are launched and supervised by **`server/start.py`**. The database file (`jobs.db`) lives under **`<workspace>/<expId>/meta/`** and is shared between `server.py`, `dashboard.py`, and `job_cleaner.py` via `database.py`.
@@ -148,9 +148,9 @@ Then launches `server.py`, `dashboard.py`, and `job_cleaner.py` as parallel subp
 
 ---
 
-## Client — `jd_worker` (package `jd-worker`)
+## Client — `jd_worker_cli` (package `jd-worker`)
 
-Workers install the **`client/`** package (`pip install -e ./client`) and run the **`jd_worker`** CLI. It mirrors the old pull-job → run subprocess → heartbeat → status workflow, with configurable **`entry_script`**, local data under **`~/jd_data/`** (or **`$JD_WORKSPACE_PATH/jd_data`**), and optional helpers **`jd_upload`** / **`jd_update_checkpoint`** / **`jd_get_last_checkpoint`**.
+Workers install the **`client/`** package (`pip install -e ./client`) and run the **`jd_worker_cli`** CLI. It mirrors the old pull-job → run subprocess → heartbeat → status workflow, with configurable **`entry_script`**, local data under **`~/jd_data/`** (or **`$JD_WORKSPACE_PATH/jd_data`**), and optional helpers **`jd_upload`** / **`jd_update_checkpoint`** / **`jd_get_last_checkpoint`**.
 
 See **`docs/jd-worker.md`** for installation, flags, environment variables, and API details.
 

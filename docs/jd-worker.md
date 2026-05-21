@@ -1,8 +1,8 @@
-# jd_worker — install, run, and client library
+# jd_worker_cli — install, run, and client library
 
 ## Overview
 
-`jd_worker` is the Job Distributor worker CLI. It pulls jobs from the job server, runs your **entry script** with that job’s parameters as CLI flags, sends a **heartbeat every 57 seconds** while the script runs, and reports **`DONE`** or **`ABORTED`** when the subprocess exits.
+`jd_worker_cli` is the Job Distributor worker CLI. It pulls jobs from the job server, runs your **entry script** with that job’s parameters as CLI flags, sends a **heartbeat every 57 seconds** while the script runs, and reports **`DONE`** or **`ABORTED`** when the subprocess exits.
 
 The same Python package exposes three helpers for use **inside** the entry script: `jd_upload`, `jd_update_checkpoint`, and `jd_get_last_checkpoint`. They talk to the job server over HTTP (`requests`).
 
@@ -26,7 +26,7 @@ From the repo root:
 pip install -e ./client
 ```
 
-This installs the distribution named **`jd-worker`** and registers the console script **`jd_worker`**.
+This installs the distribution named **`jd-worker`** and registers the console script **`jd_worker_cli`**.
 
 ### From GitHub (no clone)
 
@@ -41,23 +41,23 @@ After `v2` is merged into `main`, you can omit `@v2`.
 Verify:
 
 ```bash
-jd_worker help
+jd_worker_cli help
 ```
 
 ---
 
-## Operate `jd_worker`
+## Operate `jd_worker_cli`
 
 ### Invocation style
 
-Arguments are **`key=value`** tokens (and optional bare flags such as `once=true`). Run `jd_worker help` for the embedded usage text.
+Arguments are **`key=value`** tokens (and optional bare flags such as `once=true`). Run `jd_worker_cli help` for the embedded usage text.
 
 ### Required
 
 | Argument | Meaning |
 |----------|---------|
 | `expId=<id>` | Experiment id — **must match** the job server’s `--expId`. |
-| `entry_script=<path>` | Path to the Python file executed **with the same interpreter** as `jd_worker` (venv / conda respected via `sys.executable`). |
+| `entry_script=<path>` | Path to the Python file executed **with the same interpreter** as `jd_worker_cli` (venv / conda respected via `sys.executable`). |
 
 ### Optional
 
@@ -102,20 +102,20 @@ There is **no** `workspace_path=…` CLI argument.
 
 ```bash
 # Default: ~/jd_data/<expId>/<job_id>/
-jd_worker expId=my_exp entry_script=train.py
+jd_worker_cli expId=my_exp entry_script=train.py
 ```
 
 ```bash
-jd_worker expId=my_exp entry_script=train.py server=http://192.168.1.10 port=8000 machine_type=gpu_a
+jd_worker_cli expId=my_exp entry_script=train.py server=http://192.168.1.10 port=8000 machine_type=gpu_a
 ```
 
 ```bash
 # Put jd_data under /scratch/jd_data (parent=/scratch)
-JD_WORKSPACE_PATH=/scratch jd_worker expId=my_exp entry_script=train.py
+JD_WORKSPACE_PATH=/scratch jd_worker_cli expId=my_exp entry_script=train.py
 ```
 
 ```bash
-jd_worker expId=my_exp entry_script=train.py once=true
+jd_worker_cli expId=my_exp entry_script=train.py once=true
 ```
 
 ### Logs
@@ -137,7 +137,7 @@ Example: if parameters are `lr=0.01` and `epochs=10`, the worker runs approximat
 python train.py --lr 0.01 --epochs 10 --base_path /Users/you/jd_data/my_exp/42
 ```
 
-### Environment injected by `jd_worker` (for library calls)
+### Environment injected by `jd_worker_cli` (for library calls)
 
 | Variable | Purpose |
 |----------|---------|
@@ -182,7 +182,7 @@ Example:
 csv_path = jd_job_dir() / "metrics.csv"
 ```
 
-Older `jd_worker` builds without `JD_WORKER_WORKSPACE_ROOT` still work: `jd_worker_workspace()` falls back to deriving the root from `JD_WORKER_JOB_DIR`.
+Older `jd_worker_cli` builds without `JD_WORKER_WORKSPACE_ROOT` still work: `jd_worker_workspace()` falls back to deriving the root from `JD_WORKER_JOB_DIR`.
 
 ### Uploads and checkpoints
 
@@ -243,7 +243,7 @@ If you run **`python server/src/server.py`** directly, pass **`--workspacePath`*
 
 | Symptom | Likely cause |
 |---------|----------------|
-| `JD_JOB_ID` / `JD_SERVER` runtime errors | Library called outside a `jd_worker`-launched entry script, or env overridden incorrectly. |
+| `JD_JOB_ID` / `JD_SERVER` runtime errors | Library called outside a `jd_worker_cli`-launched entry script, or env overridden incorrectly. |
 | `413` / size errors | Payload over 100 MB — shrink checkpoint or split artifacts. |
 | `pickle` errors on load | Different library versions, unpickleable objects, or incompatible pickles across Python builds. |
 | Connection errors | Wrong `server` / `port`, firewall, or job server not bound to reachable interface. |

@@ -28,7 +28,7 @@ Documentation = "https://github.com/NWSL-UCF/job-distributor/blob/main/docs/jd-w
 "Bug Tracker" = "https://github.com/NWSL-UCF/job-distributor/issues"
 
 [project.scripts]
-jd_worker = "jd.worker:main"
+jd_worker_cli = "jd.worker:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

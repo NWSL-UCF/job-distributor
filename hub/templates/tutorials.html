@@ -244,7 +244,7 @@
             <td>Any machine with Docker (your laptop, lab server, VM)</td>
           </tr>
           <tr>
-            <td><strong>Worker</strong> (<code>jd_worker</code>)</td>
+            <td><strong>Worker</strong> (<code>jd_worker_cli</code>)</td>
             <td>Pulls jobs from the server, runs your script, reports completion</td>
             <td>Any compute node (laptop, GPU server, Slurm node)</td>
           </tr>
@@ -453,7 +453,7 @@ print("\nAll done.")</code></pre>
         <span>
           You do not need to change your training script at all to enable
           parallelism. The same <code>train.py</code> that runs serially
-          will run unchanged under <code>jd_worker</code>.
+          will run unchanged under <code>jd_worker_cli</code>.
         </span>
       </div>
     </section>
@@ -895,7 +895,7 @@ pip install --upgrade jd-worker</code></pre>
 
     {# ── Step 5: Run workers ───────────────────────────────────────────── #}
     <section class="tut-section" id="step5">
-      <h2><span class="step-badge step-badge--alt">⑤</span> Step 5 — Run Workers with <code>jd_worker</code></h2>
+      <h2><span class="step-badge step-badge--alt">⑤</span> Step 5 — Run Workers with <code>jd_worker_cli</code></h2>
 
       <p>
         A worker is a process that continuously polls the server for pending
@@ -952,12 +952,12 @@ pip install --upgrade jd-worker</code></pre>
         </div>
         <pre><code>export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-jd_worker expId=digits-tune entry_script=train.py</code></pre>
+jd_worker_cli expId=digits-tune entry_script=train.py</code></pre>
       </div>
 
       <p>
         In <strong>Hub mode</strong> (when <code>JD_API_KEY</code> is set),
-        <code>jd_worker</code> contacts the Hub first to obtain a signed JWT
+        <code>jd_worker_cli</code> contacts the Hub first to obtain a signed JWT
         and the server URL automatically — you do not need to specify the
         server address manually.
       </p>
@@ -977,16 +977,16 @@ jd_worker expId=digits-tune entry_script=train.py</code></pre>
           </button>
         </div>
         <pre><code># Terminal 1
-jd_worker expId=digits-tune entry_script=train.py process_id=0 machine_type=cpu
+jd_worker_cli expId=digits-tune entry_script=train.py process_id=0 machine_type=cpu
 
 # Terminal 2
-jd_worker expId=digits-tune entry_script=train.py process_id=1 machine_type=cpu
+jd_worker_cli expId=digits-tune entry_script=train.py process_id=1 machine_type=cpu
 
 # Terminal 3
-jd_worker expId=digits-tune entry_script=train.py process_id=2 machine_type=cpu
+jd_worker_cli expId=digits-tune entry_script=train.py process_id=2 machine_type=cpu
 
 # Terminal 4
-jd_worker expId=digits-tune entry_script=train.py process_id=3 machine_type=cpu</code></pre>
+jd_worker_cli expId=digits-tune entry_script=train.py process_id=3 machine_type=cpu</code></pre>
       </div>
 
       <p>
@@ -1005,10 +1005,10 @@ jd_worker expId=digits-tune entry_script=train.py process_id=3 machine_type=cpu<
             Copy
           </button>
         </div>
-        <pre><code>jd_worker expId=digits-tune entry_script=train.py once=true</code></pre>
+        <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py once=true</code></pre>
       </div>
 
-      <p>All available <code>jd_worker</code> options:</p>
+      <p>All available <code>jd_worker_cli</code> options:</p>
 
       <table>
         <thead>
@@ -1069,7 +1069,7 @@ jd_worker expId=digits-tune entry_script=train.py process_id=3 machine_type=cpu<
       <p>
         If you have access to an HPC cluster managed by Slurm, you can launch
         many workers as a Slurm array job. Each array task runs one
-        <code>jd_worker</code> process that continuously pulls jobs from the
+        <code>jd_worker_cli</code> process that continuously pulls jobs from the
         queue until it is empty or the time limit is reached. No manual job
         partitioning is required.
       </p>
@@ -1109,7 +1109,7 @@ export JD_HUB_URL=https://hub.jobdistributor.net   # adjust if self-hosted
 
 # Use the Slurm array task ID as the worker process_id for unique identification
 # in the dashboard.
-jd_worker expId=digits-tune \
+jd_worker_cli expId=digits-tune \
           entry_script=train.py \
           machine_type=slurm_${SLURM_CLUSTER_NAME} \
           process_id=${SLURM_ARRAY_TASK_ID}</code></pre>
@@ -1229,7 +1229,7 @@ sbatch submit_jd.slurm</code></pre>
             <span class="checklist__icon">✔</span>
             <span>
               Workers launched:
-              <code>jd_worker expId=digits-tune entry_script=train.py</code>
+              <code>jd_worker_cli expId=digits-tune entry_script=train.py</code>
             </span>
           </li>
           <li>

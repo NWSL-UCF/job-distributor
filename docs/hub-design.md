@@ -55,7 +55,7 @@ User browser
 Worker machines
     │  HTTP → server.<expId>.jobdistributor.net
     ▼
-  jd_worker CLI (uses Hub API key to authenticate,
+  jd_worker_cli CLI (uses Hub API key to authenticate,
                  receives per-job worker token from Hub)
 ```
 
@@ -328,7 +328,7 @@ Response:
 
 ### Step 2 — Worker connects to local server
 
-`jd_worker` sends every request to the server with:
+`jd_worker_cli` sends every request to the server with:
 
 ```
 Authorization: Bearer <worker_token>
@@ -645,16 +645,16 @@ services:
     depends_on: [jd_server]
 ```
 
-### `jd_worker` (researcher's machine, outside Docker)
+### `jd_worker_cli` (researcher's machine, outside Docker)
 
 ```bash
 pip install "git+https://github.com/NWSL-UCF/job-distributor.git#subdirectory=client"
 
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxx
-jd_worker expId=mnist-tune entry_script=train.py ...
+jd_worker_cli expId=mnist-tune entry_script=train.py ...
 ```
 
-`jd_worker` calls `POST hub.jobdistributor.net/api/worker/token` first to get
+`jd_worker_cli` calls `POST hub.jobdistributor.net/api/worker/token` first to get
 the JWT and the tunnel URL, then communicates exclusively with the local server
 via `server.<expId>.jobdistributor.net`.
 

@@ -1,5 +1,5 @@
 """
-Hub API routes (consumed by jd_worker and local server.py).
+Hub API routes (consumed by jd_worker_cli and local server.py).
 
 All routes require API key auth unless noted.
 """
