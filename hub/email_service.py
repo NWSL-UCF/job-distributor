@@ -176,13 +176,14 @@ def send_expired(user_email: str, user_id: int, exp_name: str) -> bool:
 
 
 def send_server_connected(user_email: str, exp_name: str) -> bool:
+    server_dashboard_url = f"https://{exp_name}-dashboard.{config.JD_BASE_DOMAIN}"
     html = _email_header() + f"""
     <p>&#x1F7E2; Your server for experiment <strong>{exp_name}</strong> is now
     <strong>online</strong> and ready to accept workers.</p>
     <p style="margin:12px 0;">
-      <a href="{config.HUB_BASE_URL}/dashboard"
+      <a href="{server_dashboard_url}"
          style="padding:9px 18px; background:#007bff; color:#fff;
-                text-decoration:none; border-radius:4px;">Open Dashboard</a>
+                text-decoration:none; border-radius:4px;">Open Server Dashboard</a>
     </p>
     """ + _email_footer()
     return send_email(user_email, f"[JobDistributor] Server online — {exp_name}", html)
@@ -198,11 +199,6 @@ def send_server_disconnected(user_email: str, exp_name: str) -> bool:
     <p>To bring it back online:</p>
     <pre style="background:#f4f4f4; padding:10px; border-radius:4px;
                 font-family:monospace; font-size:0.88em; display:inline-block;">JD_API_KEY=&lt;your-key&gt; ./run.sh {exp_name}</pre>
-    <p style="margin:12px 0;">
-      <a href="{config.HUB_BASE_URL}/dashboard"
-         style="padding:9px 18px; background:#dc3545; color:#fff;
-                text-decoration:none; border-radius:4px;">Open Dashboard</a>
-    </p>
     """ + _email_footer()
     return send_email(user_email, f"[JobDistributor] Server offline — {exp_name}", html)
 
