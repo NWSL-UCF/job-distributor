@@ -176,17 +176,10 @@ def send_expired(user_email: str, user_id: int, exp_name: str) -> bool:
 
 
 def send_experiment_created(user_email: str, exp_name: str) -> bool:
-    server_url    = f"https://{exp_name}-server.{config.JD_BASE_DOMAIN}"
     dashboard_url = f"{config.HUB_BASE_URL}/experiments/{exp_name}"
     html = _email_header() + f"""
     <h2>Experiment created — <em>{exp_name}</em></h2>
     <p>Your new experiment <strong>{exp_name}</strong> is ready.</p>
-    <table style="border-collapse:collapse; margin:14px 0; font-size:0.9em;">
-      <tr>
-        <td style="padding:4px 14px 4px 0; color:#6c757d;">Server URL</td>
-        <td><a href="{server_url}">{server_url}</a></td>
-      </tr>
-    </table>
     <p>Start your server with:</p>
     <pre style="background:#f4f4f4; padding:10px; border-radius:4px;
                 font-family:monospace; font-size:0.88em; display:inline-block;">JD_API_KEY=&lt;your-key&gt; ./run.sh {exp_name}</pre>

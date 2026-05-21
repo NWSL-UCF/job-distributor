@@ -40,13 +40,15 @@ def main() -> None:
                 status = r.json().get("status", "ACTIVE")
                 print(f"hub_heartbeat: OK (status={status})", file=sys.stderr)
             elif r.status_code == 403:
-                # Hub signals the experiment is DELETED or EXPIRED — shut down.
+                # Hub signals the experiment is DELETED or EXPIRED — shut down
+                # the entire container by sending SIGTERM to PID 1 (gunicorn).
                 status = r.json().get("status", "DELETED")
                 print(
-                    f"hub_heartbeat: experiment is {status} — shutting down server.",
+                    f"hub_heartbeat: experiment is {status} — sending SIGTERM to PID 1.",
                     file=sys.stderr,
                 )
-                sys.exit(0)
+                import signal, os
+                os.kill(1, signal.SIGTERM)
             else:
                 print(f"hub_heartbeat: HTTP {r.status_code} — {r.text[:200]}", file=sys.stderr)
         except requests.RequestException as exc:
