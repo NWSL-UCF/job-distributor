@@ -125,6 +125,39 @@ def _apply_migrations() -> None:
             db.session.rollback()
             log.warning("Migration failed for %s.%s: %s", table, column, exc)
 
+    # New-table migrations (checked via information_schema.TABLES)
+    table_migrations = [
+        (
+            "daily_traffic",
+            """CREATE TABLE IF NOT EXISTS daily_traffic (
+                id        BIGINT  NOT NULL AUTO_INCREMENT,
+                user_id   BIGINT  NOT NULL,
+                date      DATE    NOT NULL,
+                bytes_in  BIGINT  NOT NULL DEFAULT 0,
+                bytes_out BIGINT  NOT NULL DEFAULT 0,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_daily_traffic_user_date (user_id, date),
+                INDEX ix_daily_traffic_user_id (user_id),
+                CONSTRAINT fk_daily_traffic_user
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
+        ),
+    ]
+    for tbl_name, create_stmt in table_migrations:
+        check_tbl = db.text(
+            "SELECT COUNT(*) FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tbl"
+        )
+        try:
+            exists = db.session.execute(check_tbl, {"tbl": tbl_name}).scalar()
+            if not exists:
+                db.session.execute(db.text(create_stmt))
+                db.session.commit()
+                log.info("Migration applied: created table %s", tbl_name)
+        except Exception as exc:
+            db.session.rollback()
+            log.warning("Migration failed for table %s: %s", tbl_name, exc)
+
 
 def _seed_defaults() -> None:
     if not db.session.get(DefaultLimits, 1):

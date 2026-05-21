@@ -61,7 +61,8 @@ MAX_EXPERIMENTS_PER_USER    = 5
 
 # ── Background job intervals (seconds) ───────────────────────────────────────
 BG_TRAFFIC_POLL_INTERVAL   = 60
-BG_USAGE_AGG_INTERVAL      = 300    # 5 min
+BG_USAGE_AGG_INTERVAL      = 300    # 5 min   – keeps MonthlyUsage fresh
+BG_DAILY_AGG_INTERVAL      = 300    # 5 min   – upserts today + finalises yesterday
 BG_IDLE_CHECK_INTERVAL     = 600    # 10 min
 BG_TOKEN_PRUNE_INTERVAL    = 3600   # 1 hr
 BG_SNAPSHOT_PRUNE_INTERVAL = 86400  # 24 hr

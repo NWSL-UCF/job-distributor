@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS hub_sessions (
 -- ──────────────────────────────────────────────────────────────
 -- 3. API KEYS  (named, multi-key per user)
 -- ──────────────────────────────────────────────────────────────
+-- § Daily aggregated traffic per user (UTC date)
+CREATE TABLE IF NOT EXISTS daily_traffic (
+    id        BIGINT  NOT NULL AUTO_INCREMENT,
+    user_id   BIGINT  NOT NULL,
+    date      DATE    NOT NULL,
+    bytes_in  BIGINT  NOT NULL DEFAULT 0,
+    bytes_out BIGINT  NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_daily_traffic_user_date (user_id, date),
+    INDEX ix_daily_traffic_user_id (user_id),
+    CONSTRAINT fk_daily_traffic_user FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS api_keys (
     id              BIGINT          NOT NULL AUTO_INCREMENT,
     user_id         BIGINT          NOT NULL,

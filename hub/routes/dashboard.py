@@ -23,11 +23,11 @@ from ..db import db
 from ..decorators import require_login
 from ..models import (
     ApiKey,
+    DailyTraffic,
     DefaultLimits,
     Experiment,
     LimitExtensionRequest,
     MonthlyUsage,
-    TrafficSnapshot,
     User,
     UserLimitOverride,
 )
@@ -69,63 +69,31 @@ def index():
 @dashboard_bp.route("/traffic-heatmap")
 @require_login
 def traffic_heatmap():
-    from collections import defaultdict
-    from sqlalchemy import func
+    """Return daily traffic data for the heatmap from the DailyTraffic table.
+
+    Historical days (before today) are pre-computed by the daily_aggregator
+    background job.  Today's partial row is upserted by the same job every
+    5 minutes, so callers always get a near-live reading without a full
+    snapshot scan.
+    """
+    from sqlalchemy import extract
 
     year = request.args.get("year", _now().year, type=int)
     user = g.current_user
 
-    exp_ids = [e.id for e in user.experiments.all()]
-    if not exp_ids:
-        return jsonify({"active_days": 0, "days": [], "year": year})
-
-    # Fetch all snapshots for this user's experiments in the requested year,
-    # ordered so we can compute per-day deltas correctly.
-    # TrafficSnapshot stores the cumulative frps "todayTrafficIn/Out" counter
-    # which resets to 0 at midnight, so we must NOT simply SUM the values.
-    # Instead we sum positive increments (same logic as background._delta_bytes).
-    snaps = (
-        db.session.query(TrafficSnapshot)
+    rows = (
+        DailyTraffic.query
         .filter(
-            TrafficSnapshot.experiment_id.in_(exp_ids),
-            func.extract("year", TrafficSnapshot.recorded_at) == year,
+            DailyTraffic.user_id == user.id,
+            extract("year", DailyTraffic.date) == year,
         )
-        .order_by(TrafficSnapshot.experiment_id, TrafficSnapshot.recorded_at)
+        .order_by(DailyTraffic.date)
         .all()
     )
 
-    # Group snapshots by (experiment_id, date)
-    by_exp_day: dict = defaultdict(list)
-    for s in snaps:
-        day_key = s.recorded_at.date().isoformat()
-        by_exp_day[(s.experiment_id, day_key)].append(s)
-
-    # Accumulate true deltas per calendar date across all experiments
-    daily: dict = defaultdict(lambda: [0, 0])   # date -> [bytes_in, bytes_out]
-    for (_, day_key), day_snaps in by_exp_day.items():
-        day_snaps.sort(key=lambda s: s.recorded_at)
-        if len(day_snaps) == 1:
-            # Single snapshot: the value itself is the amount since midnight reset.
-            s = day_snaps[0]
-            daily[day_key][0] += s.bytes_in
-            daily[day_key][1] += s.bytes_out
-            continue
-        prev_in  = day_snaps[0].bytes_in
-        prev_out = day_snaps[0].bytes_out
-        for s in day_snaps[1:]:
-            di = s.bytes_in  - prev_in
-            do = s.bytes_out - prev_out
-            # Positive increment — normal accumulation
-            if di > 0:  daily[day_key][0] += di
-            elif di < 0: daily[day_key][0] += s.bytes_in   # frps restarted mid-day
-            if do > 0:  daily[day_key][1] += do
-            elif do < 0: daily[day_key][1] += s.bytes_out
-            prev_in  = s.bytes_in
-            prev_out = s.bytes_out
-
     days = [
-        {"date": d, "bytes_in": v[0], "bytes_out": v[1]}
-        for d, v in sorted(daily.items())
+        {"date": r.date.isoformat(), "bytes_in": r.bytes_in, "bytes_out": r.bytes_out}
+        for r in rows
     ]
     active_days = sum(1 for d in days if d["bytes_in"] + d["bytes_out"] > 0)
     return jsonify({"active_days": active_days, "days": days, "year": year})

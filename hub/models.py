@@ -37,6 +37,8 @@ class User(db.Model):
                                       foreign_keys="UserLimitOverride.user_id")
     ext_requests    = db.relationship("LimitExtensionRequest", back_populates="user",
                                       foreign_keys="LimitExtensionRequest.user_id", lazy="dynamic")
+    daily_traffic   = db.relationship("DailyTraffic", back_populates="user", lazy="dynamic",
+                                      cascade="all, delete-orphan")
     api_keys        = db.relationship("ApiKey", back_populates="user", lazy="dynamic",
                                       cascade="all, delete-orphan")
 
@@ -203,6 +205,26 @@ class EmailNotification(db.Model):
                                   nullable=False)
     notification_type = db.Column(db.String(96), nullable=False)
     sent_at           = db.Column(db.DateTime, default=_now)
+
+
+class DailyTraffic(db.Model):
+    """Aggregated per-user traffic totals for a completed calendar day (UTC).
+
+    Populated nightly by the daily_aggregator background job.  Today's partial
+    record is upserted every few minutes so the heatmap always shows current
+    activity.
+    """
+    __tablename__ = "daily_traffic"
+    __table_args__ = (db.UniqueConstraint("user_id", "date"),)
+
+    id        = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    user_id   = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="CASCADE"),
+                          nullable=False)
+    date      = db.Column(db.Date, nullable=False)
+    bytes_in  = db.Column(db.BigInteger, nullable=False, default=0)
+    bytes_out = db.Column(db.BigInteger, nullable=False, default=0)
+
+    user = db.relationship("User", back_populates="daily_traffic")
 
 
 class ApiKey(db.Model):

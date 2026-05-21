@@ -16,6 +16,7 @@ import requests
 from . import config
 from .db import db
 from .models import (
+    DailyTraffic,
     DefaultLimits,
     Experiment,
     MonthlyUsage,
@@ -53,11 +54,12 @@ def start_background_threads(app) -> None:
                 log.exception("Background %s error: %s", name, exc)
 
     threads = [
-        ("traffic_poller",   _poll_traffic,    config.BG_TRAFFIC_POLL_INTERVAL),
-        ("usage_aggregator", _aggregate_usage, config.BG_USAGE_AGG_INTERVAL),
-        ("idle_checker",     _check_idle,      config.BG_IDLE_CHECK_INTERVAL),
-        ("token_pruner",     _prune_tokens,    config.BG_TOKEN_PRUNE_INTERVAL),
-        ("snapshot_pruner",  _prune_snapshots, config.BG_SNAPSHOT_PRUNE_INTERVAL),
+        ("traffic_poller",    _poll_traffic,    config.BG_TRAFFIC_POLL_INTERVAL),
+        ("usage_aggregator",  _aggregate_usage, config.BG_USAGE_AGG_INTERVAL),
+        ("daily_aggregator",  _aggregate_daily, config.BG_DAILY_AGG_INTERVAL),
+        ("idle_checker",      _check_idle,      config.BG_IDLE_CHECK_INTERVAL),
+        ("token_pruner",      _prune_tokens,    config.BG_TOKEN_PRUNE_INTERVAL),
+        ("snapshot_pruner",   _prune_snapshots, config.BG_SNAPSHOT_PRUNE_INTERVAL),
     ]
     for name, fn, interval in threads:
         t = threading.Thread(target=_loop, args=(name, fn, interval), daemon=True)
@@ -78,7 +80,6 @@ def _poll_traffic() -> None:
         log.debug("frps poll error (frps may not be running): %s", exc)
         return
 
-    # Build {custom_domain -> (bytes_in, bytes_out)}
     domain_map = {}
     for p in proxies:
         if not p:
@@ -100,20 +101,155 @@ def _poll_traffic() -> None:
         dash_domain   = (exp.frpc_subdomain_dashboard or
                          f"{exp.name}-dashboard.{config.JD_BASE_DOMAIN}")
 
-        s_in,  s_out  = domain_map.get(server_domain,    (0, 0))
-        d_in,  d_out  = domain_map.get(dash_domain,      (0, 0))
-        total_in      = s_in  + d_in
-        total_out     = s_out + d_out
+        s_in,  s_out  = domain_map.get(server_domain, (0, 0))
+        d_in,  d_out  = domain_map.get(dash_domain,   (0, 0))
 
-        snap = TrafficSnapshot(
+        db.session.add(TrafficSnapshot(
             experiment_id=exp.id,
             recorded_at=now,
-            bytes_in=total_in,
-            bytes_out=total_out,
-        )
-        db.session.add(snap)
+            bytes_in=s_in  + d_in,
+            bytes_out=s_out + d_out,
+        ))
 
     db.session.commit()
+
+
+# ── Daily traffic aggregation ─────────────────────────────────────────────────
+
+def _aggregate_daily() -> None:
+    """Upsert per-user daily traffic totals into DailyTraffic.
+
+    Runs every 5 minutes.  Two things happen each call:
+      1. TODAY's partial record is recomputed from snapshots and upserted,
+         so the heatmap shows near-live activity throughout the day.
+      2. YESTERDAY's record is finalised once (after midnight UTC) for any
+         user who does not yet have a row for that date.
+
+    Implementation uses bulk queries — 3–4 DB round-trips total regardless
+    of user count, avoiding the N+1 pattern that would occur with a per-user
+    loop at scale.
+    """
+    from collections import defaultdict
+    from datetime import timedelta
+
+    from sqlalchemy import func
+
+    today     = _now().date()
+    yesterday = today - timedelta(days=1)
+
+    # ── Step 1: load today's snapshots for ALL experiments in one query ──────
+    # Join experiments so we know which user each snapshot belongs to.
+    today_snaps = (
+        db.session.query(
+            TrafficSnapshot.experiment_id,
+            Experiment.user_id,
+            TrafficSnapshot.bytes_in,
+            TrafficSnapshot.bytes_out,
+            TrafficSnapshot.recorded_at,
+        )
+        .join(Experiment, TrafficSnapshot.experiment_id == Experiment.id)
+        .filter(func.date(TrafficSnapshot.recorded_at) == today)
+        .order_by(
+            Experiment.user_id,
+            TrafficSnapshot.experiment_id,
+            TrafficSnapshot.recorded_at,
+        )
+        .all()
+    )
+
+    # Aggregate today's deltas per user in Python
+    today_by_user: dict[int, tuple[int, int]] = _bulk_delta_by_user(today_snaps)
+
+    # ── Step 2: upsert today rows ────────────────────────────────────────────
+    if today_by_user:
+        existing_today = {
+            r.user_id: r
+            for r in DailyTraffic.query.filter(
+                DailyTraffic.user_id.in_(today_by_user.keys()),
+                DailyTraffic.date == today,
+            ).all()
+        }
+        for user_id, (bi, bo) in today_by_user.items():
+            if bi == 0 and bo == 0:
+                continue
+            row = existing_today.get(user_id)
+            if row:
+                row.bytes_in  = bi
+                row.bytes_out = bo
+            else:
+                db.session.add(DailyTraffic(
+                    user_id=user_id, date=today, bytes_in=bi, bytes_out=bo,
+                ))
+
+    # ── Step 3: finalise yesterday (only for users missing a row) ────────────
+    # Find user IDs that have snapshots yesterday but no DailyTraffic record.
+    already_done_yesterday: set[int] = {
+        r.user_id
+        for r in DailyTraffic.query.filter(DailyTraffic.date == yesterday).all()
+    }
+
+    yesterday_snaps = (
+        db.session.query(
+            TrafficSnapshot.experiment_id,
+            Experiment.user_id,
+            TrafficSnapshot.bytes_in,
+            TrafficSnapshot.bytes_out,
+            TrafficSnapshot.recorded_at,
+        )
+        .join(Experiment, TrafficSnapshot.experiment_id == Experiment.id)
+        .filter(
+            func.date(TrafficSnapshot.recorded_at) == yesterday,
+            Experiment.user_id.notin_(already_done_yesterday),
+        )
+        .order_by(
+            Experiment.user_id,
+            TrafficSnapshot.experiment_id,
+            TrafficSnapshot.recorded_at,
+        )
+        .all()
+    )
+
+    yesterday_by_user = _bulk_delta_by_user(yesterday_snaps)
+    for user_id, (bi, bo) in yesterday_by_user.items():
+        if bi > 0 or bo > 0:
+            db.session.add(DailyTraffic(
+                user_id=user_id, date=yesterday, bytes_in=bi, bytes_out=bo,
+            ))
+
+    db.session.commit()
+
+
+def _bulk_delta_by_user(
+    rows: list,
+) -> dict[int, tuple[int, int]]:
+    """Given a flat list of snapshot rows (already sorted by user_id, experiment_id,
+    recorded_at), return {user_id: (bytes_in, bytes_out)} using the same
+    positive-increment delta logic that handles frps counter resets."""
+    from collections import defaultdict
+
+    # Group by (user_id, experiment_id) preserving order
+    by_exp: dict[tuple[int, int], list] = defaultdict(list)
+    for r in rows:
+        by_exp[(r.user_id, r.experiment_id)].append(r)
+
+    user_totals: dict[int, list[int]] = defaultdict(lambda: [0, 0])
+
+    for (user_id, _), snaps in by_exp.items():
+        if len(snaps) == 1:
+            user_totals[user_id][0] += snaps[0].bytes_in
+            user_totals[user_id][1] += snaps[0].bytes_out
+            continue
+        prev_in, prev_out = snaps[0].bytes_in, snaps[0].bytes_out
+        for s in snaps[1:]:
+            di = s.bytes_in  - prev_in
+            do = s.bytes_out - prev_out
+            if di > 0:   user_totals[user_id][0] += di
+            elif di < 0: user_totals[user_id][0] += s.bytes_in
+            if do > 0:   user_totals[user_id][1] += do
+            elif do < 0: user_totals[user_id][1] += s.bytes_out
+            prev_in, prev_out = s.bytes_in, s.bytes_out
+
+    return {uid: (v[0], v[1]) for uid, v in user_totals.items()}
 
 
 # ── Monthly usage aggregation ─────────────────────────────────────────────────
