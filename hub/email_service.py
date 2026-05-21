@@ -16,6 +16,28 @@ log = logging.getLogger(__name__)
 _BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email"
 
 
+def _email_header() -> str:
+    logo_url = f"{config.HUB_BASE_URL}/static/favicon-192.png"
+    return f"""
+    <div style="font-family:Arial,sans-serif; max-width:520px; margin:0 auto;">
+    <div style="padding:20px 0 12px 0; border-bottom:1px solid #e9ecef; margin-bottom:20px;">
+      <img src="{logo_url}" alt="JobDistributor" width="32" height="32"
+           style="vertical-align:middle; border-radius:6px; margin-right:10px;">
+      <span style="font-size:1.05rem; font-weight:700; color:#1a1f2e;
+                   vertical-align:middle;">JobDistributor</span>
+    </div>
+    """
+
+
+def _email_footer() -> str:
+    return """
+    <p style="margin-top:28px; font-size:0.78em; color:#adb5bd; border-top:1px solid #e9ecef; padding-top:12px;">
+      University of Central Florida &mdash; Networking and Wireless System Lab (NWSL)
+    </p>
+    </div>
+    """
+
+
 def _already_sent(user_id: int, notification_type: str) -> bool:
     return db.session.execute(
         db.select(EmailNotification).filter_by(
@@ -72,7 +94,7 @@ def send_once(user_id: int, notification_type: str,
 
 def send_verification_otp(user_email: str, otp: str) -> bool:
     verify_url = f"{config.HUB_BASE_URL}/verify-email?email={quote(user_email)}"
-    html = f"""
+    html = _email_header() + f"""
     <h2>Welcome to JobDistributor!</h2>
     <p>Your email verification code is:</p>
     <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:16px 0;">{otp}</p>
@@ -80,13 +102,13 @@ def send_verification_otp(user_email: str, otp: str) -> bool:
        {config.OTP_VERIFY_EXPIRE_MINUTES} minutes.</p>
     <p><a href="{verify_url}">Open verification page</a></p>
     <p>If you did not sign up, ignore this email.</p>
-    """
+    """ + _email_footer()
     return send_email(user_email, "Your JobDistributor verification code", html)
 
 
 def send_password_reset_otp(user_email: str, otp: str) -> bool:
     reset_url = f"{config.HUB_BASE_URL}/reset-password?email={quote(user_email)}"
-    html = f"""
+    html = _email_header() + f"""
     <h2>Password reset</h2>
     <p>Your password reset code is:</p>
     <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:16px 0;">{otp}</p>
@@ -94,19 +116,19 @@ def send_password_reset_otp(user_email: str, otp: str) -> bool:
        {config.OTP_RESET_EXPIRE_MINUTES} minutes.</p>
     <p><a href="{reset_url}">Open reset password page</a></p>
     <p>If you did not request this, ignore this email.</p>
-    """
+    """ + _email_footer()
     return send_email(user_email, "Your JobDistributor password reset code", html)
 
 
 def send_password_change_otp(user_email: str, otp: str) -> bool:
-    html = f"""
+    html = _email_header() + f"""
     <h2>Password change confirmation</h2>
     <p>Your verification code to change your password is:</p>
     <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:16px 0;">{otp}</p>
     <p>Enter this code on the password change page. It expires in
        {config.OTP_RESET_EXPIRE_MINUTES} minutes.</p>
     <p>If you did not request this, your account may be at risk — change your password immediately.</p>
-    """
+    """ + _email_footer()
     return send_email(user_email, "Your JobDistributor password change code", html)
 
 
@@ -124,93 +146,65 @@ def send_quota_warning(user_email: str, user_id: int,
         subject = f"Data limit warning ({pct}%)"
         msg = (f"You have used {pct}% of your monthly data "
                f"{'upload' if direction == 'in' else 'download'} limit for {year}-{month:02d}.")
-    html = f"""
+    html = _email_header() + f"""
     <h2>{subject}</h2>
     <p>{msg}</p>
     <p><a href="{config.HUB_BASE_URL}/extensions">Request a limit extension</a></p>
-    """
+    """ + _email_footer()
     return send_once(user_id, notif_type, user_email, subject, html)
 
 
 def send_idle_warning(user_email: str, user_id: int, exp_name: str) -> bool:
-    html = f"""
-    <h2>Experiment tunnel expiring soon</h2>
-    <p>Your experiment <strong>{exp_name}</strong> has been idle for 5 days and its
-    public tunnel will close in <strong>2 days</strong>.</p>
-    <p>To keep it alive, open your dashboard and click <em>Extend</em>:</p>
+    html = _email_header() + f"""
+    <h2>Experiment expiring soon</h2>
+    <p>Your experiment <strong>{exp_name}</strong> has been idle for 5 days and will
+    expire in <strong>2 days</strong>.</p>
     <p><a href="{config.HUB_BASE_URL}/experiments/{exp_name}">Extend experiment</a></p>
-    """
+    """ + _email_footer()
     return send_once(user_id, f"idle_warn_{exp_name}", user_email,
-                     f"Experiment '{exp_name}' tunnel expiring in 2 days", html)
+                     f"Experiment '{exp_name}' expiring in 2 days", html)
 
 
 def send_expired(user_email: str, user_id: int, exp_name: str) -> bool:
-    html = f"""
-    <h2>Experiment tunnel closed</h2>
-    <p>Your experiment <strong>{exp_name}</strong> has expired after 7 days of inactivity.
-    Its FRP tunnel has been closed.</p>
-    <p>You can re-register the experiment from the Hub dashboard.</p>
-    """
+    html = _email_header() + f"""
+    <h2>Experiment expired</h2>
+    <p>Your experiment <strong>{exp_name}</strong> has expired after 7 days of inactivity.</p>
+    <p>You can create a new experiment from the Hub dashboard.</p>
+    """ + _email_footer()
     return send_once(user_id, f"expired_{exp_name}", user_email,
                      f"Experiment '{exp_name}' has expired", html)
 
 
 def send_server_connected(user_email: str, exp_name: str) -> bool:
-    dashboard_url = f"{config.HUB_BASE_URL}/dashboard"
-    html = f"""
-    <h2 style="color:#1a1f2e;">&#x1F7E2; Server connected — <em>{exp_name}</em></h2>
-    <p>Your <strong>JobDistributor</strong> server for experiment
-       <strong>{exp_name}</strong> has just established its tunnel with the Hub
-       and is ready to accept worker connections.</p>
-    <table style="border-collapse:collapse; margin:16px 0; font-size:0.9em;">
-      <tr>
-        <td style="padding:4px 12px 4px 0; color:#6c757d;">Experiment</td>
-        <td style="padding:4px 0;"><strong>{exp_name}</strong></td>
-      </tr>
-      <tr>
-        <td style="padding:4px 12px 4px 0; color:#6c757d;">Server URL</td>
-        <td style="padding:4px 0;">
-          <a href="https://{exp_name}-server.{config.JD_BASE_DOMAIN}">
-            {exp_name}-server.{config.JD_BASE_DOMAIN}
-          </a>
-        </td>
-      </tr>
-    </table>
-    <p><a href="{dashboard_url}" style="display:inline-block; padding:10px 20px;
-       background:#007bff; color:white; text-decoration:none; border-radius:5px;">
-       Open Hub Dashboard</a></p>
-    <p style="color:#6c757d; font-size:0.85em;">
-      You are receiving this because you own the experiment <strong>{exp_name}</strong>.
+    html = _email_header() + f"""
+    <p>&#x1F7E2; Your server for experiment <strong>{exp_name}</strong> is now
+    <strong>online</strong> and ready to accept workers.</p>
+    <p style="margin:12px 0;">
+      <a href="{config.HUB_BASE_URL}/dashboard"
+         style="padding:9px 18px; background:#007bff; color:#fff;
+                text-decoration:none; border-radius:4px;">Open Dashboard</a>
     </p>
-    """
-    return send_email(user_email, f"[JobDistributor] Server connected — {exp_name}", html)
+    """ + _email_footer()
+    return send_email(user_email, f"[JobDistributor] Server online — {exp_name}", html)
 
 
 def send_server_disconnected(user_email: str, exp_name: str) -> bool:
-    dashboard_url = f"{config.HUB_BASE_URL}/dashboard"
-    html = f"""
-    <h2 style="color:#1a1f2e;">&#x1F534; Server disconnected — <em>{exp_name}</em></h2>
-    <p>The <strong>JobDistributor</strong> server for experiment
-       <strong>{exp_name}</strong> has disconnected from the Hub. Its public
-       tunnel is no longer active.</p>
-    <p><strong>What this usually means:</strong></p>
-    <ul>
-      <li>The server Docker container was stopped or restarted.</li>
-      <li>The machine running the server lost network connectivity.</li>
-      <li>The container exited due to an error — check <code>docker logs jd-{exp_name}</code>.</li>
-    </ul>
-    <p>To reconnect, start the server container again on your machine:</p>
-    <pre style="background:#f4f4f4; padding:10px; border-radius:5px;
-                font-family:monospace; font-size:0.88em;">
-JD_API_KEY=&lt;your-key&gt; ./run.sh {exp_name}</pre>
-    <p><a href="{dashboard_url}" style="display:inline-block; padding:10px 20px;
-       background:#dc3545; color:white; text-decoration:none; border-radius:5px;">
-       Open Hub Dashboard</a></p>
-    <p style="color:#6c757d; font-size:0.85em;">
-      You are receiving this because you own the experiment <strong>{exp_name}</strong>.
+    html = _email_header() + f"""
+    <p>&#x1F534; Your server for experiment <strong>{exp_name}</strong> has gone
+    <strong>offline</strong>.</p>
+    <p>Check the container logs on your machine:</p>
+    <pre style="background:#f4f4f4; padding:10px; border-radius:4px;
+                font-family:monospace; font-size:0.88em; display:inline-block;">docker logs jd-{exp_name}</pre>
+    <p>To bring it back online:</p>
+    <pre style="background:#f4f4f4; padding:10px; border-radius:4px;
+                font-family:monospace; font-size:0.88em; display:inline-block;">JD_API_KEY=&lt;your-key&gt; ./run.sh {exp_name}</pre>
+    <p style="margin:12px 0;">
+      <a href="{config.HUB_BASE_URL}/dashboard"
+         style="padding:9px 18px; background:#dc3545; color:#fff;
+                text-decoration:none; border-radius:4px;">Open Dashboard</a>
     </p>
-    """
-    return send_email(user_email, f"[JobDistributor] Server disconnected — {exp_name}", html)
+    """ + _email_footer()
+    return send_email(user_email, f"[JobDistributor] Server offline — {exp_name}", html)
 
 
 def send_extension_result(user_email: str, user_id: int,
@@ -221,11 +215,11 @@ def send_extension_result(user_email: str, user_id: int,
     else:
         subject = "Your data limit extension request was declined"
         body    = "Unfortunately your data limit extension request was not approved."
-    html = f"""
+    html = _email_header() + f"""
     <h2>{subject}</h2>
     <p>{body}</p>
     {"<p><strong>Admin note:</strong> " + note + "</p>" if note else ""}
     <p><a href="{config.HUB_BASE_URL}/extensions">View your requests</a></p>
-    """
+    """ + _email_footer()
     return send_once(user_id, f"ext_{'approved' if approved else 'declined'}_{req_id}",
                      user_email, subject, html)
