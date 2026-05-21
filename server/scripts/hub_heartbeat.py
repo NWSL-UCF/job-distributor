@@ -11,6 +11,7 @@ Requires env vars already populated by hub_bootstrap (via /tmp/jd-hub.env):
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import time
 
@@ -47,7 +48,6 @@ def main() -> None:
                     f"hub_heartbeat: experiment is {status} — sending SIGTERM to PID 1.",
                     file=sys.stderr,
                 )
-                import signal, os
                 os.kill(1, signal.SIGTERM)
             else:
                 print(f"hub_heartbeat: HTTP {r.status_code} — {r.text[:200]}", file=sys.stderr)
