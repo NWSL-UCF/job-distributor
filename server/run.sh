@@ -87,6 +87,10 @@ case "$CMD" in
     echo "  Image      : $IMAGE"
     echo ""
 
+    echo "Pulling latest image…"
+    docker pull "$IMAGE"
+    echo ""
+
     docker run -d \
       --name "$CONTAINER" \
       --restart unless-stopped \
