@@ -1162,13 +1162,26 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   .heatmap-month__name { font-size: 0.55rem; }
 }
 
+/* Footer row: note on the left, legend on the right */
+.heatmap-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.heatmap-note {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  font-style: italic;
+}
+
 /* Legend */
 .heatmap-legend {
   display: flex;
   align-items: center;
   gap: 3px;
-  justify-content: flex-end;
-  margin-top: 10px;
 }
 .heatmap-legend__label {
   font-size: 0.68rem;
