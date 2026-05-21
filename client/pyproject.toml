@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "jd-worker"
-version         = "1.4.0"
+version         = "1.5.0"
 description     = "Worker CLI for the JobDistributor distributed job system"
 readme          = "README.md"
 requires-python = ">=3.8"
