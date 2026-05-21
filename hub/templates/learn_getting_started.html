@@ -929,7 +929,23 @@ squeue -u $USER</code></pre>
         </ul>
       </div>
 
-      <div class="tut-note tut-note--tip" style="margin-top:20px">
+      <div class="tut-note tut-note--warn" style="margin-top:20px">
+        <span class="tut-note__icon">⚠️</span>
+        <span>
+          <strong>Is your job long enough?</strong>
+          JobDistributor is designed for jobs that take <strong>at least a
+          minute</strong> to run — and works best for jobs that take several
+          minutes to several hours. If a single job completes in just a few
+          seconds, the overhead of requesting a job from the server, launching
+          a subprocess, and reporting the result back will be comparable to
+          or greater than the actual work. In that case, reconsider how you
+          define an atomic job: combine multiple lightweight operations into
+          one job, or batch more work into each run so that the compute time
+          clearly dominates the coordination overhead.
+        </span>
+      </div>
+
+      <div class="tut-note tut-note--tip" style="margin-top:14px">
         <span class="tut-note__icon">📦</span>
         <span>
           <strong>Source:</strong>

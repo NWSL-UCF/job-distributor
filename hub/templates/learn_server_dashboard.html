@@ -319,9 +319,8 @@
         <div class="feat-card__title">🗑️ Delete jobs</div>
         <div class="feat-card__body">
           <p>
-            Individual jobs can be deleted from the Actions column regardless
-            of their status. Deleting a RUNNING job cancels it — the worker
-            finishes its current subprocess but the result is not recorded.
+            Only <strong>unassigned (PENDING)</strong> jobs can be deleted.
+            Jobs that are currently RUNNING, DONE, or ABORTED cannot be deleted.
           </p>
         </div>
       </div>
