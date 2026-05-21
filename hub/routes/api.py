@@ -286,3 +286,70 @@ def _build_frpc_config(exp: Experiment) -> str:
         f"local_port      = 8001\n"
         f"custom_domains  = {exp.frpc_subdomain_dashboard}\n"
     )
+
+
+# ── frp Server Plugin — proxy authorisation ───────────────────────────────────
+#
+# frps calls this endpoint (POST) before accepting every frpc proxy registration.
+# We approve only if ALL of the following are true for each requested domain:
+#   1. An active (non-DELETED, non-EXPIRED) experiment owns this subdomain.
+#   2. That experiment's server has sent a heartbeat within the last 10 minutes.
+#
+# This endpoint is intentionally unauthenticated at the HTTP level — it is only
+# reachable from inside the Docker network (frps → hub) and is never exposed to
+# the internet.  We also enforce that the caller's IP is an RFC-1918 address for
+# defence in depth.
+#
+# frp plugin response contract:
+#   {"reject": false, "unchange": true}          → allow the proxy
+#   {"reject": true,  "reject_reason": "..."}    → deny the proxy
+#
+@api_bp.route("/internal/frp/new-proxy", methods=["POST"])
+def frp_new_proxy():
+    # This endpoint is internal-only: the Hub's port 5000 is never exposed
+    # outside the Docker Compose network, so only containers on that network
+    # (i.e., frps) can reach it.  We add a belt-and-suspenders check by
+    # rejecting requests that do not originate from an RFC-1918 address.
+    remote_ip = request.remote_addr or ""
+    is_private = (
+        remote_ip.startswith("10.")
+        or remote_ip.startswith("172.")
+        or remote_ip.startswith("192.168.")
+        or remote_ip in ("127.0.0.1", "::1")
+    )
+    if not is_private:
+        return jsonify({"reject": True, "reject_reason": "Forbidden"}), 200
+
+    data    = request.get_json(silent=True) or {}
+    content = data.get("content", {})
+    domains = content.get("custom_domains") or []
+
+    if not domains:
+        # No custom_domains — not a virtual-host proxy we manage; allow it.
+        return jsonify({"reject": False, "unchange": True}), 200
+
+    for domain in domains:
+        exp = Experiment.query.filter(
+            db.or_(
+                Experiment.frpc_subdomain_server    == domain,
+                Experiment.frpc_subdomain_dashboard == domain,
+            ),
+            Experiment.status.notin_(["DELETED", "EXPIRED"]),
+        ).first()
+
+        if exp is None:
+            return jsonify({
+                "reject":        True,
+                "reject_reason": f"No active experiment owns domain '{domain}'",
+            }), 200
+
+        if not exp.server_is_online:
+            return jsonify({
+                "reject":        True,
+                "reject_reason": (
+                    f"Experiment '{exp.name}' has not sent a heartbeat in the "
+                    "last 10 minutes — proxy registration denied"
+                ),
+            }), 200
+
+    return jsonify({"reject": False, "unchange": True}), 200

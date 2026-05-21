@@ -40,3 +40,18 @@ webServer.port = 7500
 log.to      = "/var/log/frps/frps.log"
 log.level   = "info"    # debug | info | warn | error
 log.maxDays = 7
+
+# ── Server Plugin — proxy authorisation ───────────────────────────────────────
+# frps calls the Hub before accepting every frpc proxy registration.
+# The Hub approves only if the experiment is active AND the server sent a
+# heartbeat in the last 10 minutes.
+#
+# Security: port 5000 is never exposed outside the Docker network, so this
+# internal endpoint cannot be reached from the internet.  frp does not support
+# plugin-level authentication tokens natively; network isolation is the
+# security boundary here.
+[[httpPlugins]]
+name = "hub-auth"
+addr = "http://hub:5000"         # hub container on the same Docker network
+path = "/internal/frp/new-proxy"
+ops  = ["NewProxy"]
