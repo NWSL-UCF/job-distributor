@@ -334,34 +334,93 @@
         <!-- Setup / Add Jobs Overlay -->
         <div id="setupOverlay">
             <div class="setup-box">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:22px;">
-                    <h2><i class="fas fa-flask"></i> Setup Experiment</h2>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+                    <h2><i class="fas fa-flask"></i> Add Jobs</h2>
                     <button id="setupOverlayCloseBtn" onclick="closeSetupOverlay()" style="display:none; background:none; border:none; font-size:26px; cursor:pointer; color:#888; line-height:1;">&times;</button>
                 </div>
 
-                <!-- Parameter Builder -->
-                <div class="setup-section">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                        <h4 style="margin:0;"><i class="fas fa-sliders-h"></i> Parameters</h4>
-                        <span id="jobCountPreview"></span>
-                    </div>
-                    <div style="display:flex; gap:6px; font-size:0.78em; color:#6c757d; margin-bottom:8px; padding:0 2px;">
-                        <span style="width:160px; flex-shrink:0;">Name</span>
-                        <span style="flex:1;">Values &mdash; JSON array, e.g. <code>[1, 2, 4]</code> or <code>["adam","sgd"]</code></span>
-                    </div>
-                    <div id="parameterRows" style="display:flex; flex-direction:column; gap:8px;"></div>
-                    <button id="addParamBtn" onclick="addParameterRow()">
-                        <i class="fas fa-plus"></i> Add Parameter
+                <!-- Mode tabs -->
+                <div class="addjobs-tabs">
+                    <button class="addjobs-tab active" id="addjobs-tab-form" onclick="switchAddJobsTab('form')">
+                        <i class="fas fa-sliders-h"></i> Form
+                    </button>
+                    <button class="addjobs-tab" id="addjobs-tab-json" onclick="switchAddJobsTab('json')">
+                        <i class="fas fa-code"></i> JSON
                     </button>
                 </div>
 
-                <!-- Actions -->
+                <!-- ── Form panel ── -->
+                <div id="addjobs-panel-form" class="addjobs-panel">
+                    <div class="setup-section">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <h4 style="margin:0;"><i class="fas fa-sliders-h"></i> Parameters</h4>
+                            <span id="jobCountPreview"></span>
+                        </div>
+                        <div style="display:flex; gap:6px; font-size:0.78em; color:#6c757d; margin-bottom:8px; padding:0 2px;">
+                            <span style="width:160px; flex-shrink:0;">Name</span>
+                            <span style="flex:1;">Values &mdash; JSON array, e.g. <code>[1, 2, 4]</code> or <code>["adam","sgd"]</code></span>
+                        </div>
+                        <div id="parameterRows" style="display:flex; flex-direction:column; gap:8px;"></div>
+                        <button id="addParamBtn" onclick="addParameterRow()">
+                            <i class="fas fa-plus"></i> Add Parameter
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── JSON panel ── -->
+                <div id="addjobs-panel-json" class="addjobs-panel" style="display:none;">
+                    <div class="setup-section">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <h4 style="margin:0;"><i class="fas fa-code"></i> Parameter Object</h4>
+                            <div style="display:flex; gap:8px;">
+                                <button class="addjobs-format-btn" onclick="formatJsonInput()" title="Pretty-print the JSON">
+                                    <i class="fas fa-magic"></i> Format
+                                </button>
+                                <button class="addjobs-validate-btn" onclick="validateJsonInput()" title="Check for errors">
+                                    <i class="fas fa-check-circle"></i> Validate
+                                </button>
+                            </div>
+                        </div>
+                        <p style="margin:0 0 10px 0; font-size:0.8em; color:#6c757d;">
+                            Provide a JSON object where each key is a parameter name and each value is an array of options.
+                            All combinations will be generated as individual jobs.
+                        </p>
+                        <div class="json-editor-wrap">
+                            <textarea id="jsonParamInput" class="json-editor"
+                                      spellcheck="false" autocomplete="off" autocorrect="off"
+                                      placeholder='{
+  "learning_rate": [0.001, 0.01, 0.1],
+  "batch_size": [32, 64, 128],
+  "optimizer": ["adam", "sgd"]
+}'></textarea>
+                            <div id="jsonValidationMsg" class="json-validation-msg"></div>
+                        </div>
+
+                        <!-- Job preview -->
+                        <div id="jsonPreviewSection" style="display:none; margin-top:14px;">
+                            <div class="json-preview-header">
+                                <span id="jsonJobCountBadge" class="json-job-count-badge"></span>
+                                <span style="font-size:0.78em; color:#6c757d;">Showing first <strong id="jsonPreviewShowing"></strong> jobs</span>
+                            </div>
+                            <div class="json-preview-scroll">
+                                <table class="json-preview-table">
+                                    <thead id="jsonPreviewHead"></thead>
+                                    <tbody id="jsonPreviewBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Replace warning (shared) -->
                 <div id="replaceRow" style="display:none; margin-bottom:14px; padding:11px 14px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px;">
                     <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.88em; color:#7a5c00;">
                         <input type="checkbox" id="replaceExistingJobs" style="width:16px; height:16px; cursor:pointer;">
                         <span><strong>Replace all existing jobs</strong> — deletes every current job and starts fresh. Leave unchecked to append the new combinations to the existing list.</span>
                     </label>
                 </div>
+
+                <!-- Submit row (shared) -->
                 <div style="display:flex; justify-content:flex-end; gap:12px; align-items:center;">
                     <span id="setupError" style="color:#dc3545; font-size:0.88em;"></span>
                     <button id="createJobsBtn" onclick="submitCreateJobs()">

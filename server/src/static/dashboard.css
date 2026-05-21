@@ -1337,6 +1337,142 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 border-top-color: #1a1f2e;
             }
 
+            /* ── Add Jobs — mode tabs ────────────────────────────────────── */
+            .addjobs-tabs {
+                display: flex;
+                gap: 0;
+                margin-bottom: 18px;
+                border-bottom: 2px solid #e9ecef;
+            }
+            .addjobs-tab {
+                padding: 8px 20px;
+                border: none;
+                background: none;
+                font-size: 0.87rem;
+                font-weight: 600;
+                color: #6c757d;
+                cursor: pointer;
+                border-bottom: 3px solid transparent;
+                margin-bottom: -2px;
+                transition: color 0.15s, border-color 0.15s;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                border-radius: 0;
+            }
+            .addjobs-tab:hover { color: #343a40; }
+            .addjobs-tab.active {
+                color: #007bff;
+                border-bottom-color: #007bff;
+            }
+            .addjobs-panel { /* no extra rules needed — visibility is toggled inline */ }
+
+            /* ── JSON editor ─────────────────────────────────────────────── */
+            .json-editor-wrap {
+                position: relative;
+            }
+            .json-editor {
+                width: 100%;
+                min-height: 150px;
+                max-height: 260px;
+                resize: vertical;
+                font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+                font-size: 0.82rem;
+                line-height: 1.55;
+                padding: 12px 14px;
+                border: 1px solid #ced4da;
+                border-radius: 6px;
+                background: #f8f9fa;
+                color: #212529;
+                box-sizing: border-box;
+                transition: border-color 0.15s;
+                outline: none;
+            }
+            .json-editor:focus {
+                border-color: #80bdff;
+                background: #fff;
+                box-shadow: 0 0 0 3px rgba(0,123,255,0.12);
+            }
+            .json-validation-msg {
+                font-size: 0.8rem;
+                margin-top: 6px;
+                min-height: 18px;
+            }
+            .json-validation-ok    { color: #28a745; }
+            .json-validation-error { color: #dc3545; }
+
+            /* Format / Validate buttons */
+            .addjobs-format-btn,
+            .addjobs-validate-btn {
+                padding: 5px 12px;
+                font-size: 0.78rem;
+                font-weight: 600;
+                border-radius: 4px;
+                border: 1px solid;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                transition: opacity 0.15s;
+            }
+            .addjobs-format-btn {
+                background: #f0f4ff;
+                border-color: #c5d3ff;
+                color: #4f6ef7;
+            }
+            .addjobs-validate-btn {
+                background: #f0fff4;
+                border-color: #b2dfcc;
+                color: #28a745;
+            }
+            .addjobs-format-btn:hover   { opacity: 0.8; }
+            .addjobs-validate-btn:hover { opacity: 0.8; }
+
+            /* ── Job preview table ───────────────────────────────────────── */
+            .json-preview-header {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 8px;
+                flex-wrap: wrap;
+            }
+            .json-job-count-badge {
+                display: inline-block;
+                padding: 3px 10px;
+                background: #e8f5e9;
+                color: #2e7d32;
+                border-radius: 12px;
+                font-size: 0.78rem;
+                font-weight: 700;
+            }
+            .json-preview-scroll {
+                overflow-x: auto;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+            }
+            .json-preview-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.8rem;
+                white-space: nowrap;
+            }
+            .json-preview-table th {
+                background: #f1f3f5;
+                padding: 6px 12px;
+                text-align: left;
+                font-weight: 700;
+                color: #495057;
+                border-bottom: 1px solid #dee2e6;
+            }
+            .json-preview-table td {
+                padding: 5px 12px;
+                border-bottom: 1px solid #f1f3f5;
+                color: #343a40;
+                font-family: 'SFMono-Regular', 'Consolas', monospace;
+            }
+            .json-preview-table tbody tr:last-child td { border-bottom: none; }
+            .json-preview-table tbody tr:hover td { background: #f8f9fa; }
+
             /* ── NWSL / UCF footer ───────────────────────────────────────── */
             .jd-server-footer {
                 background: #f8f9fa;

@@ -809,6 +809,12 @@ function openModal() {
                 document.getElementById("replaceExistingJobs").checked = false;
                 // Show replace-warning row (jobs already exist when user manually opens this)
                 document.getElementById("replaceRow").style.display = "block";
+                // Reset to Form tab and clear JSON panel state
+                switchAddJobsTab("form");
+                document.getElementById("jsonParamInput").value = "";
+                document.getElementById("jsonValidationMsg").textContent = "";
+                document.getElementById("jsonValidationMsg").className = "json-validation-msg";
+                document.getElementById("jsonPreviewSection").style.display = "none";
             }
 
             function closeSetupOverlay() {
@@ -863,44 +869,41 @@ function openModal() {
             }
 
             function submitCreateJobs() {
-                const rows = document.querySelectorAll("#parameterRows .param-row");
                 const errEl = document.getElementById("setupError");
                 errEl.textContent = "";
 
-                if (rows.length === 0) {
-                    errEl.textContent = "Add at least one parameter.";
-                    return;
-                }
+                let parameters = {};
 
-                const parameters = {};
-                let hasError = false;
-
-                rows.forEach(row => {
-                    if (hasError) return;
-                    const name = row.querySelector(".param-name").value.trim();
-                    const raw  = row.querySelector(".param-values").value.trim();
-                    if (!name) {
-                        errEl.textContent = "Every parameter must have a name.";
-                        hasError = true; return;
-                    }
-                    if (name in parameters) {
-                        errEl.textContent = `Duplicate parameter name: "${name}".`;
-                        hasError = true; return;
-                    }
-                    try {
-                        const arr = JSON.parse(raw);
-                        if (!Array.isArray(arr) || arr.length === 0) {
-                            errEl.textContent = `"${name}": value must be a non-empty JSON array.`;
-                            hasError = true; return;
+                if (_addJobsActiveTab === "json") {
+                    // JSON mode
+                    const res = _parseJsonParams();
+                    if (!res.ok) { errEl.textContent = res.err; return; }
+                    parameters = res.params;
+                } else {
+                    // Form mode
+                    const rows = document.querySelectorAll("#parameterRows .param-row");
+                    if (rows.length === 0) { errEl.textContent = "Add at least one parameter."; return; }
+                    let hasError = false;
+                    rows.forEach(row => {
+                        if (hasError) return;
+                        const name = row.querySelector(".param-name").value.trim();
+                        const raw  = row.querySelector(".param-values").value.trim();
+                        if (!name) { errEl.textContent = "Every parameter must have a name."; hasError = true; return; }
+                        if (name in parameters) { errEl.textContent = `Duplicate parameter name: "${name}".`; hasError = true; return; }
+                        try {
+                            const arr = JSON.parse(raw);
+                            if (!Array.isArray(arr) || arr.length === 0) {
+                                errEl.textContent = `"${name}": value must be a non-empty JSON array.`;
+                                hasError = true; return;
+                            }
+                            parameters[name] = arr;
+                        } catch(e) {
+                            errEl.textContent = `"${name}": invalid JSON — ${e.message}`;
+                            hasError = true;
                         }
-                        parameters[name] = arr;
-                    } catch(e) {
-                        errEl.textContent = `"${name}": invalid JSON — ${e.message}`;
-                        hasError = true;
-                    }
-                });
-
-                if (hasError) return;
+                    });
+                    if (hasError) return;
+                }
 
                 const replace = document.getElementById("replaceExistingJobs").checked;
 
@@ -927,6 +930,119 @@ function openModal() {
                 .catch(e => { errEl.textContent = "Network error: " + e.message; })
                 .finally(() => { btn.innerHTML = orig; btn.disabled = false; });
             }
+
+            // ── Add Jobs tab switcher ──────────────────────────────────────────
+            let _addJobsActiveTab = "form";
+
+            function switchAddJobsTab(tab) {
+                _addJobsActiveTab = tab;
+                document.getElementById("addjobs-tab-form").classList.toggle("active", tab === "form");
+                document.getElementById("addjobs-tab-json").classList.toggle("active", tab === "json");
+                document.getElementById("addjobs-panel-form").style.display = tab === "form" ? "" : "none";
+                document.getElementById("addjobs-panel-json").style.display = tab === "json" ? "" : "none";
+                document.getElementById("setupError").textContent = "";
+            }
+
+            // ── JSON tab helpers ───────────────────────────────────────────────
+
+            function _parseJsonParams() {
+                const raw = document.getElementById("jsonParamInput").value.trim();
+                if (!raw) return { ok: false, err: "JSON input is empty." };
+                let obj;
+                try { obj = JSON.parse(raw); } catch (e) { return { ok: false, err: "Invalid JSON: " + e.message }; }
+                if (typeof obj !== "object" || Array.isArray(obj) || obj === null)
+                    return { ok: false, err: "JSON must be an object, e.g. { \"lr\": [0.01, 0.1] }." };
+                for (const [k, v] of Object.entries(obj)) {
+                    if (!Array.isArray(v) || v.length === 0)
+                        return { ok: false, err: `"${k}": value must be a non-empty array.` };
+                }
+                if (Object.keys(obj).length === 0)
+                    return { ok: false, err: "Object must have at least one parameter." };
+                return { ok: true, params: obj };
+            }
+
+            function _cartesian(params) {
+                const keys   = Object.keys(params);
+                const values = keys.map(k => params[k]);
+                let result   = [{}];
+                for (let i = 0; i < keys.length; i++) {
+                    const next = [];
+                    for (const combo of result) {
+                        for (const val of values[i]) {
+                            next.push(Object.assign({}, combo, { [keys[i]]: val }));
+                        }
+                    }
+                    result = next;
+                }
+                return result;
+            }
+
+            function formatJsonInput() {
+                const el = document.getElementById("jsonParamInput");
+                const msg = document.getElementById("jsonValidationMsg");
+                try {
+                    const obj = JSON.parse(el.value);
+                    el.value = JSON.stringify(obj, null, 2);
+                    msg.textContent = "";
+                    msg.className = "json-validation-msg";
+                    _renderJsonPreview();
+                } catch (e) {
+                    msg.textContent = "Cannot format — invalid JSON: " + e.message;
+                    msg.className = "json-validation-msg json-validation-error";
+                }
+            }
+
+            function validateJsonInput() {
+                const msg = document.getElementById("jsonValidationMsg");
+                const res = _parseJsonParams();
+                if (res.ok) {
+                    const total = _cartesian(res.params).length;
+                    msg.textContent = `Valid — will generate ${total} job${total !== 1 ? "s" : ""}.`;
+                    msg.className = "json-validation-msg json-validation-ok";
+                    _renderJsonPreview();
+                } else {
+                    msg.textContent = res.err;
+                    msg.className = "json-validation-msg json-validation-error";
+                    document.getElementById("jsonPreviewSection").style.display = "none";
+                }
+            }
+
+            function _renderJsonPreview() {
+                const res = _parseJsonParams();
+                const section = document.getElementById("jsonPreviewSection");
+                if (!res.ok) { section.style.display = "none"; return; }
+
+                const jobs    = _cartesian(res.params);
+                const keys    = Object.keys(res.params);
+                const preview = jobs.slice(0, 5);
+                const total   = jobs.length;
+
+                document.getElementById("jsonJobCountBadge").textContent =
+                    total + " job" + (total !== 1 ? "s" : "") + " will be created";
+                document.getElementById("jsonPreviewShowing").textContent =
+                    Math.min(5, total) + " of " + total;
+
+                // Header
+                const thead = document.getElementById("jsonPreviewHead");
+                thead.innerHTML = "<tr>" + keys.map(k => `<th>${k}</th>`).join("") + "</tr>";
+
+                // Rows
+                const tbody = document.getElementById("jsonPreviewBody");
+                tbody.innerHTML = preview.map(job =>
+                    "<tr>" + keys.map(k => `<td>${JSON.stringify(job[k])}</td>`).join("") + "</tr>"
+                ).join("");
+
+                section.style.display = "";
+            }
+
+            // Live preview as the user types
+            document.getElementById("jsonParamInput") && document.getElementById("jsonParamInput")
+                .addEventListener("input", () => {
+                    const msg = document.getElementById("jsonValidationMsg");
+                    msg.textContent = "";
+                    msg.className = "json-validation-msg";
+                    _renderJsonPreview();
+                });
 
             // ====================== END SETUP OVERLAY ======================
 
