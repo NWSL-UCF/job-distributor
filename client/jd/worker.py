@@ -14,32 +14,23 @@ Required
     expId=<id>              Experiment identifier (must match the server).
     entry_script=<path>     Python script to run for each job.
 
-Hub mode (recommended) — auto-discovers the server URL
--------------------------------------------------------
-    api_key=<key>           Your API key from the Hub Profile page
-                            (env: JD_API_KEY).
+Authentication
+--------------
+    api_key=<key>           Your API key from the Hub (env: JD_API_KEY).
 
-    The worker connects to https://hub.jobdistributor.net by default —
-    no ``hub=`` or ``server=`` needed.  Just supply your API key:
+    The worker connects to https://hub.jobdistributor.net by default.
+    Just supply your API key — the server URL is discovered automatically:
 
         jd_worker_cli expId=mnist-v1 entry_script=train.py api_key=jd_xxxx
 
-    Or set it once as an env var (recommended):
+    Recommended: set the key once as an environment variable:
         export JD_API_KEY=jd_xxxx
         jd_worker_cli expId=mnist-v1 entry_script=train.py
 
-    To use a self-hosted hub, override with:
+    To use a self-hosted Hub, override with:
         hub=<url>           Hub base URL (env: JD_HUB_URL).
         jd_worker_cli expId=mnist-v1 entry_script=train.py \\
                   hub=https://my-hub.example.com api_key=jd_xxxx
-
-Standalone mode — connect directly to the job server
------------------------------------------------------
-    server=<url>            Job server base URL or host (default: http://localhost,
-                            env: JD_SERVER). If you omit ``http://`` or ``https://``,
-                            ``http://`` is assumed.
-    port=<N>                Port if not included in server URL
-                            (default: 5000, env: JD_PORT)
 
 Other optional arguments
 ------------------------
