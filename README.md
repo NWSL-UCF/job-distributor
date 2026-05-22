@@ -1,59 +1,48 @@
-# job-distributor
+# JobDistributor
 
-**job-distributor** is a lightweight framework for running thousands of parameterized jobs or simulations in parallel. It is designed for research experiments where outcomes depend on specific parameter combinations, and the objective is to identify the best setup based on metrics such as accuracy, performance, or efficiency.
+**JobDistributor** is a lightweight framework for running large-scale parameterized experiments in parallel across any number of heterogeneous machines — laptops, desktops, multiple HPC clusters, VPS instances, or cloud VMs — without changing a single line of your training code.
 
-## Demo Video
-
-Watch the demo video to see the job-distributor framework in action:
+## Demo
 
 <div align="center">
-  <img src="img/jd_demo.gif" alt="Demo Video">
+  <img src="img/jd_demo.gif" alt="JobDistributor Dashboard Demo">
 </div>
 
-## Example Use Case: MNIST Hyperparameter Tuning
+## Getting Started
 
-To showcase how this framework works, we applied it to a classic machine learning task: hyperparameter tuning for a handwritten digit classifier using the MNIST dataset. The goal is to evaluate various combinations of hyperparameters and find the best-performing configuration. For a clearer understanding of the research task, visit: [MNIST-parameter-tuning](https://github.com/NWSL-UCF/MNIST-parameter-tuning)
+Full documentation, step-by-step setup guide, and library reference are available at:
 
-## Quick Start with Docker
+**[hub.jobdistributor.net/learn/getting-started](https://hub.jobdistributor.net/learn/getting-started)**
 
-The server is published as a pre-built multi-arch image on Docker Hub (`linux/amd64` and `linux/arm64`). No local build required.
+## Quick Start
 
-**1. Create your `.env` file**
+**1.** Create a free account and experiment at [hub.jobdistributor.net](https://hub.jobdistributor.net)
 
-```bash
-cp .env.example .env
-# Then edit .env and fill in your JD_API_KEY and JD_EXP_NAME
-```
-
-**2. Start the server**
+**2.** Start the job server on any machine with Docker:
 
 ```bash
-docker compose up -d
+JD_API_KEY=jd_xxxx ./run.sh <experiment-name>
 ```
 
-Docker will pull `jobdistributor/jd-server:latest` automatically on first run. Job data is persisted at `./workspace/<JD_EXP_NAME>/` on your host machine.
-
-**3. Stop the server**
+**3.** Install the worker library and run workers on any machine:
 
 ```bash
-docker compose down
+pip install jd-worker
+
+export JD_API_KEY=jd_xxxx
+jd_worker_cli expId=<experiment-name> entry_script=train.py
 ```
+
+## Links
+
+| | |
+|---|---|
+| Hub | [hub.jobdistributor.net](https://hub.jobdistributor.net) |
+| Documentation | [hub.jobdistributor.net/learn/getting-started](https://hub.jobdistributor.net/learn/getting-started) |
+| PyPI (`jd-worker`) | [pypi.org/project/jd-worker](https://pypi.org/project/jd-worker/) |
+| Docker Hub | [hub.docker.com/repositories/jobdistributor](https://hub.docker.com/repositories/jobdistributor) |
+| Example workload | [NWSL-UCF/MNIST-parameter-tuning](https://github.com/NWSL-UCF/MNIST-parameter-tuning) |
 
 ---
 
-## Setup Overview
-
-To use the **job-distributor** framework, follow these two main steps:
-
-1. **Start the Server** 
-
-   The server is responsible for managing the job queue and tracking the status of each job (e.g., pending, running, completed). [Learn how to set up the server independently](/server/README.md)
-
-2. **Configure the Clients (Worker Machines)**  
-   
-   The client-side code runs on each worker machine where the actual jobs will execute. Each client contacts the server to fetch an unassigned job (such as a specific hyperparameter combination), runs the task, and then reports the result back to the server. [Learn how to set up the client (Worker Machine) independently](/client/README.md)
-
-Make sure the server is set up and running before launching any clients.
-
----
-
+*Developed at the [Networking and Wireless Systems Lab (NWSL)](https://www.nwsl.ucf.edu/), University of Central Florida. All rights reserved.*
