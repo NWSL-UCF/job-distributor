@@ -43,6 +43,12 @@ jd_worker_cli expId=<experiment-name> entry_script=train.py
 | Docker Hub | [hub.docker.com/repositories/jobdistributor](https://hub.docker.com/repositories/jobdistributor) |
 | Example workload | [NWSL-UCF/MNIST-parameter-tuning](https://github.com/NWSL-UCF/MNIST-parameter-tuning) |
 
+## License
+
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+
+Free for personal, academic, and research use. Commercial use is not permitted.
+
 ---
 
 *Developed at the [Networking and Wireless Systems Lab (NWSL)](https://www.nwsl.ucf.edu/), University of Central Florida. All rights reserved.*
