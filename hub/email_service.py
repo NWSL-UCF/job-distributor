@@ -32,7 +32,7 @@ def _email_header() -> str:
 def _email_footer() -> str:
     return """
     <p style="margin-top:28px; font-size:0.78em; color:#adb5bd; border-top:1px solid #e9ecef; padding-top:12px;">
-      University of Central Florida &mdash; Networking and Wireless System Lab (NWSL)
+      University of Central Florida &mdash; Networking and Wireless Systems Lab (NWSL)
     </p>
     </div>
     """
