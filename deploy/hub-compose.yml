@@ -29,6 +29,11 @@ services:
     depends_on:
       - hub
       - frps
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "6"
 
   # ── Hub web app ─────────────────────────────────────────────────────────────
   hub:
@@ -44,6 +49,11 @@ services:
     # Allows the hub container to reach MySQL running on the host
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options:
+        max-size: "200m"
+        max-file: "7"
 
   # ── FRP server (tunnel broker for jd_server containers) ────────────────────
   frps:
@@ -56,6 +66,11 @@ services:
       # Port 8080: frps vhost HTTP — only nginx talks to this, NOT the internet
     volumes:
       - ./frps/frps.toml:/etc/frp/frps.toml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "6"
 
 networks:
   default:
