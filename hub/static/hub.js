@@ -26,6 +26,8 @@ window.copyText = function (id) {
     msg = 'Dashboard URL copied';
   } else if (el.id === 'url-dashboard') {
     msg = 'Dashboard URL copied';
+  } else if (el.id === 'new-key-display') {
+    msg = 'API key copied — store it somewhere safe!';
   }
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => showToast(msg));

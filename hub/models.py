@@ -235,7 +235,6 @@ class ApiKey(db.Model):
     user_id    = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="CASCADE"),
                            nullable=False)
     name       = db.Column(db.String(100), nullable=False)
-    key_value  = db.Column(db.String(255), nullable=False)
     key_hash   = db.Column(db.String(255), nullable=False)
     key_prefix = db.Column(db.String(8),   nullable=False)
     created_at = db.Column(db.DateTime, default=_now)

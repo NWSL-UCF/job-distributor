@@ -18,17 +18,26 @@
 {% endif %}
 
 {% if new_key_value %}
-<div class="alert alert--success">
-  <strong>Key created.</strong> Copy it now — the full key cannot be shown again without entering your password.
-  <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
-    <input class="endpoint-item__input" id="new-key-display"
-           type="text" readonly value="{{ new_key_value }}" style="flex:1;max-width:520px">
-    <button class="btn btn--icon" title="Copy" onclick="copyText('new-key-display')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="9" y="9" width="13" height="13" rx="2"/>
-        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-      </svg>
-    </button>
+<div class="key-created-banner" id="key-created-banner">
+  <div class="key-created-banner__icon" aria-hidden="true">⚠️</div>
+  <div class="key-created-banner__body">
+    <h2 class="key-created-banner__title">Save your API key now</h2>
+    <p class="key-created-banner__text">
+      Your new key <strong>{{ new_key_name }}</strong> is shown below.
+      <strong>Copy it and store it somewhere safe</strong> — password manager, secrets file, or env vars.
+      For security, the full key is <strong>never shown again</strong> after you leave this page.
+    </p>
+    <div class="key-created-banner__key-row">
+      <input class="key-created-banner__input" id="new-key-display"
+             type="text" readonly value="{{ new_key_value }}">
+      <button class="btn btn--primary key-created-banner__copy" type="button"
+              onclick="copyText('new-key-display')">
+        Copy key
+      </button>
+    </div>
+    <p class="key-created-banner__hint">
+      Lost it? Delete this key and create a new one — there is no way to recover it.
+    </p>
   </div>
 </div>
 {% endif %}
@@ -43,7 +52,6 @@
         <th>Name</th>
         <th>Prefix</th>
         <th>Created</th>
-        <th>Key</th>
         <th></th>
       </tr>
     </thead>
@@ -53,30 +61,6 @@
         <td class="keys-table__name">{{ key.name }}</td>
         <td><code class="keys-table__prefix">{{ key.key_prefix }}…</code></td>
         <td class="keys-table__date">{{ key.created_at.strftime('%Y-%m-%d') if key.created_at else '—' }}</td>
-        <td class="keys-table__key-cell">
-          <div class="key-reveal-row" id="key-row-{{ key.id }}">
-            <input class="endpoint-item__input key-masked"
-                   id="key-input-{{ key.id }}"
-                   type="text" readonly
-                   value="{{ key.key_prefix }}••••••••••••••••••••••••••••••••••••••••">
-            <div class="key-actions">
-              <button class="btn btn--icon btn--sm" title="Reveal key"
-                      onclick="openRevealModal({{ key.id }})" id="reveal-btn-{{ key.id }}">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-              </button>
-              <button class="btn btn--icon btn--sm" title="Copy"
-                      onclick="copyText('key-input-{{ key.id }}')">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </td>
         <td>
           <form method="post"
                 action="{{ url_for('dashboard.delete_api_key', key_id=key.id) }}"
@@ -116,6 +100,10 @@
                  placeholder="e.g. GPU cluster, Laptop, CI runner">
           <span class="field__hint">A label to help you identify this key</span>
         </div>
+        <p class="key-create-note">
+          After creation, you will see the full key <strong>once</strong>.
+          Save it immediately — it cannot be viewed again later.
+        </p>
       </div>
       <div class="modal__footer">
         <button type="submit" class="btn btn--primary">Create key</button>
@@ -124,37 +112,10 @@
     </form>
   </div>
 </div>
-
-{# ── Reveal key modal ────────────────────────────────────────────────────── #}
-<div class="modal-overlay" id="reveal-modal" onclick="if(event.target===this)closeRevealModal()">
-  <div class="modal">
-    <div class="modal__header">
-      <h3 class="modal__title">Reveal Key</h3>
-      <button class="modal__close" onclick="closeRevealModal()">✕</button>
-    </div>
-    <div class="modal__body">
-      <p style="margin-bottom:16px;color:var(--color-muted);font-size:.9rem">
-        Enter your account password to reveal the full key value.
-      </p>
-      <div class="field">
-        <label class="field__label" for="reveal-password">Password</label>
-        <input class="field__input" type="password" id="reveal-password"
-               autocomplete="current-password" placeholder="Your account password">
-      </div>
-      <div class="alert alert--error" id="reveal-error" style="display:none;margin-top:12px"></div>
-    </div>
-    <div class="modal__footer">
-      <button class="btn btn--primary" onclick="submitReveal()">Reveal</button>
-      <button class="btn btn--ghost" onclick="closeRevealModal()">Cancel</button>
-    </div>
-  </div>
-</div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-let _revealKeyId = null;
-
 function openNewKeyModal() {
   document.getElementById('new-key-modal').classList.add('open');
   setTimeout(() => document.getElementById('new-key-name').focus(), 50);
@@ -163,88 +124,15 @@ function closeNewKeyModal() {
   document.getElementById('new-key-modal').classList.remove('open');
 }
 
-function openRevealModal(keyId) {
-  _revealKeyId = keyId;
-  document.getElementById('reveal-password').value = '';
-  document.getElementById('reveal-error').style.display = 'none';
-  document.getElementById('reveal-modal').classList.add('open');
-  setTimeout(() => document.getElementById('reveal-password').focus(), 50);
-}
-function closeRevealModal() {
-  document.getElementById('reveal-modal').classList.remove('open');
-  _revealKeyId = null;
-}
-
-document.getElementById('reveal-password').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') submitReveal();
+{% if new_key_value %}
+document.addEventListener('DOMContentLoaded', function() {
+  const banner = document.getElementById('key-created-banner');
+  if (banner) banner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const input = document.getElementById('new-key-display');
+  if (input) input.select();
 });
+{% endif %}
 
-async function submitReveal() {
-  if (!_revealKeyId) return;
-  const password = document.getElementById('reveal-password').value;
-  if (!password) return;
-
-  try {
-    const res = await fetch(`/api-keys/${_revealKeyId}/reveal`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({password}),
-    });
-    const data = await res.json();
-
-    if (!res.ok) {
-      const errEl = document.getElementById('reveal-error');
-      errEl.textContent = data.error || 'Failed to reveal key.';
-      errEl.style.display = 'block';
-      return;
-    }
-
-    // Show key in the row
-    const input = document.getElementById(`key-input-${_revealKeyId}`);
-    if (input) {
-      input.value = data.key;
-      input.type  = 'text';
-    }
-
-    // Swap reveal button to a hide button
-    const revealBtn = document.getElementById(`reveal-btn-${_revealKeyId}`);
-    if (revealBtn) {
-      revealBtn.title   = 'Hide key';
-      revealBtn.onclick = () => hideKey(_revealKeyId);
-      revealBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-        <line x1="1" y1="1" x2="23" y2="23"/>
-      </svg>`;
-    }
-
-    closeRevealModal();
-    showToast('Key revealed');
-  } catch (err) {
-    const errEl = document.getElementById('reveal-error');
-    errEl.textContent = 'Network error. Please try again.';
-    errEl.style.display = 'block';
-  }
-}
-
-function hideKey(keyId) {
-  const input = document.getElementById(`key-input-${keyId}`);
-  if (!input) return;
-  const prefix = input.value.slice(0, 8);
-  input.value = prefix + '••••••••••••••••••••••••••••••••••••••••';
-
-  const revealBtn = document.getElementById(`reveal-btn-${keyId}`);
-  if (revealBtn) {
-    revealBtn.title   = 'Reveal key';
-    revealBtn.onclick = () => openRevealModal(keyId);
-    revealBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-      <circle cx="12" cy="12" r="3"/>
-    </svg>`;
-  }
-}
-
-// Auto-open new-key modal if there was a validation error
 {% if error %}
 openNewKeyModal();
 {% endif %}

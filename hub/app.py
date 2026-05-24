@@ -145,6 +145,26 @@ def _apply_migrations() -> None:
             db.session.rollback()
             log.warning("Migration failed for %s.%s: %s", table, column, exc)
 
+    # Drop deprecated columns (v5: api_keys.key_value — reveal feature removed)
+    column_drops = [
+        ("api_keys", "key_value", "ALTER TABLE api_keys DROP COLUMN key_value"),
+    ]
+    for table, column, stmt in column_drops:
+        check = db.text(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() "
+            "AND TABLE_NAME = :tbl AND COLUMN_NAME = :col"
+        )
+        try:
+            exists = db.session.execute(check, {"tbl": table, "col": column}).scalar()
+            if exists:
+                db.session.execute(db.text(stmt))
+                db.session.commit()
+                log.info("Migration applied: dropped %s.%s", table, column)
+        except Exception as exc:
+            db.session.rollback()
+            log.warning("Migration failed dropping %s.%s: %s", table, column, exc)
+
     # New-table migrations (checked via information_schema.TABLES)
     table_migrations = [
         (

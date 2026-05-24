@@ -426,7 +426,6 @@ def create_api_key():
     key = ApiKey(
         user_id    = user.id,
         name       = name,
-        key_value  = raw,
         key_hash   = key_hash,
         key_prefix = key_prefix,
     )
@@ -435,7 +434,7 @@ def create_api_key():
 
     keys = user.api_keys.order_by(ApiKey.created_at.desc()).all()
     return render_template("api_keys.html", user=user, keys=keys,
-                           new_key_id=key.id, new_key_value=raw)
+                           new_key_name=name, new_key_value=raw)
 
 
 @dashboard_bp.route("/api-keys/<int:key_id>/delete", methods=["POST"])
@@ -445,19 +444,6 @@ def delete_api_key(key_id: int):
     db.session.delete(key)
     db.session.commit()
     return redirect(url_for("dashboard.api_keys"))
-
-
-@dashboard_bp.route("/api-keys/<int:key_id>/reveal", methods=["POST"])
-@require_login
-def reveal_api_key(key_id: int):
-    """AJAX endpoint: verify password and return the full key value."""
-    key = ApiKey.query.filter_by(id=key_id, user_id=g.current_user.id).first()
-    if not key:
-        return jsonify({"error": "Not found"}), 404
-    password = (request.json or {}).get("password", "")
-    if not check_password_hash(g.current_user.password_hash, password):
-        return jsonify({"error": "Incorrect password"}), 403
-    return jsonify({"key": key.key_value})
 
 
 # ── Limit extensions ──────────────────────────────────────────────────────────

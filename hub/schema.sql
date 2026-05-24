@@ -91,7 +91,6 @@ CREATE TABLE IF NOT EXISTS api_keys (
     id              BIGINT          NOT NULL AUTO_INCREMENT,
     user_id         BIGINT          NOT NULL,
     name            VARCHAR(100)    NOT NULL,
-    key_value       VARCHAR(255)    NOT NULL,   -- full raw key (for reveal feature)
     key_hash        VARCHAR(255)    NOT NULL,   -- sha256 for auth lookup
     key_prefix      VARCHAR(8)      NOT NULL,   -- first 8 chars shown in UI
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
