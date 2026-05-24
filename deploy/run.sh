@@ -9,7 +9,7 @@
 #   start   Pull the latest images and start (or restart) the full stack
 #   stop    Stop and remove all hub containers
 #   restart Restart only the hub app container (e.g. after hub.env change)
-#   build    Build hub image from local source and recreate hub container
+#   build    Build hub image from local source (needs ../hub or HUB_SRC)
 #   logs    Tail logs from all containers  (or pass a service name)
 #   status  Show running containers
 #   pull    Pull latest images without restarting
@@ -84,10 +84,21 @@ case "$CMD" in
 
   build)
     check_env
-    echo "Building hub image from ../hub …"
-    compose build hub
+    HUB_SRC="${HUB_SRC:-$(cd .. && pwd)/hub}"
+    if [ ! -f "$HUB_SRC/Dockerfile" ]; then
+      die "Hub source not found at $HUB_SRC
+
+  deploy-only servers should pull the published image instead:
+    ./run.sh pull && ./run.sh restart
+
+  To build locally, clone the full repo so deploy/../hub exists, or run:
+    HUB_SRC=/path/to/hub ./run.sh build"
+    fi
+    export HUB_SRC
+    echo "Building hub image from $HUB_SRC …"
+    compose -f "$COMPOSE_FILE" -f hub-compose.build.yml build hub
     echo "Recreating hub container with new image…"
-    compose up -d hub
+    compose -f "$COMPOSE_FILE" -f hub-compose.build.yml up -d hub
     echo "Done. Tail plugin logs with: ./run.sh logs hub | grep 'frp plugin'"
     ;;
 

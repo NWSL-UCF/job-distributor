@@ -1,0 +1,13 @@
+# Optional override for building the hub image from local source.
+# Used by: ./run.sh build
+#
+# Requires the hub/ directory (Dockerfile + app source). By default run.sh
+# looks for ../hub relative to this deploy/ directory. Override with:
+#   HUB_SRC=/path/to/hub ./run.sh build
+
+services:
+  hub:
+    build:
+      context: ${HUB_SRC:-../hub}
+      dockerfile: Dockerfile
+    image: jobdistributor/jd-hub:local
