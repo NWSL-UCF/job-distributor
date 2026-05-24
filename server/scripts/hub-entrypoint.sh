@@ -3,11 +3,11 @@
 #
 # Security design:
 #   • hub_bootstrap.py writes only non-frpc secrets to /tmp/jd-hub.env
-#   • The frpc config (including metadatas.exp_token) is streamed through a
-#     named pipe (FIFO) in /dev/shm — never written to a regular file
+#   • The frpc config lives in /dev/shm (tmpfs) only — not on persistent disk
 #   • frpc starts only after gunicorn is listening on 8000/8001 so proxies
 #     register against live backends
-#   • The env file and fifo are removed immediately after use
+#   • The env file is removed immediately after use; frpc config stays in tmpfs
+#     for the lifetime of the container (frpc keeps the path open)
 set -e
 
 # ── Resolve workspace path ────────────────────────────────────────────────────
@@ -65,30 +65,26 @@ if [ -n "$JD_HUB_URL" ] && [ -n "$JD_API_KEY" ] && [ -n "$JD_EXP_NAME" ]; then
   _wait_port 8001
   echo "entrypoint: job server and dashboard listening — starting frpc" >&2
 
-  FRPC_FIFO="/dev/shm/frpc-$$.toml"
-  mkfifo "$FRPC_FIFO"
-  chmod 600 "$FRPC_FIFO"
-
-  frpc -c "$FRPC_FIFO" &
-  FRPC_PID=$!
-
-  if ! python /app/scripts/hub_bootstrap.py --frpc-fifo "$FRPC_FIFO" --frpc-only; then
-    kill "$FRPC_PID" 2>/dev/null || true
+  FRPC_CFG="/dev/shm/frpc-${EXP}.toml"
+  if ! python /app/scripts/hub_bootstrap.py --frpc-fifo "$FRPC_CFG" --frpc-only; then
     kill "$START_PID" 2>/dev/null || true
-    rm -f "$FRPC_FIFO"
+    rm -f "$FRPC_CFG"
     exit 1
   fi
+  chmod 600 "$FRPC_CFG"
+
+  frpc -c "$FRPC_CFG" &
+  FRPC_PID=$!
 
   sleep 2
   if ! kill -0 "$FRPC_PID" 2>/dev/null; then
     echo "entrypoint: frpc exited immediately after startup — config or auth failed" >&2
     kill "$START_PID" 2>/dev/null || true
-    rm -f "$FRPC_FIFO"
+    rm -f "$FRPC_CFG"
     exit 1
   fi
 
-  rm -f "$FRPC_FIFO"
-  echo "entrypoint: frpc fifo removed (config was never written to disk)" >&2
+  echo "entrypoint: frpc running (pid ${FRPC_PID}, config in tmpfs)" >&2
 
   wait "$START_PID"
   exit $?

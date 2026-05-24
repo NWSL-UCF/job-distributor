@@ -3,8 +3,8 @@
 Fetch experiment runtime config from the Hub.
 
 Writes worker secrets to a short-lived env file (no frpc config on disk).
-When --frpc-fifo is passed, streams the frpc TOML into a named pipe so the
-entrypoint can start frpc without ever writing the token to a file.
+When --frpc-fifo is passed, writes the frpc TOML to that path (typically a
+regular file under /dev/shm tmpfs — not persistent disk).
 
 Requires: JD_HUB_URL, JD_API_KEY, JD_EXP_NAME
 Optional: JD_HUB_ENV_FILE (default /tmp/jd-hub.env)
@@ -130,12 +130,13 @@ def _validate_frpc_config(frpc_config: str) -> bool:
 
 
 def _write_frpc_fifo(fifo_path: str, frpc_config: str) -> None:
-    """Stream frpc TOML into a named pipe — never a regular file."""
+    """Write frpc TOML to fifo_path (use /dev/shm for tmpfs, not persistent disk)."""
     if not _validate_frpc_config(frpc_config):
         raise SystemExit(1)
     with open(fifo_path, "w", encoding="utf-8") as f:
         f.write(frpc_config)
-    print("hub_bootstrap: frpc config streamed to fifo (not stored on disk)", file=sys.stderr)
+    os.chmod(fifo_path, 0o600)
+    print(f"hub_bootstrap: frpc config written to {fifo_path}", file=sys.stderr)
 
 
 def main() -> int:
