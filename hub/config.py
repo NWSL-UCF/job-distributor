@@ -36,7 +36,7 @@ FRPS_API_URL = _env("FRPS_API_URL", "http://localhost:7500")   # never public
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
 JWT_SECRET_KEY             = _env("JWT_SECRET_KEY", "dev-jwt-change-me")
-JWT_WORKER_TOKEN_TTL_HOURS = int(_env("JWT_WORKER_TOKEN_TTL_HOURS", "24"))
+JWT_WORKER_TOKEN_TTL_HOURS = int(_env("JWT_WORKER_TOKEN_TTL_HOURS", "1"))
 
 # ── Session ───────────────────────────────────────────────────────────────────
 HUB_SESSION_TTL_DAYS = int(_env("HUB_SESSION_TTL_DAYS", "30"))

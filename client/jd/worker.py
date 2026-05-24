@@ -74,6 +74,7 @@ import psutil
 import requests
 
 from jd import __version__
+from jd.auth import TOKEN_FILENAME, WorkerTokenManager
 
 IS_WINDOWS = platform.system() == "Windows"
 PING_INTERVAL = 57  # seconds — intentionally not 60 to avoid racing the idle timeout
@@ -166,38 +167,6 @@ def _resolve(cfg: dict) -> dict:
                              'https://hub.jobdistributor.net')).strip().rstrip('/'),
         'api_key':          get('api_key',      'JD_API_KEY',      '').strip(),
     }
-
-
-# ── Hub authentication ────────────────────────────────────────────────────────
-
-def _hub_get_worker_token(hub_url: str, api_key: str,
-                           exp_id: str, logger: logging.Logger) -> tuple[str, str] | None:
-    """
-    Obtain a worker JWT and server URL from the Hub.
-
-    Returns (worker_token, server_url) on success, None on failure.
-    The returned server_url overrides any CLI-supplied server address.
-    """
-    endpoint = f"{hub_url}/api/worker/token"
-    try:
-        r = requests.post(
-            endpoint,
-            json={"experiment_name": exp_id},
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=30,
-        )
-        if r.status_code == 200:
-            data = r.json()
-            token      = data.get("worker_token", "")
-            server_url = data.get("server_url", "")
-            expires_at = data.get("expires_at", "unknown")
-            logger.info(f"Worker token obtained from Hub (expires: {expires_at})")
-            return token, server_url
-        logger.error(f"Hub token request failed: HTTP {r.status_code} — {r.text[:300]}")
-        return None
-    except Exception as exc:
-        logger.error(f"Hub connection error: {exc}")
-        return None
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -336,20 +305,15 @@ def _averaged_metrics(machine_type: str, logger: logging.Logger,
 
 # ── Server communication ──────────────────────────────────────────────────────
 
-def _auth_headers(worker_token: str) -> dict:
-    """Return Authorization header dict if worker_token is set, else empty."""
-    if worker_token:
-        return {"Authorization": f"Bearer {worker_token}"}
-    return {}
-
-
 def _request_job(url: str, runner_id: str, metrics: dict,
-                 logger: logging.Logger, worker_token: str = ""):
+                 logger: logging.Logger,
+                 token_mgr: WorkerTokenManager | None = None):
     """Returns (job_dict, None) on success, (None, reason) on failure."""
     try:
+        headers = token_mgr.auth_headers() if token_mgr else {}
         r = requests.post(url, json={"requested_by": runner_id,
                                      "system_metrics": metrics},
-                          headers=_auth_headers(worker_token),
+                          headers=headers,
                           timeout=30)
         if r.status_code == 404:
             return None, 'no_jobs'
@@ -362,12 +326,13 @@ def _request_job(url: str, runner_id: str, metrics: dict,
 
 def _update_status(url: str, job_id: int, status: str,
                    message: str, logger: logging.Logger,
-                   worker_token: str = "") -> None:
+                   token_mgr: WorkerTokenManager | None = None) -> None:
     try:
+        headers = token_mgr.auth_headers() if token_mgr else {}
         r = requests.post(url, json={"job_id": job_id,
                                      "status":  status,
                                      "message": message},
-                          headers=_auth_headers(worker_token),
+                          headers=headers,
                           timeout=30)
         if r.status_code == 200:
             logger.info(f"Job {job_id} → {status}")
@@ -380,12 +345,17 @@ def _update_status(url: str, job_id: int, status: str,
 def _ping_loop(url: str, job_id: int,
                stop_event: threading.Event,
                logger: logging.Logger,
-               worker_token: str = "") -> None:
+               token_mgr: WorkerTokenManager | None = None) -> None:
     """Background thread: ping the server every PING_INTERVAL seconds."""
     while not stop_event.wait(PING_INTERVAL):
         try:
+            if token_mgr:
+                token_mgr.ensure_fresh()
+                headers = token_mgr.auth_headers()
+            else:
+                headers = {}
             r = requests.post(url, json={"id": job_id},
-                              headers=_auth_headers(worker_token),
+                              headers=headers,
                               timeout=10)
             if r.status_code == 200:
                 logger.info(f"Ping OK (job {job_id})")
@@ -415,27 +385,31 @@ def _run_worker(cfg: dict) -> None:
     logger  = _setup_logger(log_dir, runner_id)
 
     # ── Hub authentication (optional) ────────────────────────────────────────
-    # When num_workers > 1, the parent process already authenticated and
-    # stored the token in cfg['_worker_token'] — reuse it here directly.
-    worker_token = cfg.get('_worker_token', '')
-    if not worker_token:
-        if cfg['hub_url'] and cfg['api_key']:
-            logger.info(f"Hub mode: authenticating via {cfg['hub_url']}")
-            result = _hub_get_worker_token(
-                cfg['hub_url'], cfg['api_key'], cfg['exp_id'], logger
-            )
-            if result is None:
-                logger.error("Failed to obtain worker token from Hub. Exiting.")
-                sys.exit(1)
-            worker_token, hub_server_url = result
-            if hub_server_url:
-                cfg['base_url'] = hub_server_url
-                logger.info(f"Server URL from Hub: {hub_server_url}")
-        elif cfg['hub_url'] or cfg['api_key']:
-            logger.warning(
-                "Both hub_url (JD_HUB_URL) and api_key (JD_API_KEY) must be set "
-                "for Hub authentication. Running in standalone mode."
-            )
+    # WorkerTokenManager proactively refreshes the JWT before expiry and writes
+    # it to a per-job token file so entry scripts always read a current token.
+    token_mgr: WorkerTokenManager | None = None
+    if cfg['hub_url'] and cfg['api_key']:
+        logger.info(f"Hub mode: authenticating via {cfg['hub_url']}")
+        token_mgr = WorkerTokenManager(
+            cfg['hub_url'],
+            cfg['api_key'],
+            cfg['exp_id'],
+            logger,
+            initial_token=cfg.get('_worker_token', ''),
+        )
+        if cfg.get('_worker_token'):
+            token_mgr.ensure_fresh()
+        elif not token_mgr.refresh_now():
+            logger.error("Failed to obtain worker token from Hub. Exiting.")
+            sys.exit(1)
+        if token_mgr.last_server_url:
+            cfg['base_url'] = token_mgr.last_server_url
+            logger.info(f"Server URL from Hub: {token_mgr.last_server_url}")
+    elif cfg['hub_url'] or cfg['api_key']:
+        logger.warning(
+            "Both hub_url (JD_HUB_URL) and api_key (JD_API_KEY) must be set "
+            "for Hub authentication. Running in standalone mode."
+        )
 
     urls = {
         'request': f"{cfg['base_url']}/request_job",
@@ -446,7 +420,7 @@ def _run_worker(cfg: dict) -> None:
     logger.info(f"jd_worker_cli v{__version__}  |  runner: {runner_id}")
     logger.info(f"Server:        {cfg['base_url']}")
     logger.info(f"Entry script:   {cfg['entry_script']}")
-    logger.info(f"Hub mode:       {'enabled' if worker_token else 'disabled'}")
+    logger.info(f"Hub mode:       {'enabled' if token_mgr else 'disabled'}")
     logger.info(f"Local jd_data root: {cfg['workspace_path']} "
                 f"(each job: …/jd_data/<expId>/<job_id>/)")
     logger.info(f"Ping interval: {PING_INTERVAL}s")
@@ -476,10 +450,15 @@ def _run_worker(cfg: dict) -> None:
     # ── Main job loop ────────────────────────────────────────────────────────
     while True:
         job_id = None
+        stop_ping = threading.Event()
+        pinger = None
         try:
+            if token_mgr:
+                token_mgr.ensure_fresh()
+
             metrics      = _averaged_metrics(cfg['machine_type'], logger)
             job, reason  = _request_job(urls['request'], runner_id, metrics, logger,
-                                        worker_token=worker_token)
+                                        token_mgr=token_mgr)
 
             if job is None:
                 if reason == 'no_jobs':
@@ -498,6 +477,10 @@ def _run_worker(cfg: dict) -> None:
                 cfg['workspace_path'], cfg['exp_id'], str(job_id)))
             os.makedirs(job_root, exist_ok=True)
 
+            token_file = os.path.join(job_root, TOKEN_FILENAME)
+            if token_mgr:
+                token_mgr.set_token_file(token_file)
+
             # Build subprocess command
             # Uses the *current* Python interpreter so venv/conda is respected
             cmd = [sys.executable, cfg['entry_script']]
@@ -507,10 +490,9 @@ def _run_worker(cfg: dict) -> None:
             logger.info(f"Command: {' '.join(cmd)}")
 
             # Start heartbeat ping thread
-            stop_ping = threading.Event()
-            pinger    = threading.Thread(
+            pinger = threading.Thread(
                 target=_ping_loop,
-                args=(urls['ping'], job_id, stop_ping, logger, worker_token),
+                args=(urls['ping'], job_id, stop_ping, logger, token_mgr),
                 daemon=True,
             )
             pinger.start()
@@ -524,8 +506,9 @@ def _run_worker(cfg: dict) -> None:
             child_env["JD_EXP_ID"]                  = cfg["exp_id"]
             child_env["JD_WORKER_JOB_DIR"]          = job_root
             child_env["JD_WORKER_WORKSPACE_ROOT"]   = cfg["workspace_path"]
-            if worker_token:
-                child_env["JD_WORKER_TOKEN"]        = worker_token
+            if token_mgr:
+                child_env["JD_WORKER_TOKEN_FILE"] = token_file
+                child_env["JD_WORKER_TOKEN"]      = token_mgr.get_token()
 
             # Launch the entry script
             popen_kw = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -546,16 +529,12 @@ def _run_worker(cfg: dict) -> None:
             stdout, stderr = _proc[0].communicate()
             rc             = _proc[0].returncode
 
-            # Stop heartbeat
-            stop_ping.set()
-            pinger.join(timeout=5)
-
             if rc == 0:
                 logger.info(f"Job {job_id} finished successfully.")
                 _update_status(
                     urls['update'], job_id, 'DONE',
                     f"Completed successfully on {runner_id}.",
-                    logger, worker_token=worker_token,
+                    logger, token_mgr=token_mgr,
                 )
             else:
                 logger.error(f"Job {job_id} failed — exit code {rc}")
@@ -577,7 +556,7 @@ def _run_worker(cfg: dict) -> None:
                     abort_msg += " (Process killed — possible OOM or time limit.)"
 
                 _update_status(urls['update'], job_id, 'ABORTED', abort_msg, logger,
-                               worker_token=worker_token)
+                               token_mgr=token_mgr)
 
             _proc[0] = None
 
@@ -587,9 +566,15 @@ def _run_worker(cfg: dict) -> None:
                 _update_status(
                     urls['update'], job_id, 'ABORTED',
                     f"Unexpected exception on {runner_id}: {exc}",
-                    logger, worker_token=worker_token,
+                    logger, token_mgr=token_mgr,
                 )
             break
+        finally:
+            stop_ping.set()
+            if pinger is not None:
+                pinger.join(timeout=5)
+            if token_mgr:
+                token_mgr.clear_token_file()
 
         if cfg['once']:
             logger.info("once=true — exiting after one job.")
@@ -659,23 +644,21 @@ def main() -> None:
         # Hub authentication once in the parent so all children share the same
         # token.  Children inherit it via JD_WORKER_CFG_JSON.
         if cfg['hub_url'] and cfg['api_key']:
-            # Perform auth now so children don't all hit the Hub simultaneously.
             dummy_logger = logging.getLogger("jd_worker_cli.launcher")
             dummy_logger.addHandler(logging.StreamHandler())
             dummy_logger.setLevel(logging.INFO)
             dummy_logger.info(
                 f"Hub mode: authenticating once for {num_workers} workers …"
             )
-            result = _hub_get_worker_token(
-                cfg['hub_url'], cfg['api_key'], cfg['exp_id'], dummy_logger
+            launcher_mgr = WorkerTokenManager(
+                cfg['hub_url'], cfg['api_key'], cfg['exp_id'], dummy_logger,
             )
-            if result is None:
+            if not launcher_mgr.refresh_now():
                 dummy_logger.error("Failed to obtain worker token from Hub. Exiting.")
                 sys.exit(1)
-            worker_token, hub_server_url = result
-            cfg['_worker_token']   = worker_token
-            if hub_server_url:
-                cfg['base_url'] = hub_server_url
+            cfg['_worker_token'] = launcher_mgr.get_token()
+            if launcher_mgr.last_server_url:
+                cfg['base_url'] = launcher_mgr.last_server_url
             dummy_logger.info(
                 f"Spawning {num_workers} workers (process IDs 0–{num_workers-1}) …"
             )

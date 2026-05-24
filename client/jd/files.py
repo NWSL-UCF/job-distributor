@@ -27,6 +27,8 @@ Environment variables (set automatically by jd_worker)
     JD_WORKER_JOB_DIR           — absolute …/<parent>/jd_data/<expId>/<job_id>/
                                   (same as ``--base_path``); prefer ``jd_job_dir()``
     JD_WORKER_WORKSPACE_ROOT    — absolute ``<parent>/jd_data`` (same as ``jd_worker_workspace()``)
+    JD_WORKER_TOKEN_FILE        — path to `.jd_worker_token` (auto-refreshed by jd_worker_cli)
+    JD_WORKER_TOKEN               — initial JWT at job start (fallback if file unreadable)
 
 You can override server/job_id via the upload/checkpoint function keyword arguments.
 """
@@ -37,6 +39,8 @@ import os
 import pickle
 
 import requests
+
+from jd.auth import worker_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +71,8 @@ def _ctx(job_id, server):
 
 
 def _auth_headers() -> dict:
-    """Return Authorization header if JD_WORKER_TOKEN is set (Hub mode)."""
-    token = os.environ.get("JD_WORKER_TOKEN", "").strip()
-    if token:
-        return {"Authorization": f"Bearer {token}"}
-    return {}
+    """Return Authorization header (reads proactive token file when set)."""
+    return worker_auth_headers()
 
 
 def _check_size(data: bytes, label: str) -> None:
