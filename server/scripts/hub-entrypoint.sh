@@ -40,14 +40,19 @@ if [ -n "$JD_HUB_URL" ] && [ -n "$JD_API_KEY" ] && [ -n "$JD_EXP_NAME" ]; then
     echo "entrypoint: env file loaded and removed from disk" >&2
   fi
 
-  # Start frpc via bash process substitution: the config is decoded from the
-  # base64 env var and piped directly to frpc through /dev/fd/<N>.
-  # Nothing is written to disk — the FRPS token never appears in the filesystem.
+  # Write the frpc config to /dev/shm (RAM-based tmpfs — never touches disk),
+  # start frpc, then delete the file immediately.  /dev/shm is always a tmpfs
+  # inside Linux containers so no data is written to the host filesystem.
+  # The .ini extension is required so frpc detects the legacy INI format.
   if [ -n "$FRPC_CONFIG_B64" ]; then
-    echo "entrypoint: starting frpc (config decoded in memory, never on disk)" >&2
-    frpc -c <(echo "$FRPC_CONFIG_B64" | base64 -d) &
-    # Clear the env var so it is no longer visible in /proc/<pid>/environ
+    FRPC_SHM="/dev/shm/frpc-$$.ini"
+    echo "$FRPC_CONFIG_B64" | base64 -d > "$FRPC_SHM"
+    chmod 600 "$FRPC_SHM"
     unset FRPC_CONFIG_B64
+    echo "entrypoint: starting frpc (config in /dev/shm, deleting after start)" >&2
+    frpc -c "$FRPC_SHM" &
+    # frpc reads the file once on startup; delete it right after
+    (sleep 1 && rm -f "$FRPC_SHM" && echo "entrypoint: frpc config removed from /dev/shm" >&2) &
   else
     echo "entrypoint: warning — FRPC_CONFIG_B64 not set, tunnels will not start" >&2
   fi
