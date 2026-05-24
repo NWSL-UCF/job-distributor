@@ -1,0 +1,39 @@
+name: Test jd-worker
+
+on:
+  push:
+    paths:
+      - "client/**"
+      - ".github/workflows/client-test.yml"
+  pull_request:
+    paths:
+      - "client/**"
+      - ".github/workflows/client-test.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        working-directory: client
+        run: pip install -e .
+
+      - name: Import package modules
+        run: |
+          python -c "import jd.worker, jd.auth, jd.files, jd.paths; print('ok')"
+
+      - name: Smoke test CLI
+        run: jd_worker_cli help

@@ -68,6 +68,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
 import psutil
@@ -271,7 +272,7 @@ def _collect_metrics(machine_type: str, logger: logging.Logger) -> dict:
 
 def _request_job(url: str, runner_id: str, metrics: dict,
                  logger: logging.Logger,
-                 token_mgr: WorkerTokenManager | None = None):
+                 token_mgr: Optional[WorkerTokenManager] = None):
     """Returns (job_dict, None) on success, (None, reason) on failure."""
     try:
         headers = token_mgr.auth_headers() if token_mgr else {}
@@ -290,7 +291,7 @@ def _request_job(url: str, runner_id: str, metrics: dict,
 
 def _update_status(url: str, job_id: int, status: str,
                    message: str, logger: logging.Logger,
-                   token_mgr: WorkerTokenManager | None = None) -> None:
+                   token_mgr: Optional[WorkerTokenManager] = None) -> None:
     try:
         headers = token_mgr.auth_headers() if token_mgr else {}
         r = requests.post(url, json={"job_id": job_id,
@@ -310,7 +311,7 @@ def _ping_loop(url: str, job_id: int,
                stop_event: threading.Event,
                logger: logging.Logger,
                machine_type: str,
-               token_mgr: WorkerTokenManager | None = None) -> None:
+               token_mgr: Optional[WorkerTokenManager] = None) -> None:
     """Background thread: ping the server every PING_INTERVAL seconds."""
     while not stop_event.wait(PING_INTERVAL):
         try:
@@ -357,8 +358,8 @@ def _run_worker(cfg: dict) -> None:
     # ── Hub authentication (optional) ────────────────────────────────────────
     # WorkerTokenManager proactively refreshes the JWT before expiry and writes
     # it to a per-worker token file so entry scripts always read a current token.
-    token_mgr: WorkerTokenManager | None = None
-    token_file: str | None = None
+    token_mgr: Optional[WorkerTokenManager] = None
+    token_file: Optional[str] = None
     if cfg['hub_url'] and cfg['api_key']:
         logger.info(f"Hub mode: authenticating via {cfg['hub_url']}")
         token_mgr = WorkerTokenManager(

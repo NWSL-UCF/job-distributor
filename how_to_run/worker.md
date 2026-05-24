@@ -9,7 +9,7 @@ reports DONE or ABORTED when the script finishes.
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.8+
 - Your compute environment (venv, conda, etc.) **already active**
 - Your entry script (`train.py`, `main.py`, etc.) present in the working directory
 
