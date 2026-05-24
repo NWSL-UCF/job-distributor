@@ -9,6 +9,7 @@
 #   start   Pull the latest images and start (or restart) the full stack
 #   stop    Stop and remove all hub containers
 #   restart Restart only the hub app container (e.g. after hub.env change)
+#   build    Build hub image from local source and recreate hub container
 #   logs    Tail logs from all containers  (or pass a service name)
 #   status  Show running containers
 #   pull    Pull latest images without restarting
@@ -81,6 +82,15 @@ case "$CMD" in
     echo "Done."
     ;;
 
+  build)
+    check_env
+    echo "Building hub image from ../hub …"
+    compose build hub
+    echo "Recreating hub container with new image…"
+    compose up -d hub
+    echo "Done. Tail plugin logs with: ./run.sh logs hub | grep 'frp plugin'"
+    ;;
+
   pull)
     echo "Pulling latest images…"
     compose pull
@@ -101,7 +111,7 @@ case "$CMD" in
 
   *)
     echo "Unknown command: $CMD" >&2
-    echo "Usage: ./run.sh [start|stop|restart|logs|status|pull]" >&2
+    echo "Usage: ./run.sh [start|stop|restart|build|logs|status|pull]" >&2
     exit 1
     ;;
 

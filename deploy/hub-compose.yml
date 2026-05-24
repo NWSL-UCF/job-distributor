@@ -37,7 +37,10 @@ services:
 
   # ── Hub web app ─────────────────────────────────────────────────────────────
   hub:
-    image: jobdistributor/jd-hub:latest
+    build:
+      context: ../hub
+      dockerfile: Dockerfile
+    image: jobdistributor/jd-hub:local
     container_name: hub_app
     restart: unless-stopped
     # hub.env is the filled-in copy of hub/.env.example
