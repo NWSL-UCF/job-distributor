@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <rect width="200" height="200" rx="20" fill="#6366F1"/>
+  <!-- Graduation cap (mortarboard) -->
+  <!-- Board top: diamond/rhombus -->
+  <polygon points="100,50 158,78 100,106 42,78" fill="rgba(255,255,255,0.92)"/>
+  <!-- Cap body below brim -->
+  <path d="M68,85 L68,128 Q100,148 132,128 L132,85 L100,97 Z" fill="rgba(255,255,255,0.92)"/>
+  <!-- Tassel cord -->
+  <line x1="158" y1="78" x2="158" y2="114" stroke="rgba(255,255,255,0.85)" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="158" cy="120" r="8" fill="rgba(255,255,255,0.92)"/>
+</svg>

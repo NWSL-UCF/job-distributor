@@ -63,7 +63,21 @@ def create_app() -> Flask:
         from .background import start_background_threads
         start_background_threads(app)
 
+    # ── Ensure upload directories exist on every startup ──────────────────────
+    upload_dir = os.path.join(app.static_folder, "uploads", "avatars")
+    os.makedirs(upload_dir, exist_ok=True)
+
     # ── Jinja helpers ─────────────────────────────────────────────────────────
+    @app.template_global()
+    def avatar_url(user):
+        """Return the URL for a user's avatar (custom upload, default SVG, or generic fallback)."""
+        from flask import url_for as _url_for
+        if not user or not user.profile_photo:
+            return _url_for("static", filename="default-avatar.png")
+        if user.profile_photo.startswith("default-avatar-"):
+            return _url_for("static", filename=user.profile_photo)
+        return _url_for("static", filename=f"uploads/avatars/{user.profile_photo}")
+
     @app.template_filter("fmt_bytes")
     def fmt_bytes(n):
         if n is None:

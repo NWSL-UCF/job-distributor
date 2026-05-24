@@ -4,8 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Hub{% endblock %}</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='favicon-192.png') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet">
@@ -15,7 +17,7 @@
   <div class="auth-body__center">
   <div class="auth-card">
     <a class="auth-logo" href="{{ url_for('auth.login') }}">
-      <img class="auth-logo__icon" src="{{ url_for('static', filename='favicon-192.png') }}" width="36" height="36" alt="">
+      <img class="auth-logo__icon" src="{{ url_for('static', filename='jd-icon-hub.svg') }}" width="40" height="40" alt="">
       <span>JobDistributor Hub</span>
     </a>
 

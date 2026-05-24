@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <rect width="200" height="200" rx="20" fill="#8B5CF6"/>
+  <!-- Code brackets: < / > -->
+  <path d="M64,78 L42,100 L64,122" stroke="rgba(255,255,255,0.92)" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M136,78 L158,100 L136,122" stroke="rgba(255,255,255,0.92)" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="118" y1="73" x2="82" y2="127" stroke="rgba(255,255,255,0.92)" stroke-width="11" stroke-linecap="round"/>
+</svg>

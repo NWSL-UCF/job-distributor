@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Hub | Profile{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div>
@@ -20,34 +24,33 @@
 <div class="form-card">
   <h2 class="form-card__title">Account Info</h2>
 
-  {# ── Avatar row ─────────────────────────────────────────────────────────── #}
+  {# ── Avatar section ──────────────────────────────────────────────────────── #}
   <div class="avatar-row">
-    {# Photo frame — shows initial when image is missing #}
+    {# Current photo / frame #}
     <div class="avatar-row__frame">
       <span class="avatar-row__initial" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
       <img id="avatar-preview"
-           src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+           src="{{ avatar_url(user) }}"
            alt="Profile photo"
            onerror="this.style.display='none'">
     </div>
 
-    {# Meta: name, email, upload / remove buttons #}
     <div class="avatar-row__meta">
       <p class="avatar-row__name">{{ user.display_name or 'No name set' }}</p>
       <p class="avatar-row__email">{{ user.email }}</p>
+
       <div class="avatar-row__actions">
-        <form method="post" action="{{ url_for('dashboard.update_avatar') }}"
-              enctype="multipart/form-data" style="margin:0">
-          <label class="btn btn--outline btn--sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            {{ 'Change photo' if user.profile_photo else 'Upload photo' }}
-            <input type="file" name="photo" accept="image/jpeg,image/png,image/gif,image/webp"
-                   style="display:none" onchange="previewAvatar(this); this.form.submit()">
-          </label>
-        </form>
+        {# Upload photo — opens crop modal instead of direct submit #}
+        <label class="btn btn--outline btn--sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          {{ 'Change photo' if user.profile_photo and not user.profile_photo.startswith('default-avatar-') else 'Upload photo' }}
+          <input id="photo-file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp"
+                 style="display:none">
+        </label>
+
         {% if user.profile_photo %}
         <form method="post" action="{{ url_for('dashboard.delete_avatar') }}"
               data-confirm="Remove your profile photo?" style="margin:0">
@@ -57,7 +60,25 @@
         </form>
         {% endif %}
       </div>
-      <p class="avatar-row__hint">JPG, PNG, GIF or WebP &middot; max 2 MB</p>
+
+      <p class="avatar-row__hint">JPG, PNG, GIF or WebP &middot; max 2 MB &middot; Cropped to square before upload</p>
+
+      {# ── Default avatar picker ─────────────────────────────────────────── #}
+      <div class="avatar-defaults">
+        <p class="avatar-defaults__label">Or choose a default avatar:</p>
+        <div class="avatar-defaults__grid">
+          {% for i in range(1, 9) %}
+          <form method="post" action="{{ url_for('dashboard.set_default_avatar') }}" style="margin:0">
+            <input type="hidden" name="avatar_id" value="default-avatar-{{ i }}.svg">
+            <button type="submit"
+                    class="avatar-defaults__btn {% if user.profile_photo == 'default-avatar-' ~ i ~ '.svg' %}active{% endif %}"
+                    title="Default avatar {{ i }}">
+              <img src="{{ url_for('static', filename='default-avatar-' ~ i ~ '.svg') }}" alt="Avatar {{ i }}">
+            </button>
+          </form>
+          {% endfor %}
+        </div>
+      </div>
     </div>
   </div>
 
@@ -113,21 +134,105 @@
     <a href="{{ url_for('dashboard.change_password') }}" class="btn btn--outline">Change password</a>
   </div>
 </div>
+
+{# ── Crop modal ──────────────────────────────────────────────────────────────── #}
+<div class="crop-modal" id="crop-modal" role="dialog" aria-modal="true" aria-label="Crop photo">
+  <div class="crop-modal__backdrop" id="crop-backdrop"></div>
+  <div class="crop-modal__box">
+    <p class="crop-modal__title">Crop your photo</p>
+    <div class="crop-modal__preview">
+      <img id="crop-image" src="" alt="">
+    </div>
+    <div class="crop-modal__actions">
+      <button type="button" class="btn btn--ghost btn--sm" id="crop-cancel-btn">Cancel</button>
+      <button type="button" class="btn btn--primary btn--sm" id="crop-apply-btn">
+        Use this photo
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
 <script>
-function previewAvatar(input) {
-  if (!input.files || !input.files[0]) return;
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    const img = document.getElementById('avatar-preview');
-    if (img) {
-      img.src = e.target.result;
-      img.style.display = '';
-    }
-  };
-  reader.readAsDataURL(input.files[0]);
-}
+(function () {
+  'use strict';
+
+  var fileInput  = document.getElementById('photo-file-input');
+  var cropModal  = document.getElementById('crop-modal');
+  var cropImage  = document.getElementById('crop-image');
+  var cancelBtn  = document.getElementById('crop-cancel-btn');
+  var applyBtn   = document.getElementById('crop-apply-btn');
+  var backdrop   = document.getElementById('crop-backdrop');
+  var preview    = document.getElementById('avatar-preview');
+  var cropper    = null;
+  var uploadUrl  = "{{ url_for('dashboard.update_avatar') }}";
+
+  function openModal(src) {
+    cropImage.src = src;
+    cropModal.classList.add('open');
+    // Destroy previous instance, then init after image loads
+    if (cropper) { cropper.destroy(); cropper = null; }
+    cropImage.onload = function () {
+      cropper = new Cropper(cropImage, {
+        aspectRatio: 1,
+        viewMode: 1,
+        dragMode: 'move',
+        autoCropArea: 0.85,
+        movable: true,
+        zoomable: true,
+        scalable: false,
+        cropBoxResizable: true,
+        responsive: true,
+        guides: true,
+      });
+    };
+  }
+
+  function closeModal() {
+    cropModal.classList.remove('open');
+    if (cropper) { cropper.destroy(); cropper = null; }
+    fileInput.value = '';
+  }
+
+  fileInput.addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function (ev) { openModal(ev.target.result); };
+    reader.readAsDataURL(file);
+  });
+
+  cancelBtn.addEventListener('click', closeModal);
+  backdrop.addEventListener('click', closeModal);
+
+  applyBtn.addEventListener('click', function () {
+    if (!cropper) return;
+    applyBtn.disabled = true;
+    applyBtn.textContent = 'Uploading…';
+
+    cropper.getCroppedCanvas({ width: 480, height: 480 }).toBlob(function (blob) {
+      var fd = new FormData();
+      fd.append('photo', blob, 'crop.jpg');
+
+      fetch(uploadUrl, { method: 'POST', body: fd })
+        .then(function (r) {
+          if (r.ok) { window.location.reload(); }
+          else { return r.text().then(function (t) { throw new Error(t); }); }
+        })
+        .catch(function (err) {
+          applyBtn.disabled = false;
+          applyBtn.textContent = 'Use this photo';
+          alert('Upload failed. Please try again.');
+        });
+    }, 'image/jpeg', 0.92);
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && cropModal.classList.contains('open')) closeModal();
+  });
+})();
 </script>
 {% endblock %}

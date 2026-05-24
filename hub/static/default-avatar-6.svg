@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <rect width="200" height="200" rx="20" fill="#EF4444"/>
+  <!-- Gear: outer ring with 6 teeth, inner hole -->
+  <circle cx="100" cy="100" r="48" fill="rgba(255,255,255,0.92)"/>
+  <rect x="90" y="44" width="20" height="17" rx="4" fill="rgba(255,255,255,0.92)" transform="rotate(0,100,100)"/>
+  <rect x="90" y="44" width="20" height="17" rx="4" fill="rgba(255,255,255,0.92)" transform="rotate(60,100,100)"/>
+  <rect x="90" y="44" width="20" height="17" rx="4" fill="rgba(255,255,255,0.92)" transform="rotate(120,100,100)"/>
+  <rect x="90" y="44" width="20" height="17" rx="4" fill="rgba(255,255,255,0.92)" transform="rotate(180,100,100)"/>
+  <rect x="90" y="44" width="20" height="17" rx="4" fill="rgba(255,255,255,0.92)" transform="rotate(240,100,100)"/>
+  <rect x="90" y="44" width="20" height="17" rx="4" fill="rgba(255,255,255,0.92)" transform="rotate(300,100,100)"/>
+  <circle cx="100" cy="100" r="22" fill="#EF4444"/>
+  <circle cx="100" cy="100" r="10" fill="rgba(255,255,255,0.92)"/>
+</svg>

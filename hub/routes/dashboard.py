@@ -238,15 +238,15 @@ def update_avatar():
     if not file or not file.filename:
         return redirect(url_for("dashboard.profile"))
 
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    # Accept JPEG blobs from the crop-modal (filename comes as 'crop.jpg')
+    raw_name = file.filename or ""
+    ext = raw_name.rsplit(".", 1)[-1].lower() if "." in raw_name else "jpg"
     if ext not in _AVATAR_EXTENSIONS:
-        return render_template("profile.html", user=user,
-                               profile_error="Invalid file type. Use JPG, PNG, GIF, or WebP.")
+        return ("Invalid file type. Use JPG, PNG, GIF, or WebP.", 400)
 
     data = file.read()
     if len(data) > _AVATAR_MAX_BYTES:
-        return render_template("profile.html", user=user,
-                               profile_error="Photo too large. Maximum 2 MB.")
+        return ("Photo too large. Maximum 2 MB.", 400)
 
     upload_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -254,8 +254,10 @@ def update_avatar():
     )
     os.makedirs(upload_dir, exist_ok=True)
 
-    # Remove old avatar file if extension changed
-    if user.profile_photo and user.profile_photo != f"{user.id}.{ext}":
+    # Remove old uploaded file if extension changed (skip default SVG avatars)
+    if (user.profile_photo
+            and not user.profile_photo.startswith("default-avatar-")
+            and user.profile_photo != f"{user.id}.{ext}"):
         old_path = os.path.join(upload_dir, user.profile_photo)
         if os.path.exists(old_path):
             os.remove(old_path)
@@ -266,7 +268,32 @@ def update_avatar():
 
     user.profile_photo = filename
     db.session.commit()
-    return render_template("profile.html", user=user, profile_success="Photo updated.")
+    # Return 200 OK (JS reloads the page after success)
+    return ("ok", 200)
+
+
+@dashboard_bp.route("/profile/photo/default", methods=["POST"])
+@require_login
+def set_default_avatar():
+    user = g.current_user
+    avatar_id = request.form.get("avatar_id", "")
+    valid = {f"default-avatar-{i}.svg" for i in range(1, 9)}
+    if avatar_id not in valid:
+        return redirect(url_for("dashboard.profile"))
+
+    # Remove any previously uploaded file (default avatars have no file)
+    if user.profile_photo and not user.profile_photo.startswith("default-avatar-"):
+        upload_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "static", "uploads", "avatars",
+        )
+        file_path = os.path.join(upload_dir, user.profile_photo)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+    user.profile_photo = avatar_id
+    db.session.commit()
+    return render_template("profile.html", user=user, profile_success="Avatar updated.")
 
 
 @dashboard_bp.route("/profile/photo/delete", methods=["POST"])
@@ -276,13 +303,15 @@ def delete_avatar():
     if not user.profile_photo:
         return redirect(url_for("dashboard.profile"))
 
-    upload_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "static", "uploads", "avatars",
-    )
-    file_path = os.path.join(upload_dir, user.profile_photo)
-    if os.path.exists(file_path):
-        os.remove(file_path)
+    # Only delete the file if it's an uploaded photo, not a default avatar
+    if not user.profile_photo.startswith("default-avatar-"):
+        upload_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "static", "uploads", "avatars",
+        )
+        file_path = os.path.join(upload_dir, user.profile_photo)
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
     user.profile_photo = None
     db.session.commit()

@@ -4,8 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Hub{% endblock %}</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='favicon-192.png') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet">
@@ -17,7 +19,7 @@
 {# ── Top navigation ──────────────────────────────────────────────────────── #}
 <nav class="topnav">
   <a class="topnav__brand" href="{{ url_for('dashboard.index') }}">
-    <img class="topnav__logo" src="{{ url_for('static', filename='favicon-192.png') }}" width="28" height="28" alt="">
+    <img class="topnav__logo" src="{{ url_for('static', filename='jd-icon-hub.svg') }}" width="32" height="32" alt="">
     <span class="topnav__brand-text">JobDistributor Hub</span>
   </a>
 
@@ -54,7 +56,7 @@
       {# Avatar frame: shows initial letter when image fails #}
       <div class="nav-avatar-frame">
         <span class="nav-avatar-initial" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
-        <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+        <img src="{{ avatar_url(user) }}"
              alt="{{ user.display_name or user.email }}"
              onerror="this.style.display='none'">
       </div>
@@ -69,7 +71,7 @@
       <div class="nav-avatar-dropdown__header">
         <div class="nav-avatar-frame nav-avatar-frame--md">
           <span class="nav-avatar-initial nav-avatar-initial--md" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
-          <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+          <img src="{{ avatar_url(user) }}"
                alt="{{ user.display_name or user.email }}"
                onerror="this.style.display='none'">
         </div>
@@ -146,7 +148,7 @@
     <div class="nav-drawer__identity">
       <div class="nav-drawer__avatar-frame">
         <span class="nav-drawer__avatar-initial" aria-hidden="true">{{ (user.display_name or user.email)[0]|upper }}</span>
-        <img src="{{ url_for('static', filename='uploads/avatars/' ~ user.profile_photo) if user.profile_photo else url_for('static', filename='default-avatar.png') }}"
+        <img src="{{ avatar_url(user) }}"
              alt="{{ user.display_name or user.email }}"
              onerror="this.style.display='none'">
       </div>
@@ -159,7 +161,7 @@
     </div>
     {% else %}
     <a class="nav-drawer__brand" href="{{ url_for('auth.login') }}">
-      <img src="{{ url_for('static', filename='favicon-192.png') }}" width="26" height="26" alt="">
+      <img src="{{ url_for('static', filename='jd-icon-hub.svg') }}" width="30" height="30" alt="">
       JobDistributor Hub
     </a>
     {% endif %}
