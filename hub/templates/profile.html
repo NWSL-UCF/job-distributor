@@ -159,21 +159,32 @@
 (function () {
   'use strict';
 
-  var fileInput  = document.getElementById('photo-file-input');
-  var cropModal  = document.getElementById('crop-modal');
-  var cropImage  = document.getElementById('crop-image');
-  var cancelBtn  = document.getElementById('crop-cancel-btn');
-  var applyBtn   = document.getElementById('crop-apply-btn');
-  var backdrop   = document.getElementById('crop-backdrop');
-  var preview    = document.getElementById('avatar-preview');
-  var cropper    = null;
-  var uploadUrl  = "{{ url_for('dashboard.update_avatar') }}";
+  var fileInput = document.getElementById('photo-file-input');
+  var cropModal = document.getElementById('crop-modal');
+  var cropImage = document.getElementById('crop-image');
+  var cancelBtn = document.getElementById('crop-cancel-btn');
+  var applyBtn  = document.getElementById('crop-apply-btn');
+  var backdrop  = document.getElementById('crop-backdrop');
+  var cropper   = null;
+  var uploadUrl = "{{ url_for('dashboard.update_avatar') }}";
 
-  function openModal(src) {
-    cropImage.src = src;
-    cropModal.classList.add('open');
-    // Destroy previous instance, then init after image loads
+  /* Update every avatar <img> on the page to the new URL */
+  function refreshAllAvatars(url) {
+    /* Cache-bust so the browser doesn't serve a stale version */
+    var busted = url + '?t=' + Date.now();
+    document.querySelectorAll(
+      '#avatar-preview, .nav-avatar-frame img, .nav-drawer__avatar-frame img, .nav-avatar-dropdown__header img'
+    ).forEach(function (img) {
+      img.style.display = '';   /* un-hide if onerror hid it */
+      img.src = busted;
+    });
+  }
+
+  function initCropper(src) {
+    /* Destroy any existing instance first */
     if (cropper) { cropper.destroy(); cropper = null; }
+
+    /* ── IMPORTANT: register onload BEFORE setting src ── */
     cropImage.onload = function () {
       cropper = new Cropper(cropImage, {
         aspectRatio: 1,
@@ -188,6 +199,12 @@
         guides: true,
       });
     };
+    cropImage.src = src;   /* set src AFTER onload is registered */
+  }
+
+  function openModal(src) {
+    cropModal.classList.add('open');
+    initCropper(src);
   }
 
   function closeModal() {
@@ -208,28 +225,58 @@
   backdrop.addEventListener('click', closeModal);
 
   applyBtn.addEventListener('click', function () {
-    if (!cropper) return;
+    if (!cropper) {
+      alert('Please wait for the image to load, then try again.');
+      return;
+    }
+    var canvas = cropper.getCroppedCanvas({ width: 480, height: 480 });
+    if (!canvas) {
+      alert('Could not read the cropped image. Please try again.');
+      return;
+    }
+
     applyBtn.disabled = true;
     applyBtn.textContent = 'Uploading…';
 
-    cropper.getCroppedCanvas({ width: 480, height: 480 }).toBlob(function (blob) {
+    canvas.toBlob(function (blob) {
+      if (!blob || blob.size === 0) {
+        applyBtn.disabled = false;
+        applyBtn.textContent = 'Use this photo';
+        alert('Could not process image. Please try a different file.');
+        return;
+      }
+
       var fd = new FormData();
       fd.append('photo', blob, 'crop.jpg');
 
-      fetch(uploadUrl, { method: 'POST', body: fd })
+      fetch(uploadUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
         .then(function (r) {
-          if (r.ok) { window.location.reload(); }
-          else { return r.text().then(function (t) { throw new Error(t); }); }
+          if (!r.ok) {
+            return r.text().then(function (t) { throw new Error(t || 'Upload failed'); });
+          }
+          return r.json();
+        })
+        .then(function (data) {
+          closeModal();
+          refreshAllAvatars(data.url);
+          /* Brief success banner */
+          var banner = document.createElement('div');
+          banner.className = 'alert alert--success';
+          banner.textContent = 'Profile photo updated.';
+          var pageHeader = document.querySelector('.page-header');
+          if (pageHeader) pageHeader.after(banner);
+          setTimeout(function () { banner.remove(); }, 4000);
+          applyBtn.disabled = false;
+          applyBtn.textContent = 'Use this photo';
         })
         .catch(function (err) {
           applyBtn.disabled = false;
           applyBtn.textContent = 'Use this photo';
-          alert('Upload failed. Please try again.');
+          alert('Upload failed: ' + (err.message || 'Unknown error'));
         });
     }, 'image/jpeg', 0.92);
   });
 
-  // Close on Escape
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && cropModal.classList.contains('open')) closeModal();
   });
