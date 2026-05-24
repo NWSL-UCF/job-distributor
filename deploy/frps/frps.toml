@@ -44,11 +44,6 @@ vhostHTTPPort = 8080
 webServer.addr = "0.0.0.0"
 webServer.port = 7500
 
-# ── Logging ───────────────────────────────────────────────────────────────────
-log.to      = "/var/log/frps/frps.log"
-log.level   = "info"    # debug | info | warn | error
-log.maxDays = 7
-
 # ── Server Plugin — proxy authorisation ───────────────────────────────────────
 # frps calls the Hub before accepting every frpc proxy registration.
 # The Hub approves only if the experiment is active AND the server sent a
