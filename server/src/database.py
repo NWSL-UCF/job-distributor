@@ -16,6 +16,20 @@ STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
 STATUS_DELETED = "DELETED"
 
+
+def _parse_job_message(raw: Any) -> Any:
+    """Parse job message JSON; keep raw text when the column is not valid JSON."""
+    if raw is None:
+        return []
+    if not isinstance(raw, str):
+        return raw
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        text = raw.strip()
+        return text if text else []
+
+
 class JobDatabase:
     """SQLite database handler for job distribution system."""
     
@@ -223,11 +237,7 @@ class JobDatabase:
             jobs = []
             for row in rows:
                 job = dict(row)
-                # Parse JSON fields
-                try:
-                    job['message'] = json.loads(job['message'])
-                except json.JSONDecodeError:
-                    job['message'] = []
+                job['message'] = _parse_job_message(job['message'])
                 try:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:
@@ -478,11 +488,7 @@ class JobDatabase:
             
             if row:
                 job = dict(row)
-                # Parse JSON fields
-                try:
-                    job['message'] = json.loads(job['message'])
-                except json.JSONDecodeError:
-                    job['message'] = []
+                job['message'] = _parse_job_message(job['message'])
                 try:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:
@@ -545,11 +551,7 @@ class JobDatabase:
             jobs = []
             for row in rows:
                 job = dict(row)
-                # Parse JSON fields
-                try:
-                    job['message'] = json.loads(job['message'])
-                except json.JSONDecodeError:
-                    job['message'] = []
+                job['message'] = _parse_job_message(job['message'])
                 try:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:
@@ -1086,11 +1088,7 @@ class JobDatabase:
             jobs = []
             for row in rows:
                 job = dict(row)
-                # Parse JSON fields
-                try:
-                    job['message'] = json.loads(job['message'])
-                except json.JSONDecodeError:
-                    job['message'] = []
+                job['message'] = _parse_job_message(job['message'])
                 try:
                     job['parameters'] = json.loads(job['parameters'])
                 except json.JSONDecodeError:

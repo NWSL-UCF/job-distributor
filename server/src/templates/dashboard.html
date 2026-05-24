@@ -523,19 +523,14 @@
 
                 <!-- Tabs -->
                 <div class="modal-tabs">
-                    <button class="modal-tab-btn active" id="tab-btn-history"    onclick="switchModalTab('history',    this)"><i class="fas fa-history"></i>    History</button>
-                    <button class="modal-tab-btn"        id="tab-btn-parameters" onclick="switchModalTab('parameters', this)"><i class="fas fa-sliders-h"></i> Parameters</button>
+                    <button class="modal-tab-btn active" id="tab-btn-parameters" onclick="switchModalTab('parameters', this)"><i class="fas fa-sliders-h"></i> Parameters</button>
+                    <button class="modal-tab-btn"        id="tab-btn-history"    onclick="switchModalTab('history',    this)"><i class="fas fa-history"></i>    History</button>
                     <button class="modal-tab-btn"        id="tab-btn-metrics"    onclick="switchModalTab('metrics',   this)"><i class="fas fa-microchip"></i>  Metrics</button>
                     <button class="modal-tab-btn"        id="tab-btn-actions"    onclick="switchModalTab('actions',   this)"><i class="fas fa-tools"></i>       Actions <span id="actionsTabBadge" class="tab-badge" style="display:none;"></span></button>
                 </div>
 
-                <!-- Tab: History -->
-                <div id="modalTab-history" class="modal-tab-content active">
-                    <div class="timeline" id="messageTimeline"></div>
-                </div>
-
                 <!-- Tab: Parameters -->
-                <div id="modalTab-parameters" class="modal-tab-content">
+                <div id="modalTab-parameters" class="modal-tab-content active">
                     <div id="parametersTable" style="margin-bottom:16px;"></div>
 
                     <!-- Update Parameters Section (PENDING only) -->
@@ -548,6 +543,11 @@
                             <button id="updateParamsBtn" onclick="updateJobParameters()" style="padding:8px 16px; background:#e6ac00; color:white; border:none; border-radius:4px; cursor:pointer; white-space:nowrap; font-weight:bold;">Save Changes</button>
                         </div>
                     </div>
+                </div>
+
+                <!-- Tab: History -->
+                <div id="modalTab-history" class="modal-tab-content">
+                    <div class="timeline" id="messageTimeline"></div>
                 </div>
 
                 <!-- Tab: Metrics -->

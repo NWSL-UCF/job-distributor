@@ -21,10 +21,8 @@ function openModal() {
                     console.log('encodeForHtmlAttribute input:', text);
                     console.log('encodeForHtmlAttribute input type:', typeof text);
                     
-                    if (typeof text !== 'string') {
-                        text = safeStringify(text);
-                        console.log('After safeStringify:', text);
-                    }
+                    text = safeStringify(text === undefined ? null : text);
+                    console.log('After safeStringify:', text);
                     
                     if (!text || text === 'null' || text === 'undefined') {
                         console.log('Empty/null/undefined, returning empty string');
@@ -33,9 +31,9 @@ function openModal() {
                     
                     // Handle essential characters for onclick + preserve newlines
                     const result = text
+                        .replace(/&/g, '&amp;')           // Ampersand first
                         .replace(/"/g, '&quot;')          // Double quote
                         .replace(/'/g, '&#39;')           // Single quote
-                        .replace(/&/g, '&amp;')           // Ampersand
                         .replace(/</g, '&lt;')            // Less than
                         .replace(/>/g, '&gt;')            // Greater than
                         .replace(/\\n/g, '&#10;')          // Newline
@@ -80,13 +78,20 @@ function openModal() {
                 }
             }
 
-            function safeJsonParse(jsonString, fallback = null) {
+            function safeJsonParse(value, fallback = null) {
                 try {
-                    console.log('safeJsonParse input:', jsonString);
-                    console.log('safeJsonParse input type:', typeof jsonString);
+                    if (value === null || value === undefined) {
+                        return fallback;
+                    }
+                    if (typeof value === 'object') {
+                        return value;
+                    }
+
+                    console.log('safeJsonParse input:', value);
+                    console.log('safeJsonParse input type:', typeof value);
                     
                     // First decode HTML entities
-                    const decoded = decodeFromHtmlAttribute(jsonString);
+                    const decoded = decodeFromHtmlAttribute(value);
                     console.log('After decodeFromHtmlAttribute:', decoded);
                     
                     // Clean up control characters that break JSON parsing
@@ -103,7 +108,7 @@ function openModal() {
                     return result;
                 } catch (error) {
                     console.error('JSON parsing error:', error);
-                    console.error('Original string:', jsonString);
+                    console.error('Original string:', value);
                     return fallback;
                 }
             }
@@ -114,6 +119,121 @@ function openModal() {
                     return message.replace(/\\n/g, '<br>');
                 }
                 return String(message);
+            }
+
+            function normalizeHistoryEntries(entries) {
+                const out = [];
+                if (!Array.isArray(entries)) {
+                    entries = [entries];
+                }
+                for (const entry of entries) {
+                    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+                        out.push({
+                            reason: entry.reason != null ? String(entry.reason) : JSON.stringify(entry),
+                            timestamp: (typeof entry.timestamp === 'number' && !Number.isNaN(entry.timestamp))
+                                ? entry.timestamp : null,
+                        });
+                    } else if (typeof entry === 'string') {
+                        out.push({ reason: entry, timestamp: null });
+                    } else if (entry != null) {
+                        out.push({ reason: String(entry), timestamp: null });
+                    }
+                }
+                return out;
+            }
+
+            /** Parse job audit history — never throws; tolerates plain strings and bad JSON. */
+            function parseJobHistory(raw) {
+                if (raw === null || raw === undefined || raw === '') {
+                    return [];
+                }
+                if (Array.isArray(raw)) {
+                    return normalizeHistoryEntries(raw);
+                }
+
+                let text = raw;
+                if (typeof text !== 'string') {
+                    if (typeof text === 'object') {
+                        return normalizeHistoryEntries([text]);
+                    }
+                    text = String(text);
+                }
+
+                text = decodeFromHtmlAttribute(text);
+                if (!text || text === 'null' || text === 'undefined') {
+                    return [];
+                }
+                text = text.trim();
+                if (!text) {
+                    return [];
+                }
+
+                // Direct JSON parse (preferred — avoids mangling valid JSON)
+                try {
+                    const parsed = JSON.parse(text);
+                    if (Array.isArray(parsed)) {
+                        return normalizeHistoryEntries(parsed);
+                    }
+                    if (parsed && typeof parsed === 'object') {
+                        return normalizeHistoryEntries([parsed]);
+                    }
+                    if (typeof parsed === 'string' && parsed.trim()) {
+                        return [{ reason: parsed, timestamp: null }];
+                    }
+                } catch (directErr) {
+                    // fall through
+                }
+
+                // Legacy: single-quoted or partially escaped payloads from old rows
+                const fallback = safeJsonParse(text, null);
+                if (Array.isArray(fallback)) {
+                    return normalizeHistoryEntries(fallback);
+                }
+                if (fallback && typeof fallback === 'object') {
+                    return normalizeHistoryEntries([fallback]);
+                }
+                if (typeof fallback === 'string' && fallback.trim()) {
+                    return [{ reason: fallback, timestamp: null }];
+                }
+
+                // Plain text stored instead of a JSON array
+                return [{ reason: text, timestamp: null }];
+            }
+
+            function renderJobHistory(timelineEl, rawMessage) {
+                timelineEl.innerHTML = '';
+                let entries;
+                try {
+                    entries = parseJobHistory(rawMessage);
+                } catch (err) {
+                    console.error('parseJobHistory failed:', err, rawMessage);
+                    entries = [{ reason: String(rawMessage || ''), timestamp: null }];
+                }
+
+                if (!entries.length) {
+                    timelineEl.innerHTML =
+                        '<div class="timeline-empty"><i class="fas fa-history"></i>No history yet — audit entries appear here when actions are taken on this job.</div>';
+                    return;
+                }
+
+                entries.slice().reverse().forEach(entry => {
+                    const item = document.createElement('div');
+                    item.className = 'timeline-item ' + getTimelineClass(entry.reason || '');
+
+                    let tsLabel = 'Time unknown';
+                    if (entry.timestamp != null) {
+                        tsLabel = new Date(entry.timestamp * 1000).toLocaleString('en-US', {
+                            weekday: 'short', year: 'numeric', month: 'short',
+                            day: 'numeric', hour: '2-digit', minute: '2-digit',
+                            second: '2-digit', hour12: true
+                        });
+                    }
+
+                    item.innerHTML =
+                        `<div class="tl-msg">${formatMessageForDisplay(entry.reason)}</div>` +
+                        `<div class="tl-time">${tsLabel}</div>`;
+                    timelineEl.appendChild(item);
+                });
             }
 
             // Load jobs for a specific status and page
@@ -185,10 +305,6 @@ function openModal() {
                             const durationSec    = job.required_time || 0;
                             const durationFmt    = durationSec ? formatTime(durationSec) : '';
 
-                            const messageJson      = encodeForHtmlAttribute(job.message);
-                            const parametersJson   = encodeForHtmlAttribute(job.parameters);
-                            const systemMetricsJson = encodeForHtmlAttribute(job.system_metrics || {});
-
                             html += `
                                 <tr>
                                     <td data-value="${job.id}" style="font-weight:bold;">${job.id}</td>
@@ -197,7 +313,7 @@ function openModal() {
                                     <td data-value="${compTs}">${compTime}</td>
                                     <td data-value="${durationSec}">${durationFmt}</td>
                                     <td>
-                                        <button class="view-details-btn" onclick="showMessageModalWithRecovery(${job.id}, '${messageJson}', '${parametersJson}', '${systemMetricsJson}', '${job.status}')" title="View Details">
+                                        <button class="view-details-btn" onclick="openJobDetails(${job.id})" title="View Details">
                                             <i class="fas fa-eye"></i>
                                         </button>
                                     </td>
@@ -332,6 +448,181 @@ function openModal() {
                 return '';
             }
 
+            function _metricsLevel(ratio) {
+                if (ratio >= 0.85) return 'high';
+                if (ratio >= 0.60) return 'med';
+                return 'low';
+            }
+
+            function _num(metrics, key, fallback) {
+                const v = metrics[key];
+                return (typeof v === 'number' && !Number.isNaN(v)) ? v : fallback;
+            }
+
+            function _metricsBar(label, valueText, ratio, icon) {
+                const row = document.createElement('div');
+                row.className = 'metrics-bar-row';
+
+                const lbl = document.createElement('div');
+                lbl.className = 'metrics-bar-label';
+                lbl.innerHTML = icon ? `<i class="fas ${icon}"></i> ${label}` : label;
+
+                const trackWrap = document.createElement('div');
+                trackWrap.className = 'metrics-bar-track-wrap';
+
+                const track = document.createElement('div');
+                track.className = 'metrics-bar-track';
+
+                const fill = document.createElement('div');
+                fill.className = 'metrics-bar-fill ' + _metricsLevel(Math.min(1, Math.max(0, ratio)));
+                fill.style.width = (Math.min(100, Math.max(0, ratio * 100))).toFixed(1) + '%';
+
+                const val = document.createElement('div');
+                val.className = 'metrics-bar-value';
+                val.textContent = valueText;
+
+                track.appendChild(fill);
+                trackWrap.appendChild(track);
+                trackWrap.appendChild(val);
+                row.appendChild(lbl);
+                row.appendChild(trackWrap);
+                return row;
+            }
+
+            function _metricsSection(title, icon) {
+                const sec = document.createElement('div');
+                sec.className = 'metrics-section';
+                const h = document.createElement('div');
+                h.className = 'metrics-section-title';
+                h.innerHTML = icon ? `<i class="fas ${icon}"></i> ${title}` : title;
+                sec.appendChild(h);
+                return sec;
+            }
+
+            function _metricsChip(text, icon) {
+                const chip = document.createElement('span');
+                chip.className = 'metrics-hardware-chip';
+                chip.innerHTML = icon ? `<i class="fas ${icon}"></i> ${text}` : text;
+                return chip;
+            }
+
+            function renderSystemMetrics(container, metrics) {
+                container.innerHTML = '';
+                const panel = document.createElement('div');
+                panel.className = 'metrics-panel';
+
+                const cpuThreads = Math.max(1, _num(metrics, 'cpu_threads', 1));
+                const cpuCores   = _num(metrics, 'cpu_cores', 0);
+                const cpuFreq    = _num(metrics, 'cpu_freq_mhz', 0);
+                const workerType = metrics.worker_type || 'worker';
+                const cpuUtil    = _num(metrics, 'cpu_util', 0);
+                const ramUtil    = _num(metrics, 'ram_util', 0);
+                const ramTotal   = _num(metrics, 'ram_total', 0);
+                const ramAvail   = _num(metrics, 'ram_available', 0);
+                const ramUsed    = Math.max(0, ramTotal - ramAvail);
+                const diskUtil   = _num(metrics, 'disk_io_util', 0);
+                const load1      = _num(metrics, 'load_1min', 0);
+                const load5      = _num(metrics, 'load_5min', 0);
+                const load15     = _num(metrics, 'load_15min', 0);
+                const loadPerCpu = _num(metrics, 'load_per_cpu', 0);
+                const idleSlots  = _num(metrics, 'idle_slots', 0);
+
+                // Hardware header
+                const hw = document.createElement('div');
+                hw.className = 'metrics-hardware';
+                const badge = document.createElement('span');
+                badge.className = 'metrics-worker-badge';
+                badge.innerHTML = `<i class="fas fa-server"></i> ${workerType}`;
+                hw.appendChild(badge);
+                if (cpuCores > 0)   hw.appendChild(_metricsChip(`${cpuCores} cores`, 'fa-microchip'));
+                if (cpuThreads > 0) hw.appendChild(_metricsChip(`${cpuThreads} threads`, 'fa-layer-group'));
+                if (cpuFreq > 0)    hw.appendChild(_metricsChip(`${cpuFreq} MHz`, 'fa-tachometer-alt'));
+                panel.appendChild(hw);
+
+                // Utilization
+                const utilSec = _metricsSection('Utilization', 'fa-chart-bar');
+                utilSec.appendChild(_metricsBar('CPU', cpuUtil.toFixed(1) + '%', cpuUtil / 100, 'fa-microchip'));
+                utilSec.appendChild(_metricsBar(
+                    'Memory',
+                    ramUtil.toFixed(1) + '% · ' + ramUsed.toFixed(1) + ' / ' + ramTotal.toFixed(1) + ' GB',
+                    ramUtil / 100,
+                    'fa-database'
+                ));
+                utilSec.appendChild(_metricsBar('Disk I/O', diskUtil.toFixed(1) + '%', diskUtil / 100, 'fa-hdd'));
+                panel.appendChild(utilSec);
+
+                // Load averages
+                const loadSec = _metricsSection('Load average', 'fa-weight-hanging');
+                const loadNote = document.createElement('div');
+                loadNote.className = 'metrics-section-note';
+                loadNote.textContent = 'Relative to ' + cpuThreads + ' logical threads';
+                loadSec.appendChild(loadNote);
+                loadSec.appendChild(_metricsBar('1 min', load1.toFixed(2), load1 / cpuThreads, null));
+                loadSec.appendChild(_metricsBar('5 min', load5.toFixed(2), load5 / cpuThreads, null));
+                loadSec.appendChild(_metricsBar('15 min', load15.toFixed(2), load15 / cpuThreads, null));
+                panel.appendChild(loadSec);
+
+                // Summary cards
+                const stats = document.createElement('div');
+                stats.className = 'metrics-stat-grid';
+
+                const idleCard = document.createElement('div');
+                idleCard.className = 'metrics-stat-card highlight';
+                idleCard.innerHTML =
+                    '<div class="metrics-stat-label"><i class="fas fa-hourglass-half"></i> Idle slots</div>' +
+                    '<div class="metrics-stat-value">' + idleSlots + '</div>' +
+                    '<div class="metrics-stat-hint">estimated free worker capacity</div>';
+                stats.appendChild(idleCard);
+
+                const lpcCard = document.createElement('div');
+                lpcCard.className = 'metrics-stat-card';
+                lpcCard.innerHTML =
+                    '<div class="metrics-stat-label"><i class="fas fa-divide"></i> Load / CPU</div>' +
+                    '<div class="metrics-stat-value">' + loadPerCpu.toFixed(2) + '</div>' +
+                    '<div class="metrics-stat-hint">1-min load per thread</div>';
+                stats.appendChild(lpcCard);
+
+                const capCard = document.createElement('div');
+                capCard.className = 'metrics-stat-card';
+                capCard.innerHTML =
+                    '<div class="metrics-stat-label"><i class="fas fa-memory"></i> RAM free</div>' +
+                    '<div class="metrics-stat-value">' + ramAvail.toFixed(1) + ' GB</div>' +
+                    '<div class="metrics-stat-hint">of ' + ramTotal.toFixed(1) + ' GB total</div>';
+                stats.appendChild(capCard);
+
+                panel.appendChild(stats);
+                container.appendChild(panel);
+            }
+
+            /** Load one job from the API so history/params never break the onclick handler. */
+            function openJobDetails(jobId) {
+                fetch(`/jobs_paginated?search_job_id=${encodeURIComponent(jobId)}&page=1&per_page=1`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        const job = data.jobs && data.jobs[0];
+                        if (!job || String(job.id) !== String(jobId)) {
+                            showNotification('Job not found', 'error');
+                            return;
+                        }
+                        showMessageModalWithRecovery(
+                            job.id,
+                            job.message,
+                            job.parameters,
+                            job.system_metrics || {},
+                            job.status
+                        );
+                    })
+                    .catch(err => {
+                        console.error('openJobDetails failed:', err);
+                        showNotification('Could not load job details', 'error');
+                    });
+            }
+
             function showMessageModal(jobId, message, parameters, systemMetrics, currentStatus) {
                 const modal = document.getElementById("messageModal");
                 const jobIdSpan = document.getElementById("jobId");
@@ -350,8 +641,8 @@ function openModal() {
                 badge.textContent = currentStatus;
                 badge.className = 'job-status-badge badge-' + currentStatus;
 
-                // Reset to History tab on every open
-                switchModalTab('history', document.getElementById('tab-btn-history'));
+                // Reset to Parameters tab on every open
+                switchModalTab('parameters', document.getElementById('tab-btn-parameters'));
 
                 // ---- Actions tab ----
                 const hasStatusChange = ['DONE','ABORTED','PENDING'].includes(currentStatus);
@@ -384,18 +675,12 @@ function openModal() {
                 document.getElementById("deleteReason").value = "";
                 document.getElementById("restoreReason").value = "";
 
+                // Parameters
                 try {
-                    // Debug: Log the raw data
-                    console.log('Raw message:', message);
-                    console.log('Raw parameters:', parameters);
-                    console.log('Raw system_metrics:', systemMetrics);
-                    
-                    // Parse parameters using safe JSON parsing
                     let parsedParameters = safeJsonParse(parameters, {});
                     console.log('Parsed parameters:', parsedParameters);
 
-                    // Show parameters table (always visible in Parameters tab)
-                    if (parsedParameters && typeof parsedParameters === "object" && Object.keys(parsedParameters).length > 0) {
+                    if (parsedParameters && typeof parsedParameters === "object" && !Array.isArray(parsedParameters) && Object.keys(parsedParameters).length > 0) {
                         const table = document.createElement("table");
                         table.className = "modal-kv-table";
                         table.innerHTML = `<tr><th>Parameter</th><th>Value</th></tr>`;
@@ -411,8 +696,7 @@ function openModal() {
                         parametersTable.innerHTML = '<p style="color:#adb5bd; text-align:center; padding:20px 0;">No parameters</p>';
                     }
 
-                    // Populate editable fields for PENDING jobs
-                    if (currentStatus === 'PENDING' && parsedParameters && typeof parsedParameters === "object") {
+                    if (currentStatus === 'PENDING' && parsedParameters && typeof parsedParameters === "object" && !Array.isArray(parsedParameters)) {
                         const fieldsContainer = document.getElementById("updateParamsFields");
                         for (let key in parsedParameters) {
                             const val = parsedParameters[key];
@@ -455,64 +739,34 @@ function openModal() {
                             fieldsContainer.appendChild(fieldDiv);
                         }
                     }
+                } catch (e) {
+                    console.error('Error parsing parameters:', e);
+                    parametersTable.innerHTML = '<p style="color:#adb5bd; text-align:center; padding:20px 0;">Could not load parameters</p>';
+                }
 
-                    // Parse system_metrics using safe JSON parsing
+                // Metrics
+                try {
                     let parsedSystemMetrics = safeJsonParse(systemMetrics, {});
                     console.log('Parsed system_metrics:', parsedSystemMetrics);
 
-                    // Show system_metrics table (always visible in Metrics tab)
-                    if (parsedSystemMetrics && typeof parsedSystemMetrics === "object" && Object.keys(parsedSystemMetrics).length > 0) {
-                        const table = document.createElement("table");
-                        table.className = "modal-kv-table";
-                        table.innerHTML = `<tr><th>Metric</th><th>Value</th></tr>`;
-                        for (let key in parsedSystemMetrics) {
-                            const row = document.createElement("tr");
-                            let value = parsedSystemMetrics[key];
-                            if (typeof value === 'number') {
-                                if (key.includes('util') || key.includes('percent')) value = value.toFixed(1) + '%';
-                                else if (key.includes('ram') && (key.includes('available') || key.includes('total'))) value = value.toFixed(2) + ' GB';
-                                else if (key.includes('freq')) value = value + ' MHz';
-                                else value = value.toFixed(2);
-                            }
-                            row.innerHTML = `<td><strong>${key}</strong></td><td>${value}</td>`;
-                            table.appendChild(row);
-                        }
-                        systemMetricsTable.appendChild(table);
+                    if (parsedSystemMetrics && typeof parsedSystemMetrics === "object" && !Array.isArray(parsedSystemMetrics) && Object.keys(parsedSystemMetrics).length > 0) {
+                        renderSystemMetrics(systemMetricsTable, parsedSystemMetrics);
                     } else {
                         systemMetricsTable.innerHTML = '<p style="color:#adb5bd; text-align:center; padding:20px 0;">No system metrics recorded — collected when a worker claims this job.</p>';
                     }
-
-                    // Parse message using safe JSON parsing
-                    let parsedMessage = safeJsonParse(message, []);
-                    console.log('Parsed message:', parsedMessage);
-
-                    // Show job history (newest first)
-                    const reversedMessage = JSON.parse(JSON.stringify(parsedMessage)).reverse();
-
-                    if (reversedMessage.length === 0) {
-                        messageTimeline.innerHTML =
-                            '<div class="timeline-empty"><i class="fas fa-history"></i>No history yet — audit entries appear here when actions are taken on this job.</div>';
-                    } else {
-                        reversedMessage.forEach(entry => {
-                            const item = document.createElement("div");
-                            item.className = "timeline-item " + getTimelineClass(entry.reason || "");
-
-                            const ts = new Date(entry.timestamp * 1000).toLocaleString("en-US", {
-                                weekday: "short", year: "numeric", month: "short",
-                                day: "numeric", hour: "2-digit", minute: "2-digit",
-                                second: "2-digit", hour12: true
-                            });
-
-                            item.innerHTML =
-                                `<div class="tl-msg">${formatMessageForDisplay(entry.reason)}</div>` +
-                                `<div class="tl-time">${ts}</div>`;
-                            messageTimeline.appendChild(item);
-                        });
-                    }
-
                 } catch (e) {
-                    console.error('Error parsing message/parameters:', e);
-                    messageTimeline.innerHTML = "<p>Invalid message format</p>";
+                    console.error('Error parsing system_metrics:', e);
+                    systemMetricsTable.innerHTML = '<p style="color:#adb5bd; text-align:center; padding:20px 0;">Could not load metrics</p>';
+                }
+
+                // History (isolated — bad message data must not break other tabs)
+                try {
+                    console.log('Raw message:', message);
+                    renderJobHistory(messageTimeline, message);
+                } catch (e) {
+                    console.error('Error rendering history:', e);
+                    messageTimeline.innerHTML =
+                        '<div class="timeline-empty"><i class="fas fa-exclamation-triangle"></i>Could not load history for this job.</div>';
                 }
 
                 modal.style.display = "block";
@@ -1147,23 +1401,35 @@ function openModal() {
                 } catch (error) {
                     console.error('Error in showMessageModal, attempting recovery:', error);
                     
-                    // Fallback: show basic information without parsing
                     const modal = document.getElementById("messageModal");
                     const jobIdSpan = document.getElementById("jobId");
                     const messageTimeline = document.getElementById("messageTimeline");
+                    const parametersTable = document.getElementById("parametersTable");
+                    const systemMetricsTable = document.getElementById("systemMetricsTable");
+                    const badge = document.getElementById("jobStatusBadge");
                     
-                    if (modal && jobIdSpan && messageTimeline) {
+                    if (modal && jobIdSpan) {
                         jobIdSpan.textContent = jobId;
-                        messageTimeline.innerHTML = `
-                            <div class="timeline-item">
-                                <div class="message">Job ID: ${jobId}</div>
-                                <div class="timestamp">Status: ${currentStatus}</div>
-                            </div>
-                            <div class="timeline-item">
-                                <div class="message">⚠️ Error displaying job details</div>
-                                <div class="timestamp">Please check console for details</div>
-                            </div>
-                        `;
+                        if (badge) {
+                            badge.textContent = currentStatus || '';
+                            badge.className = 'job-status-badge badge-' + (currentStatus || 'PENDING');
+                        }
+                        switchModalTab('parameters', document.getElementById('tab-btn-parameters'));
+
+                        if (parametersTable) {
+                            parametersTable.innerHTML = '<p style="color:#adb5bd; text-align:center; padding:20px 0;">Could not load parameters</p>';
+                        }
+                        if (systemMetricsTable) {
+                            systemMetricsTable.innerHTML = '<p style="color:#adb5bd; text-align:center; padding:20px 0;">Could not load metrics</p>';
+                        }
+                        if (messageTimeline) {
+                            try {
+                                renderJobHistory(messageTimeline, message);
+                            } catch (historyErr) {
+                                messageTimeline.innerHTML =
+                                    '<div class="timeline-empty"><i class="fas fa-exclamation-triangle"></i>Could not load history for this job.</div>';
+                            }
+                        }
                         modal.style.display = "block";
                     } else {
                         alert(`Error displaying job ${jobId}. Please check console for details.`);
