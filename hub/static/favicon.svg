@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 624 624">
 <defs>
   <filter id="bold" x="-5%" y="-5%" width="110%" height="110%">
-    <feMorphology operator="dilate" radius="5"/>
+    <feMorphology operator="dilate" radius="3"/>
   </filter>
 </defs>
 <g filter="url(#bold)">
