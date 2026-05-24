@@ -307,14 +307,16 @@ def _build_frpc_config(exp: Experiment) -> str:
     )
 
 
-# ── frp Server Plugin — proxy authorisation & lifecycle notifications ─────────
+# ── frp Server Plugin — authentication + proxy authorisation ────────────────
 #
-# frps calls this endpoint for NewProxy (before accepting a tunnel) and
-# CloseProxy (when a tunnel closes).  We:
-#   • NewProxy : approve only if the experiment is active AND recently heartbeated;
-#                send a "server connected" email to the owner (once per 5 min).
-#   • CloseProxy: look up the experiment by proxy name; send a "server
-#                 disconnected" email to the owner (once per 5 min).
+# frps calls this endpoint for Login, NewProxy, and CloseProxy.
+#
+#   Login     — validate per-experiment frpc_token (meta_exp_token in frpc config)
+#   NewProxy  — allow only HTTP proxies for the token owner's two assigned domains
+#   CloseProxy — notify experiment owner when the server tunnel closes
+#
+# NewProxy checks (see frp_plugin_hook): proxy type, domains, token binding,
+# proxy name, heartbeat. Each check is commented in code for manual review.
 #
 # Security: port 5000 is never exposed outside the Docker network.  We also
 # verify the caller's IP is RFC-1918 for defence in depth.
@@ -327,6 +329,15 @@ def _build_frpc_config(exp: Experiment) -> str:
 # Key: "{event}:{exp_name}"  Value: last notification datetime
 _notif_cooldown: Dict[str, datetime] = {}
 _NOTIF_COOLDOWN_SECS = 300   # 5 minutes
+
+
+def _frp_reject(reason: str):
+    """Return a frp plugin rejection response (HTTP 200 with reject=true)."""
+    return jsonify({"reject": True, "reject_reason": reason}), 200
+
+
+def _frp_allow():
+    return jsonify({"reject": False, "unchange": True}), 200
 
 
 def _can_notify(event: str, exp_name: str) -> bool:
@@ -358,7 +369,7 @@ def frp_plugin_hook():
         or remote_ip in ("127.0.0.1", "::1")
     )
     if not is_private:
-        return jsonify({"reject": True, "reject_reason": "Forbidden"}), 200
+        return _frp_reject("Forbidden")
 
     data    = request.get_json(silent=True) or {}
     op      = data.get("op", "NewProxy")
@@ -368,23 +379,17 @@ def frp_plugin_hook():
     # frps calls this when a frpc client connects, before accepting it.
     # We validate the per-experiment token sent in frpc's metadatas field.
     if op == "Login":
-        metadatas  = content.get("metadatas") or {}
+        metadatas  = content.get("metadatas") or content.get("metas") or {}
         exp_token  = (metadatas.get("exp_token") or "").strip()
         if not exp_token:
-            return jsonify({
-                "reject":        True,
-                "reject_reason": "Missing experiment token (meta_exp_token)",
-            }), 200
+            return _frp_reject("Missing experiment token (meta_exp_token)")
         exp = Experiment.query.filter(
             Experiment.frpc_token == exp_token,
             Experiment.status.notin_(["DELETED", "EXPIRED"]),
         ).first()
         if exp is None:
-            return jsonify({
-                "reject":        True,
-                "reject_reason": "Invalid or expired experiment token",
-            }), 200
-        return jsonify({"reject": False, "unchange": True}), 200
+            return _frp_reject("Invalid or expired experiment token")
+        return _frp_allow()
 
     # ── CloseProxy ────────────────────────────────────────────────────────────
     if op == "CloseProxy":
@@ -396,45 +401,91 @@ def frp_plugin_hook():
                 if _can_notify("disconnected", exp.name):
                     send_server_disconnected(exp.user.email, exp.name)
         # CloseProxy responses are ignored by frps — just return OK
-        return jsonify({"reject": False, "unchange": True}), 200
+        return _frp_allow()
 
     # ── NewProxy ──────────────────────────────────────────────────────────────
+    # Tightened authorisation: only HTTP tunnels for the Login token's
+    # experiment, on its two pre-assigned custom_domains.  Each check below
+    # is labelled [NP-1] … [NP-10] so you can verify behaviour in logs/tests.
+
+    # [NP-1] Proxy type must be HTTP — reject tcp/udp/stcp/tcpmux/etc.
+    proxy_type = (content.get("proxy_type") or "").strip().lower()
+    if proxy_type != "http":
+        return _frp_reject(f"Only HTTP proxies are allowed (got '{proxy_type or 'empty'}')")
+
+    # [NP-2] custom_domains is required — reject proxies that omit it (old bypass).
     domains = content.get("custom_domains") or []
-
     if not domains:
-        return jsonify({"reject": False, "unchange": True}), 200
+        return _frp_reject("HTTP proxy must specify custom_domains")
 
-    approved_exp = None
-    for domain in domains:
-        exp = Experiment.query.filter(
-            db.or_(
-                Experiment.frpc_subdomain_server    == domain,
-                Experiment.frpc_subdomain_dashboard == domain,
-            ),
-            Experiment.status.notin_(["DELETED", "EXPIRED"]),
-        ).first()
+    # [NP-3] Exactly one domain per proxy — matches Hub-generated frpc config.
+    if len(domains) != 1:
+        return _frp_reject(
+            f"Exactly one custom_domain is allowed per proxy (got {len(domains)})"
+        )
+    domain = domains[0].strip()
 
-        if exp is None:
-            return jsonify({
-                "reject":        True,
-                "reject_reason": f"No active experiment owns domain '{domain}'",
-            }), 200
+    # [NP-4] Reject subdomain-based routing (alternative to custom_domains).
+    if (content.get("subdomain") or "").strip():
+        return _frp_reject("subdomain routing is not allowed; use custom_domains")
 
-        if not exp.server_is_online:
-            return jsonify({
-                "reject":        True,
-                "reject_reason": (
-                    f"Experiment '{exp.name}' has not sent a heartbeat in the "
-                    "last 10 minutes — proxy registration denied"
-                ),
-            }), 200
+    # [NP-5] Reject TCP/UDP remote_port (non-HTTP tunnel indicator).
+    if content.get("remote_port"):
+        return _frp_reject("remote_port is not allowed for HTTP proxies")
 
-        approved_exp = exp
+    # [NP-6] Bind to Login token — global frpc metadata (meta_exp_token → exp_token)
+    # is echoed on every NewProxy call under content.user.metas.
+    user_metas = (content.get("user") or {}).get("metas") or {}
+    exp_token  = (user_metas.get("exp_token") or "").strip()
+    if not exp_token:
+        return _frp_reject("Missing experiment token in user.metas (meta_exp_token)")
+
+    exp = Experiment.query.filter(
+        Experiment.frpc_token == exp_token,
+        Experiment.status.notin_(["DELETED", "EXPIRED"]),
+    ).first()
+    # [NP-7] Token must match an active experiment (same lookup as Login).
+    if exp is None:
+        return _frp_reject("Invalid or expired experiment token for NewProxy")
+
+    # [NP-8] Domain must belong to *this* experiment — not merely any experiment.
+    allowed_domains = {
+        exp.frpc_subdomain_server,
+        exp.frpc_subdomain_dashboard,
+    }
+    if domain not in allowed_domains:
+        return _frp_reject(
+            f"Domain '{domain}' is not assigned to experiment '{exp.name}'"
+        )
+
+    # [NP-9] proxy_name must be one of the two Hub-provisioned section names.
+    proxy_name = (content.get("proxy_name") or "").strip()
+    allowed_names = {f"server-{exp.name}", f"dashboard-{exp.name}"}
+    if proxy_name not in allowed_names:
+        return _frp_reject(
+            f"Proxy name '{proxy_name}' is not allowed for experiment '{exp.name}'"
+        )
+
+    # [NP-9b] proxy_name must match the domain (server-* → server URL, etc.).
+    if proxy_name == f"server-{exp.name}" and domain != exp.frpc_subdomain_server:
+        return _frp_reject(
+            f"Proxy '{proxy_name}' must use custom_domain '{exp.frpc_subdomain_server}'"
+        )
+    if proxy_name == f"dashboard-{exp.name}" and domain != exp.frpc_subdomain_dashboard:
+        return _frp_reject(
+            f"Proxy '{proxy_name}' must use custom_domain '{exp.frpc_subdomain_dashboard}'"
+        )
+
+    # [NP-10] Experiment must have sent a Hub heartbeat in the last 10 minutes.
+    if not exp.server_is_online:
+        return _frp_reject(
+            f"Experiment '{exp.name}' has not sent a heartbeat in the "
+            "last 10 minutes — proxy registration denied"
+        )
 
     # Send "connected" email once per tunnel pair (server proxy, not dashboard)
-    proxy_name = content.get("proxy_name", "")
-    if approved_exp and proxy_name.startswith("server-"):
-        if _can_notify("connected", approved_exp.name):
-            send_server_connected(approved_exp.user.email, approved_exp.name)
+    if proxy_name.startswith("server-"):
+        if _can_notify("connected", exp.name):
+            send_server_connected(exp.user.email, exp.name)
 
-    return jsonify({"reject": False, "unchange": True}), 200
+    return _frp_allow()
