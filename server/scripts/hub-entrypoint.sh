@@ -29,12 +29,12 @@ if [ -n "$JD_HUB_URL" ] && [ -n "$JD_API_KEY" ] && [ -n "$JD_EXP_NAME" ]; then
   fi
 
   # Start frpc in background using the fetched config
-  FRPC_INI="${JD_FRPC_CONFIG_PATH:-/tmp/frpc.ini}"
-  if [ -f "$FRPC_INI" ]; then
-    echo "entrypoint: starting frpc with $FRPC_INI" >&2
-    frpc -c "$FRPC_INI" &
+  FRPC_CFG="${JD_FRPC_CONFIG_PATH:-/tmp/frpc.toml}"
+  if [ -f "$FRPC_CFG" ]; then
+    echo "entrypoint: starting frpc with $FRPC_CFG" >&2
+    frpc -c "$FRPC_CFG" &
   else
-    echo "entrypoint: warning — frpc.ini not found at $FRPC_INI, tunnels will not start" >&2
+    echo "entrypoint: warning — frpc.toml not found at $FRPC_CFG, tunnels will not start" >&2
   fi
 
   # Register admin token with Hub once the server DB is ready

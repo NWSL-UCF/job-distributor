@@ -14,6 +14,14 @@
 # Must be open in your firewall / security group.
 bindPort = 7000
 
+# ── Transport TLS ─────────────────────────────────────────────────────────────
+# Encrypt all frps ↔ frpc control-plane and data traffic with TLS.
+# frp generates a built-in self-signed certificate automatically — no cert
+# files need to be provisioned on either side.
+# `force = true` means frps will reject any frpc that connects without TLS.
+[transport.tls]
+force = true
+
 # ── Authentication ────────────────────────────────────────────────────────────
 # Must match FRPS_TOKEN in the hub .env file.
 # Change this to a long random secret before deploying.
