@@ -353,20 +353,22 @@ they point to `/etc/letsencrypt/live/yourdomain.com/`.
 
 ## Step 10 — Start the Stack
 
+The `deploy/` directory ships with a `run.sh` helper that wraps the Docker
+Compose commands for you:
+
 ```bash
 cd /path/to/job-distributor/deploy
-
-# Pull the latest images
-docker compose -f hub-compose.yml pull
-
-# Start all containers in the background
-docker compose -f hub-compose.yml up -d
+./run.sh start
 ```
+
+This pulls the latest images and starts all three containers (Nginx, hub, frps)
+in the background. It is equivalent to running `docker compose pull` followed
+by `docker compose up -d`.
 
 Check that all three containers started successfully:
 
 ```bash
-docker compose -f hub-compose.yml ps
+./run.sh status
 ```
 
 Expected output:
@@ -381,11 +383,24 @@ hub_frps     snowdreamtech/frps:0.61.1       Up
 Check Hub startup logs:
 
 ```bash
-docker compose -f hub-compose.yml logs hub --tail=50
+./run.sh logs hub
 ```
 
 The Hub auto-creates all database tables on first startup. You should see
 `Migration applied` and `Background threads started` in the logs.
+
+### run.sh command reference
+
+| Command | What it does |
+|---------|--------------|
+| `./run.sh` or `./run.sh start` | Pull latest images and start the full stack |
+| `./run.sh stop` | Stop and remove all hub containers |
+| `./run.sh restart` | Restart only the hub app (no Nginx/frps downtime) |
+| `./run.sh restart frps` | Restart a specific service |
+| `./run.sh logs` | Tail logs from all containers |
+| `./run.sh logs hub` | Tail logs from a specific service |
+| `./run.sh status` | Show running containers |
+| `./run.sh pull` | Pull latest images without restarting |
 
 ---
 
@@ -403,7 +418,8 @@ sudo systemctl status docker
 To verify after a reboot, run:
 
 ```bash
-docker compose -f hub-compose.yml ps
+cd /path/to/job-distributor/deploy
+./run.sh status
 ```
 
 ---
@@ -449,9 +465,8 @@ When a new `jobdistributor/jd-hub:latest` image is released:
 
 ```bash
 cd /path/to/job-distributor/deploy
-
-docker compose -f hub-compose.yml pull hub
-docker compose -f hub-compose.yml up -d --no-deps hub
+./run.sh pull
+./run.sh restart
 ```
 
 This restarts only the `hub` container with zero downtime for frps and Nginx.
@@ -462,7 +477,7 @@ This restarts only the `hub` container with zero downtime for frps and Nginx.
 
 **Hub container exits immediately:**
 ```bash
-docker compose -f hub-compose.yml logs hub
+./run.sh logs hub
 # Look for: missing env var, DB connection refused, or import error
 ```
 
@@ -475,8 +490,8 @@ mysql -u hub_user -p'CHANGE_ME_DB_PASSWORD' -h 127.0.0.1 jd_hub -e "SELECT 1;"
 
 **Nginx returns 502 Bad Gateway:**
 ```bash
-docker compose -f hub-compose.yml ps     # check hub and frps are Up
-docker compose -f hub-compose.yml logs nginx --tail=30
+./run.sh status                  # check hub and frps are Up
+./run.sh logs nginx
 ```
 
 **Cert not trusted (SSL error in browser):**
@@ -493,7 +508,8 @@ sudo certbot certificates    # verify expiry and domain coverage
   connection before authentication even runs.
 - Restart both containers after any config change:
   ```bash
-  docker compose -f hub-compose.yml restart frps hub
+  ./run.sh restart frps
+  ./run.sh restart hub
   ```
 
 ---
@@ -518,6 +534,7 @@ Ports 8080, 7500, and 3306 must **never** be open to the internet.
 
 ```
 deploy/
+├── run.sh                   ← quick-start helper (start/stop/logs/status)
 ├── hub-compose.yml          ← Docker Compose stack definition
 ├── hub.env                  ← your secrets (gitignored — never commit)
 ├── hub.env.example          ← template to copy from
