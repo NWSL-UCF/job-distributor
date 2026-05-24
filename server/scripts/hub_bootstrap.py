@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """
-Fetch experiment runtime config from the Hub and write frpc.ini + env file.
+Fetch experiment runtime config from the Hub and write an env file.
+
+The frpc config is base64-encoded and stored as FRPC_CONFIG_B64 in the env
+file.  The entrypoint reads the env file into memory, deletes it from disk,
+and starts frpc via bash process substitution — so the FRPS token never
+touches the container filesystem.
 
 Requires: JD_HUB_URL, JD_API_KEY, JD_EXP_NAME
-Optional: JD_FRPC_CONFIG_PATH (default /frp-config/frpc.ini)
-          JD_HUB_ENV_FILE (default /tmp/jd-hub.env)
+Optional: JD_HUB_ENV_FILE (default /tmp/jd-hub.env)
 """
 from __future__ import annotations
 
+import base64
 import os
 import sys
 
 import requests
 
-FRPC_PATH = os.environ.get("JD_FRPC_CONFIG_PATH", "/tmp/frpc.ini").strip()
 ENV_FILE = os.environ.get("JD_HUB_ENV_FILE", "/tmp/jd-hub.env").strip()
 
 
@@ -51,22 +55,22 @@ def main() -> int:
         print("hub_bootstrap: incomplete response from Hub", file=sys.stderr)
         return 1
 
-    frpc_dir = os.path.dirname(FRPC_PATH)
-    if frpc_dir:
-        os.makedirs(frpc_dir, mode=0o755, exist_ok=True)
-    with open(FRPC_PATH, "w", encoding="utf-8") as f:
-        f.write(frpc_config)
-        if not frpc_config.endswith("\n"):
-            f.write("\n")
-    os.chmod(FRPC_PATH, 0o644)
+    # Encode the frpc config as base64 so it can be stored as a single-line
+    # env var and decoded in memory by the entrypoint — no config file on disk.
+    frpc_config_b64 = base64.b64encode(frpc_config.encode()).decode()
 
+    env_dir = os.path.dirname(ENV_FILE)
+    if env_dir:
+        os.makedirs(env_dir, mode=0o700, exist_ok=True)
     with open(ENV_FILE, "w", encoding="utf-8") as f:
         f.write(f"JD_WORKER_SHARED_SECRET={worker_secret}\n")
         f.write(f"JD_HUB_URL={hub_url}\n")
         f.write(f"JD_API_KEY={api_key}\n")
         f.write(f"JD_EXP_NAME={exp_name}\n")
+        f.write(f"FRPC_CONFIG_B64={frpc_config_b64}\n")
+    os.chmod(ENV_FILE, 0o600)
 
-    print(f"hub_bootstrap: wrote {FRPC_PATH} and {ENV_FILE}", file=sys.stderr)
+    print(f"hub_bootstrap: wrote {ENV_FILE} (frpc config base64-encoded, no file on disk)", file=sys.stderr)
     print(f"hub_bootstrap: server_url={data.get('server_url')}", file=sys.stderr)
 
     # Send an initial heartbeat NOW, before frpc starts, so the Hub considers

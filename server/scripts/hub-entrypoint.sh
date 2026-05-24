@@ -1,5 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 # Fetch FRP + worker credentials from Hub, start frpc, then start the server.
+#
+# Security design:
+#   hub_bootstrap.py stores the frpc config as a base64-encoded env var
+#   (FRPC_CONFIG_B64) inside /tmp/jd-hub.env.  This entrypoint sources that
+#   file into memory, deletes it from disk immediately, then starts frpc via
+#   bash process substitution (<(...)) so the decoded config — including the
+#   FRPS token — is passed directly to frpc as a named pipe and never written
+#   to the container filesystem.
 set -e
 
 # ── Resolve workspace path ────────────────────────────────────────────────────
@@ -17,7 +25,7 @@ else
   export JD_WORKSPACE_PATH="/workspace"
 fi
 
-# ── Hub bootstrap (fetch frpc.ini + worker secret) ───────────────────────────
+# ── Hub bootstrap (fetch frpc config + worker secret) ────────────────────────
 if [ -n "$JD_HUB_URL" ] && [ -n "$JD_API_KEY" ] && [ -n "$JD_EXP_NAME" ]; then
   python /app/scripts/hub_bootstrap.py || exit 1
 
@@ -26,15 +34,22 @@ if [ -n "$JD_HUB_URL" ] && [ -n "$JD_API_KEY" ] && [ -n "$JD_EXP_NAME" ]; then
     # shellcheck disable=SC1091
     . /tmp/jd-hub.env
     set +a
+    # Delete the env file immediately — all secrets are now in process memory
+    # only. Anyone doing "docker exec ... cat /tmp/jd-hub.env" will find nothing.
+    rm -f /tmp/jd-hub.env
+    echo "entrypoint: env file loaded and removed from disk" >&2
   fi
 
-  # Start frpc in background using the fetched config
-  FRPC_CFG="${JD_FRPC_CONFIG_PATH:-/tmp/frpc.ini}"
-  if [ -f "$FRPC_CFG" ]; then
-    echo "entrypoint: starting frpc with $FRPC_CFG" >&2
-    frpc -c "$FRPC_CFG" &
+  # Start frpc via bash process substitution: the config is decoded from the
+  # base64 env var and piped directly to frpc through /dev/fd/<N>.
+  # Nothing is written to disk — the FRPS token never appears in the filesystem.
+  if [ -n "$FRPC_CONFIG_B64" ]; then
+    echo "entrypoint: starting frpc (config decoded in memory, never on disk)" >&2
+    frpc -c <(echo "$FRPC_CONFIG_B64" | base64 -d) &
+    # Clear the env var so it is no longer visible in /proc/<pid>/environ
+    unset FRPC_CONFIG_B64
   else
-    echo "entrypoint: warning — frpc config not found at $FRPC_CFG, tunnels will not start" >&2
+    echo "entrypoint: warning — FRPC_CONFIG_B64 not set, tunnels will not start" >&2
   fi
 
   # Register admin token with Hub once the server DB is ready
