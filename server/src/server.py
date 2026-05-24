@@ -272,7 +272,7 @@ def update_job_status():
 
 @app.route("/ping", methods=["POST"])
 def ping_job():
-    """Update last_ping_timestamp for a SERVED job."""
+    """Update last_ping_timestamp and system_metrics for a SERVED job."""
     _, err = _require_worker_token()
     if err:
         return err
@@ -280,12 +280,16 @@ def ping_job():
 
     data = request.json or {}
     job_id = data.get("job_id", data.get("id"))
+    system_metrics = data.get("system_metrics")
 
     if not isinstance(job_id, int):
         logging.warning(f"Invalid ping request: job_id={job_id}")
         return jsonify({"error": "Invalid job_id"}), 400
 
-    success = db.ping_job(job_id)
+    if system_metrics is not None and not isinstance(system_metrics, dict):
+        return jsonify({"error": "system_metrics must be an object"}), 400
+
+    success = db.ping_job(job_id, system_metrics)
     if not success:
         job = db.get_job_by_id(job_id)
         if job:

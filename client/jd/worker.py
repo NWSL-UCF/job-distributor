@@ -74,13 +74,14 @@ import psutil
 import requests
 
 from jd import __version__
-from jd.auth import TOKEN_FILENAME, WorkerTokenManager
+from jd.auth import WorkerTokenManager, new_worker_id, worker_token_file_path
 
 IS_WINDOWS = platform.system() == "Windows"
 PING_INTERVAL = 57  # seconds — intentionally not 60 to avoid racing the idle timeout
 
 # Fixed subdirectory under JD_WORKSPACE_PATH (or home): …/jd_data/<expId>/<job_id>/
 _WORKER_JD_DATA_DIRNAME = "jd_data"
+# JWT cache (Hub mode): …/<home>/.cache/<expId>/<worker_id>/.token
 
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -157,6 +158,7 @@ def _resolve(cfg: dict) -> dict:
         'entry_script':     get('entry_script', 'JD_ENTRY_SCRIPT', None),
         'base_url':         base_url,
         'workspace_path':   workspace_path,
+        'workspace_parent': parent,
         'log_dir_override': log_override,
         'machine_type':     get('machine_type', 'JD_MACHINE_TYPE', 'worker'),
         'process_id':       get('process_id',   None,              '0'),
@@ -345,6 +347,7 @@ def _update_status(url: str, job_id: int, status: str,
 def _ping_loop(url: str, job_id: int,
                stop_event: threading.Event,
                logger: logging.Logger,
+               machine_type: str,
                token_mgr: WorkerTokenManager | None = None) -> None:
     """Background thread: ping the server every PING_INTERVAL seconds."""
     while not stop_event.wait(PING_INTERVAL):
@@ -354,9 +357,13 @@ def _ping_loop(url: str, job_id: int,
                 headers = token_mgr.auth_headers()
             else:
                 headers = {}
-            r = requests.post(url, json={"id": job_id},
-                              headers=headers,
-                              timeout=10)
+            metrics = _collect_metrics(machine_type, logger)
+            r = requests.post(
+                url,
+                json={"id": job_id, "system_metrics": metrics},
+                headers=headers,
+                timeout=10,
+            )
             if r.status_code == 200:
                 logger.info(f"Ping OK (job {job_id})")
             else:
@@ -377,6 +384,7 @@ def _run_worker(cfg: dict) -> None:
     suffix    = random.randint(10000, 99999)
     runner_id = (f"{username}@{socket.gethostname()}"
                  f"({cfg['machine_type']})_{cfg['process_id']}_{suffix}")
+    worker_id = new_worker_id()
 
     if cfg['log_dir_override'] is not None:
         log_dir = os.path.join(cfg['log_dir_override'], cfg['exp_id'])
@@ -386,8 +394,9 @@ def _run_worker(cfg: dict) -> None:
 
     # ── Hub authentication (optional) ────────────────────────────────────────
     # WorkerTokenManager proactively refreshes the JWT before expiry and writes
-    # it to a per-job token file so entry scripts always read a current token.
+    # it to a per-worker token file so entry scripts always read a current token.
     token_mgr: WorkerTokenManager | None = None
+    token_file: str | None = None
     if cfg['hub_url'] and cfg['api_key']:
         logger.info(f"Hub mode: authenticating via {cfg['hub_url']}")
         token_mgr = WorkerTokenManager(
@@ -405,6 +414,10 @@ def _run_worker(cfg: dict) -> None:
         if token_mgr.last_server_url:
             cfg['base_url'] = token_mgr.last_server_url
             logger.info(f"Server URL from Hub: {token_mgr.last_server_url}")
+        token_file = worker_token_file_path(
+            cfg['workspace_parent'], cfg['exp_id'], worker_id,
+        )
+        token_mgr.set_token_file(token_file)
     elif cfg['hub_url'] or cfg['api_key']:
         logger.warning(
             "Both hub_url (JD_HUB_URL) and api_key (JD_API_KEY) must be set "
@@ -418,6 +431,8 @@ def _run_worker(cfg: dict) -> None:
     }
 
     logger.info(f"jd_worker_cli v{__version__}  |  runner: {runner_id}")
+    if token_mgr:
+        logger.info(f"Worker ID:       {worker_id}")
     logger.info(f"Server:        {cfg['base_url']}")
     logger.info(f"Entry script:   {cfg['entry_script']}")
     logger.info(f"Hub mode:       {'enabled' if token_mgr else 'disabled'}")
@@ -441,6 +456,8 @@ def _run_worker(cfg: dict) -> None:
                     os.killpg(os.getpgid(p.pid), signal.SIGTERM)
             except Exception:
                 pass
+        if token_mgr:
+            token_mgr.clear_token_file()
         logger.info("jd_worker_cli shut down.")
         sys.exit(0)
 
@@ -477,10 +494,6 @@ def _run_worker(cfg: dict) -> None:
                 cfg['workspace_path'], cfg['exp_id'], str(job_id)))
             os.makedirs(job_root, exist_ok=True)
 
-            token_file = os.path.join(job_root, TOKEN_FILENAME)
-            if token_mgr:
-                token_mgr.set_token_file(token_file)
-
             # Build subprocess command
             # Uses the *current* Python interpreter so venv/conda is respected
             cmd = [sys.executable, cfg['entry_script']]
@@ -492,7 +505,8 @@ def _run_worker(cfg: dict) -> None:
             # Start heartbeat ping thread
             pinger = threading.Thread(
                 target=_ping_loop,
-                args=(urls['ping'], job_id, stop_ping, logger, token_mgr),
+                args=(urls['ping'], job_id, stop_ping, logger,
+                      cfg['machine_type'], token_mgr),
                 daemon=True,
             )
             pinger.start()
@@ -506,7 +520,8 @@ def _run_worker(cfg: dict) -> None:
             child_env["JD_EXP_ID"]                  = cfg["exp_id"]
             child_env["JD_WORKER_JOB_DIR"]          = job_root
             child_env["JD_WORKER_WORKSPACE_ROOT"]   = cfg["workspace_path"]
-            if token_mgr:
+            if token_mgr and token_file:
+                child_env["JD_WORKER_ID"]         = worker_id
                 child_env["JD_WORKER_TOKEN_FILE"] = token_file
                 child_env["JD_WORKER_TOKEN"]      = token_mgr.get_token()
 
@@ -573,14 +588,15 @@ def _run_worker(cfg: dict) -> None:
             stop_ping.set()
             if pinger is not None:
                 pinger.join(timeout=5)
-            if token_mgr:
-                token_mgr.clear_token_file()
 
         if cfg['once']:
             logger.info("once=true — exiting after one job.")
             break
 
         time.sleep(3)   # brief pause before requesting the next job
+
+    if token_mgr:
+        token_mgr.clear_token_file()
 
 
 def _worker_subprocess_entry() -> None:

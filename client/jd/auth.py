@@ -2,8 +2,9 @@
 Worker JWT management for Hub mode.
 
 The worker parent process holds a WorkerTokenManager that proactively refreshes
-the JWT before expiry and writes the current token to a per-job file so entry
-scripts (jd_upload, checkpoints) always read a fresh token.
+the JWT before expiry and writes the current token to
+``<home>/.cache/<expId>/<worker_id>/.token`` so entry scripts
+(jd_upload, checkpoints) always read a fresh token.
 """
 from __future__ import annotations
 
@@ -12,14 +13,34 @@ import json
 import logging
 import os
 import random
+import secrets
 import threading
 import time
 from typing import Optional
 
 import requests
 
-# Filename inside each job workspace; parent updates, child reads.
-TOKEN_FILENAME = ".jd_worker_token"
+# Filename for the per-worker JWT cache file; parent updates, child reads.
+TOKEN_FILENAME = ".token"
+CACHE_DIRNAME = ".cache"
+
+
+def new_worker_id() -> str:
+    """Return a short id for this worker process: ``<pid>-<random_hex>``."""
+    return f"{os.getpid()}-{secrets.token_hex(2)}"
+
+
+def worker_token_file_path(
+    workspace_parent: str, exp_id: str, worker_id: str,
+) -> str:
+    """Return …/<home>/.cache/<expId>/<worker_id>/.token"""
+    return os.path.join(
+        os.path.abspath(workspace_parent),
+        CACHE_DIRNAME,
+        exp_id,
+        worker_id,
+        TOKEN_FILENAME,
+    )
 
 # Refresh this many seconds before JWT exp (1h Hub TTL → refresh at ~55m).
 REFRESH_MARGIN_SECS = 300
@@ -190,20 +211,28 @@ class WorkerTokenManager:
         return bool(self.hub_url and self.api_key)
 
     def set_token_file(self, path: Optional[str]) -> None:
-        """Point at the per-job token file; write current token immediately."""
+        """Point at the per-worker token file; write current token immediately."""
         with self._lock:
             self._token_file = path
             if path and self._token:
                 write_token_file(path, self._token)
 
     def clear_token_file(self) -> None:
-        """Remove the per-job token file when the job finishes."""
+        """Remove the per-worker token file and cache dir when the worker exits."""
         with self._lock:
             path = self._token_file
             self._token_file = None
-        if path and os.path.isfile(path):
+        if not path:
+            return
+        cache_dir = os.path.dirname(path)
+        if os.path.isfile(path):
             try:
                 os.remove(path)
+            except OSError:
+                pass
+        if cache_dir:
+            try:
+                os.rmdir(cache_dir)
             except OSError:
                 pass
 

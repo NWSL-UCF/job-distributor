@@ -82,7 +82,7 @@ def _write_env_file(data: dict) -> None:
     print(f"hub_bootstrap: server_url={data['server_url']}", file=sys.stderr)
 
 
-def _send_initial_heartbeat(data: dict) -> None:
+def _send_initial_heartbeat(data: dict) -> bool:
     hb_url = f"{data['hub_url']}/api/experiments/{data['exp_name']}/heartbeat"
     try:
         r = requests.post(
@@ -91,8 +91,10 @@ def _send_initial_heartbeat(data: dict) -> None:
             timeout=15,
         )
         print(f"hub_bootstrap: initial heartbeat → HTTP {r.status_code}", file=sys.stderr)
+        return r.status_code == 200
     except requests.RequestException as exc:
         print(f"hub_bootstrap: initial heartbeat failed: {exc}", file=sys.stderr)
+        return False
 
 
 def _write_frpc_fifo(fifo_path: str, frpc_config: str) -> None:
@@ -117,10 +119,18 @@ def main() -> int:
 
     _write_env_file(data)
 
+    # Heartbeat must complete before frpc reads its config — NewProxy [NP-10]
+    # requires a recent server_last_ping_at on the Hub.
+    if not _send_initial_heartbeat(data):
+        print(
+            "hub_bootstrap: initial heartbeat failed — cannot start frpc",
+            file=sys.stderr,
+        )
+        return 1
+
     if args.frpc_fifo:
         _write_frpc_fifo(args.frpc_fifo, data["frpc_config"])
 
-    _send_initial_heartbeat(data)
     return 0
 
 

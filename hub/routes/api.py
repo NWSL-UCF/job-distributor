@@ -3,6 +3,7 @@ Hub API routes (consumed by jd_worker_cli and local server.py).
 
 All routes require API key auth unless noted.
 """
+import logging
 import re
 import secrets
 import uuid
@@ -18,6 +19,7 @@ from ..decorators import require_api_key
 from ..models import Experiment, WorkerToken
 
 api_bp = Blueprint("api", __name__)
+log = logging.getLogger(__name__)
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9\-]{1,46}$")
 
@@ -330,9 +332,24 @@ def _build_frpc_config(exp: Experiment) -> str:
 _notif_cooldown: Dict[str, datetime] = {}
 _NOTIF_COOLDOWN_SECS = 300   # 5 minutes
 
+# Recent Login successes — NewProxy may arrive before the first heartbeat lands.
+_login_grace: Dict[str, datetime] = {}
+_LOGIN_GRACE_SECS = 120
+
+
+def _parse_custom_domains(content: dict) -> list[str]:
+    """Normalize custom_domains from frp plugin payload (string or list)."""
+    raw = content.get("custom_domains")
+    if isinstance(raw, str):
+        return [d.strip() for d in raw.split(",") if d.strip()]
+    if isinstance(raw, list):
+        return [str(d).strip() for d in raw if str(d).strip()]
+    return []
+
 
 def _frp_reject(reason: str):
     """Return a frp plugin rejection response (HTTP 200 with reject=true)."""
+    log.warning("frp plugin reject: %s", reason)
     return jsonify({"reject": True, "reject_reason": reason}), 200
 
 
@@ -389,6 +406,7 @@ def frp_plugin_hook():
         ).first()
         if exp is None:
             return _frp_reject("Invalid or expired experiment token")
+        _login_grace[exp_token] = _now()
         return _frp_allow()
 
     # ── CloseProxy ────────────────────────────────────────────────────────────
@@ -414,7 +432,7 @@ def frp_plugin_hook():
         return _frp_reject(f"Only HTTP proxies are allowed (got '{proxy_type or 'empty'}')")
 
     # [NP-2] custom_domains is required — reject proxies that omit it (old bypass).
-    domains = content.get("custom_domains") or []
+    domains = _parse_custom_domains(content)
     if not domains:
         return _frp_reject("HTTP proxy must specify custom_domains")
 
@@ -476,12 +494,19 @@ def frp_plugin_hook():
             f"Proxy '{proxy_name}' must use custom_domain '{exp.frpc_subdomain_dashboard}'"
         )
 
-    # [NP-10] Experiment must have sent a Hub heartbeat in the last 10 minutes.
+    # [NP-10] Experiment must have sent a Hub heartbeat in the last 10 minutes,
+    # or have logged in via frpc within the grace window (bootstrap race).
     if not exp.server_is_online:
-        return _frp_reject(
-            f"Experiment '{exp.name}' has not sent a heartbeat in the "
-            "last 10 minutes — proxy registration denied"
+        login_at = _login_grace.get(exp_token)
+        in_grace = (
+            login_at is not None
+            and (_now() - login_at).total_seconds() < _LOGIN_GRACE_SECS
         )
+        if not in_grace:
+            return _frp_reject(
+                f"Experiment '{exp.name}' has not sent a heartbeat in the "
+                "last 10 minutes — proxy registration denied"
+            )
 
     # Send "connected" email once per tunnel pair (server proxy, not dashboard)
     if proxy_name.startswith("server-"):

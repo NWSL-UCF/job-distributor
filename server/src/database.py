@@ -780,8 +780,12 @@ class JobDatabase:
                 conn.commit()
                 return True
     
-    def ping_job(self, job_id: int) -> bool:
-        """Update last_ping_timestamp for a SERVED job."""
+    def ping_job(
+        self,
+        job_id: int,
+        system_metrics: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Update last_ping_timestamp (and optional system_metrics) for a SERVED job."""
         with self.lock:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -797,10 +801,17 @@ class JobDatabase:
                     return False
                 
                 now = round(time.time())
-                cursor.execute(
-                    "UPDATE jobs SET last_ping_timestamp = ? WHERE id = ?",
-                    (now, job_id)
-                )
+                if system_metrics:
+                    cursor.execute(
+                        "UPDATE jobs SET last_ping_timestamp = ?, system_metrics = ? "
+                        "WHERE id = ?",
+                        (now, json.dumps(system_metrics), job_id),
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE jobs SET last_ping_timestamp = ? WHERE id = ?",
+                        (now, job_id),
+                    )
                 
                 conn.commit()
                 return True
