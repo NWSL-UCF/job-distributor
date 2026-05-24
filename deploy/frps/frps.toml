@@ -54,8 +54,8 @@ webServer.port = 7500
 #               invalid or missing token are rejected before any proxy can be
 #               registered.
 #
-#   NewProxy  — frpc registers a tunnel.  Hub checks the requested domain
-#               belongs to an active, recently-heartbeated experiment.
+#   NewProxy  — allow HTTP proxies when the experiment token matches and the
+#               requested custom_domain belongs to that experiment.
 #
 #   CloseProxy — frpc tunnel closes.  Hub sends a "server disconnected" email.
 #

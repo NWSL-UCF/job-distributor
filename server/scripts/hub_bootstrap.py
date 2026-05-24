@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
+import tempfile
 
 import requests
 
@@ -97,8 +99,40 @@ def _send_initial_heartbeat(data: dict) -> bool:
         return False
 
 
+def _validate_frpc_config(frpc_config: str) -> bool:
+    """Run frpc verify so a bad TOML never reaches the fifo."""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".toml", delete=False, encoding="utf-8",
+        ) as f:
+            f.write(frpc_config)
+            path = f.name
+        try:
+            r = subprocess.run(
+                ["frpc", "verify", "-c", path],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        finally:
+            os.unlink(path)
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "verify failed").strip()
+            print(f"hub_bootstrap: frpc config invalid: {err}", file=sys.stderr)
+            return False
+        return True
+    except FileNotFoundError:
+        print("hub_bootstrap: frpc verify skipped (frpc not in PATH)", file=sys.stderr)
+        return True
+    except subprocess.SubprocessError as exc:
+        print(f"hub_bootstrap: frpc verify error: {exc}", file=sys.stderr)
+        return False
+
+
 def _write_frpc_fifo(fifo_path: str, frpc_config: str) -> None:
     """Stream frpc TOML into a named pipe — never a regular file."""
+    if not _validate_frpc_config(frpc_config):
+        raise SystemExit(1)
     with open(fifo_path, "w", encoding="utf-8") as f:
         f.write(frpc_config)
     print("hub_bootstrap: frpc config streamed to fifo (not stored on disk)", file=sys.stderr)

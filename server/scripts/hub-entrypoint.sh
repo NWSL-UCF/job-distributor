@@ -79,6 +79,14 @@ if [ -n "$JD_HUB_URL" ] && [ -n "$JD_API_KEY" ] && [ -n "$JD_EXP_NAME" ]; then
     exit 1
   fi
 
+  sleep 2
+  if ! kill -0 "$FRPC_PID" 2>/dev/null; then
+    echo "entrypoint: frpc exited immediately after startup — config or auth failed" >&2
+    kill "$START_PID" 2>/dev/null || true
+    rm -f "$FRPC_FIFO"
+    exit 1
+  fi
+
   rm -f "$FRPC_FIFO"
   echo "entrypoint: frpc fifo removed (config was never written to disk)" >&2
 
