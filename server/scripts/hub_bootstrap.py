@@ -3,7 +3,7 @@
 Fetch experiment runtime config from the Hub.
 
 Writes worker secrets to a short-lived env file (no frpc config on disk).
-When --frpc-fifo is passed, streams the frpc INI into a named pipe so the
+When --frpc-fifo is passed, streams the frpc TOML into a named pipe so the
 entrypoint can start frpc without ever writing the token to a file.
 
 Requires: JD_HUB_URL, JD_API_KEY, JD_EXP_NAME
@@ -98,10 +98,10 @@ def _send_initial_heartbeat(data: dict) -> bool:
 
 
 def _write_frpc_fifo(fifo_path: str, frpc_config: str) -> None:
-    """Stream frpc INI into a named pipe — never a regular file."""
+    """Stream frpc TOML into a named pipe — never a regular file."""
     with open(fifo_path, "w", encoding="utf-8") as f:
         f.write(frpc_config)
-    print(f"hub_bootstrap: frpc config streamed to fifo (not stored on disk)", file=sys.stderr)
+    print("hub_bootstrap: frpc config streamed to fifo (not stored on disk)", file=sys.stderr)
 
 
 def main() -> int:
@@ -109,15 +109,25 @@ def main() -> int:
     parser.add_argument(
         "--frpc-fifo",
         metavar="PATH",
-        help="Write frpc INI to this named pipe (entrypoint creates the fifo)",
+        help="Write frpc TOML to this named pipe (entrypoint creates the fifo)",
+    )
+    parser.add_argument(
+        "--frpc-only",
+        action="store_true",
+        help="Only fetch config, heartbeat, and stream frpc TOML (skip env file)",
     )
     args = parser.parse_args()
+
+    if args.frpc_only and not args.frpc_fifo:
+        print("hub_bootstrap: --frpc-only requires --frpc-fifo", file=sys.stderr)
+        return 1
 
     data = _fetch_runtime_config()
     if not data:
         return 0
 
-    _write_env_file(data)
+    if not args.frpc_only:
+        _write_env_file(data)
 
     # Heartbeat must complete before frpc reads its config — NewProxy [NP-10]
     # requires a recent server_last_ping_at on the Hub.

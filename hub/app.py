@@ -212,6 +212,35 @@ def _apply_migrations() -> None:
         db.session.rollback()
         log.warning("Migration v4 backfill failed: %s", exc)
 
+    # Backfill frpc subdomains for experiments created before columns were populated
+    try:
+        from sqlalchemy import or_
+        from . import config as _cfg
+        from .models import Experiment as _Exp
+        stale = _Exp.query.filter(
+            or_(
+                _Exp.frpc_subdomain_server.is_(None),
+                _Exp.frpc_subdomain_server == "",
+                _Exp.frpc_subdomain_dashboard.is_(None),
+                _Exp.frpc_subdomain_dashboard == "",
+            )
+        ).all()
+        if stale:
+            for exp in stale:
+                if not (exp.frpc_subdomain_server or "").strip():
+                    exp.frpc_subdomain_server = (
+                        f"{exp.name}-server.{_cfg.JD_BASE_DOMAIN}"
+                    )
+                if not (exp.frpc_subdomain_dashboard or "").strip():
+                    exp.frpc_subdomain_dashboard = (
+                        f"{exp.name}-dashboard.{_cfg.JD_BASE_DOMAIN}"
+                    )
+            db.session.commit()
+            log.info("Migration: backfilled frpc subdomains for %d experiments", len(stale))
+    except Exception as exc:
+        db.session.rollback()
+        log.warning("Migration subdomain backfill failed: %s", exc)
+
 
 def _seed_defaults() -> None:
     if not db.session.get(DefaultLimits, 1):
