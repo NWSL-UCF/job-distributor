@@ -330,9 +330,8 @@ def _build_frpc_config(exp: Experiment) -> str:
 # frps calls this endpoint for Login, NewProxy, and CloseProxy.
 #
 #   Login     — validate per-experiment frpc_token (meta_exp_token in frpc config)
-#   NewProxy  — allow HTTP proxies whose custom_domain belongs to an experiment
-#               and the experiment has sent a recent Hub heartbeat (Docker running).
-#               A short post-Login grace window covers the bootstrap race.
+#   NewProxy  — allow HTTP proxies only, on assigned custom_domains for the
+#               Login token's experiment (no subdomain or remote_port).
 #   CloseProxy — notify experiment owner when the server tunnel closes
 #
 # frp plugin response contract:
@@ -343,10 +342,6 @@ def _build_frpc_config(exp: Experiment) -> str:
 # Key: "{event}:{exp_name}"  Value: last notification datetime
 _notif_cooldown: Dict[str, datetime] = {}
 _NOTIF_COOLDOWN_SECS = 300   # 5 minutes
-
-# Recent Login successes — NewProxy may arrive before the first heartbeat lands.
-_login_grace: Dict[str, datetime] = {}
-_LOGIN_GRACE_SECS = 120
 
 
 def _parse_custom_domains(content: dict) -> list[str]:
@@ -454,7 +449,6 @@ def frp_plugin_hook():
         ).first()
         if exp is None:
             return _frp_reject("Invalid or expired experiment token")
-        _login_grace[exp_token] = _now()
         log.info("frp plugin Login allow exp=%s", exp.name)
         return _frp_allow()
 
@@ -471,8 +465,21 @@ def frp_plugin_hook():
         return _frp_allow()
 
     # ── NewProxy ──────────────────────────────────────────────────────────────
-    # Login already authenticated the client — verify domain ownership, token
-    # binding, and that the experiment server recently heartbeated (Docker up).
+    # Login already authenticated the client — verify domain ownership and token.
+
+    proxy_type = (content.get("proxy_type") or "").strip().lower()
+    if proxy_type not in ("http", ""):
+        return _frp_reject(
+            f"Only HTTP proxies are allowed (got '{proxy_type or 'empty'}')",
+            proxy=proxy_name,
+        )
+
+    if (content.get("subdomain") or "").strip():
+        return _frp_reject("subdomain routing is not allowed", proxy=proxy_name)
+
+    remote_port = content.get("remote_port")
+    if remote_port is not None and remote_port != 0:
+        return _frp_reject("remote_port is not allowed for HTTP proxies", proxy=proxy_name)
 
     domains = _parse_custom_domains(content)
     if not domains:
@@ -499,21 +506,6 @@ def frp_plugin_hook():
             f"Experiment token does not match domain owner '{exp.name}'",
             proxy=proxy_name,
         )
-
-    # Require a recent Hub heartbeat (server container running) unless we are
-    # still inside the post-Login grace window (bootstrap sends heartbeat first).
-    if not exp.server_is_online:
-        login_at = _login_grace.get(exp_token)
-        in_grace = (
-            login_at is not None
-            and (_now() - login_at).total_seconds() < _LOGIN_GRACE_SECS
-        )
-        if not in_grace:
-            return _frp_reject(
-                f"Experiment '{exp.name}' has not sent a heartbeat in the "
-                "last 10 minutes — proxy registration denied",
-                proxy=proxy_name,
-            )
 
     domain = domains[0]
 

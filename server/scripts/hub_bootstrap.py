@@ -164,8 +164,7 @@ def main() -> int:
     if not args.frpc_only:
         _write_env_file(data)
 
-    # Heartbeat must complete before frpc reads its config — NewProxy [NP-10]
-    # requires a recent server_last_ping_at on the Hub.
+    # Initial heartbeat before frpc starts keeps the Hub dashboard status fresh.
     if not _send_initial_heartbeat(data):
         print(
             "hub_bootstrap: initial heartbeat failed — cannot start frpc",
