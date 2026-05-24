@@ -29,7 +29,9 @@ HUB_BASE_URL    = _env("HUB_BASE_URL", "https://hub.jobdistributor.net")
 JD_BASE_DOMAIN  = _env("JD_BASE_DOMAIN", "jobdistributor.net")
 
 # ── FRP ───────────────────────────────────────────────────────────────────────
-FRPS_TOKEN   = _env("FRPS_TOKEN", "")
+# Note: FRPS_TOKEN is no longer used — authentication is done per-experiment
+# via frpc_token in the Login plugin hook.  FRPS_API_URL is used by the Hub
+# background poller to query tunnel traffic stats.
 FRPS_API_URL = _env("FRPS_API_URL", "http://localhost:7500")   # never public
 
 # ── JWT ───────────────────────────────────────────────────────────────────────

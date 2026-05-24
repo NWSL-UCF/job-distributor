@@ -23,10 +23,12 @@ bindPort = 7000
 force = true
 
 # ── Authentication ────────────────────────────────────────────────────────────
-# Must match FRPS_TOKEN in the hub .env file.
-# Change this to a long random secret before deploying.
+# frp-level token auth is disabled — authentication is fully delegated to the
+# Hub's Login plugin hook below, which validates a per-experiment token sent
+# in frpc's metadatas.  This means there is no global shared secret that could
+# be stolen from a container and reused across experiments.
 auth.method = "token"
-auth.token  = "CHANGE_ME_FRPS_TOKEN"
+auth.token  = ""
 
 # ── Virtual-host HTTP port ────────────────────────────────────────────────────
 # frps listens here for HTTP requests from Nginx.
@@ -44,17 +46,22 @@ vhostHTTPPort = 8080
 webServer.addr = "0.0.0.0"
 webServer.port = 7500
 
-# ── Server Plugin — proxy authorisation ───────────────────────────────────────
-# frps calls the Hub before accepting every frpc proxy registration.
-# The Hub approves only if the experiment is active AND the server sent a
-# heartbeat in the last 10 minutes.
+# ── Server Plugin — authentication + proxy authorisation ─────────────────────
+# frps calls the Hub for three lifecycle events:
 #
-# Security: port 5000 is never exposed outside the Docker network, so this
-# internal endpoint cannot be reached from the internet.  frp does not support
-# plugin-level authentication tokens natively; network isolation is the
-# security boundary here.
+#   Login     — frpc client connects.  Hub validates the per-experiment token
+#               sent in frpc's metadatas (meta_exp_token).  Clients with an
+#               invalid or missing token are rejected before any proxy can be
+#               registered.
+#
+#   NewProxy  — frpc registers a tunnel.  Hub checks the requested domain
+#               belongs to an active, recently-heartbeated experiment.
+#
+#   CloseProxy — frpc tunnel closes.  Hub sends a "server disconnected" email.
+#
+# Security: port 5000 is never exposed outside the Docker network.
 [[httpPlugins]]
 name = "hub-auth"
 addr = "http://hub:5000"         # hub container on the same Docker network
 path = "/api/internal/frp/new-proxy"
-ops  = ["NewProxy", "CloseProxy"]
+ops  = ["Login", "NewProxy", "CloseProxy"]

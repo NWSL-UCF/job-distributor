@@ -127,6 +127,10 @@ CREATE TABLE IF NOT EXISTS experiments (
     worker_shared_secret    VARCHAR(256)    NULL,   -- used to sign/verify worker JWTs
     admin_token             VARCHAR(256)    NULL,   -- used by Hub to call /admin/override_pin
 
+    -- Per-experiment frpc authentication token (sent as meta_exp_token on frpc Login)
+    -- Validated by Hub's frp Login plugin hook — replaces the global FRPS token for auth
+    frpc_token              VARCHAR(64)     NULL,
+
     -- FRP subdomains (set at creation)
     frpc_subdomain_server   VARCHAR(128)    NULL,   -- e.g. "server.myexp"
     frpc_subdomain_dashboard VARCHAR(128)   NULL,   -- e.g. "dashboard.myexp"

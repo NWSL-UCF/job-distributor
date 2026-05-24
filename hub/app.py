@@ -121,6 +121,12 @@ def _apply_migrations() -> None:
         ("users", "country",       "ALTER TABLE users ADD COLUMN country       VARCHAR(100) NULL"),
         ("users", "affiliation",   "ALTER TABLE users ADD COLUMN affiliation   VARCHAR(200) NULL"),
         ("users", "profile_photo", "ALTER TABLE users ADD COLUMN profile_photo VARCHAR(255) NULL"),
+        # v4: per-experiment frpc authentication token
+        (
+            "experiments",
+            "frpc_token",
+            "ALTER TABLE experiments ADD COLUMN frpc_token VARCHAR(64) NULL AFTER admin_token",
+        ),
     ]
 
     for table, column, stmt in migrations:
@@ -171,6 +177,20 @@ def _apply_migrations() -> None:
         except Exception as exc:
             db.session.rollback()
             log.warning("Migration failed for table %s: %s", tbl_name, exc)
+
+    # Backfill frpc_token for existing experiments that have NULL after the v4 migration
+    try:
+        import secrets as _secrets
+        from .models import Experiment as _Exp
+        null_exps = _Exp.query.filter(_Exp.frpc_token.is_(None)).all()
+        if null_exps:
+            for exp in null_exps:
+                exp.frpc_token = _secrets.token_hex(32)
+            db.session.commit()
+            log.info("Migration v4: backfilled frpc_token for %d experiments", len(null_exps))
+    except Exception as exc:
+        db.session.rollback()
+        log.warning("Migration v4 backfill failed: %s", exc)
 
 
 def _seed_defaults() -> None:

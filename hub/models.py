@@ -69,6 +69,7 @@ class Experiment(db.Model):
     )
     worker_shared_secret    = db.Column(db.String(256))
     admin_token             = db.Column(db.String(256))
+    frpc_token              = db.Column(db.String(64))
     frpc_subdomain_server   = db.Column(db.String(128))
     frpc_subdomain_dashboard= db.Column(db.String(128))
     last_activity_at        = db.Column(db.DateTime)
