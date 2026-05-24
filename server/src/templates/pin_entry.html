@@ -36,7 +36,14 @@
             margin: 0 auto 20px;
             overflow: hidden;
         }
-        .icon img { width: 64px; height: 64px; object-fit: contain; }
+        .icon .jd-logo { --jd-logo-size: 64px; border-radius: 14px; }
+        .jd-logo {
+            display: block;
+            flex-shrink: 0;
+            width: var(--jd-logo-size, 32px);
+            height: var(--jd-logo-size, 32px);
+        }
+        .icon img { object-fit: contain; }
         h2 { font-size: 1.25rem; color: #1a1f2e; margin-bottom: 4px; }
         .exp-badge {
             display: inline-block;
@@ -106,7 +113,7 @@
 </head>
 <body>
 <div class="card">
-    <div class="icon"><img src="/static/jd-icon-black.svg" alt="JobDistributor"></div>
+    <div class="icon"><img class="jd-logo" src="/static/jd-icon-black.svg" alt="JobDistributor"></div>
     <h2>Dashboard Access</h2>
     <div class="exp-badge">{{ expId }}</div>
 

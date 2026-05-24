@@ -56,6 +56,18 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   text-decoration: none;
 }
 .topnav__logo { display: block; flex-shrink: 0; }
+
+/* JobDistributor mark — vector SVG, no raster scaling blur */
+.jd-logo {
+  display: block;
+  flex-shrink: 0;
+  width: var(--jd-logo-size, 32px);
+  height: var(--jd-logo-size, 32px);
+  border-radius: 6px;
+}
+.topnav__logo.jd-logo { --jd-logo-size: 32px; }
+.auth-logo__icon.jd-logo { --jd-logo-size: 40px; }
+.nav-drawer__brand .jd-logo { --jd-logo-size: 30px; }
 .topnav__links { display: flex; gap: 4px; flex: 1; }
 .topnav__link {
   padding: 6px 12px; border-radius: var(--radius-sm);
@@ -249,7 +261,7 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   text-decoration: none; margin-bottom: 24px;
 }
 .auth-logo:hover { text-decoration: none; color: #000; }
-.auth-logo__icon { display: block; border-radius: 6px; }
+.auth-logo__icon { display: block; }
 .auth-resend { margin-top: 12px; }
 .field__input--otp {
   font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;

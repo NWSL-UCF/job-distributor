@@ -47,7 +47,18 @@
                 color: #f0f4ff;
                 white-space: nowrap;
                 letter-spacing: -0.2px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
             }
+            .jd-logo {
+                display: block;
+                flex-shrink: 0;
+                width: var(--jd-logo-size, 32px);
+                height: var(--jd-logo-size, 32px);
+                border-radius: 6px;
+            }
+            .header h1 .jd-logo { --jd-logo-size: 32px; }
             .header h1 i {
                 margin-right: 8px;
                 color: #6c8fef;

@@ -19,7 +19,7 @@
 {# ── Top navigation ──────────────────────────────────────────────────────── #}
 <nav class="topnav">
   <a class="topnav__brand" href="{{ url_for('dashboard.index') }}">
-    <img class="topnav__logo" src="{{ url_for('static', filename='jd-icon-black.svg') }}" width="32" height="32" alt="">
+    <img class="topnav__logo jd-logo" src="{{ url_for('static', filename='jd-icon-black.svg') }}" alt="">
     <span class="topnav__brand-text">JobDistributor Hub</span>
   </a>
 
@@ -161,7 +161,7 @@
     </div>
     {% else %}
     <a class="nav-drawer__brand" href="{{ url_for('auth.login') }}">
-      <img src="{{ url_for('static', filename='jd-icon-black.svg') }}" width="30" height="30" alt="">
+      <img class="jd-logo" src="{{ url_for('static', filename='jd-icon-black.svg') }}" alt="">
       JobDistributor Hub
     </a>
     {% endif %}
