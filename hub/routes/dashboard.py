@@ -236,7 +236,7 @@ def update_avatar():
     user = g.current_user
     file = request.files.get("photo")
     if not file or not file.filename:
-        return redirect(url_for("dashboard.profile"))
+        return ("No file received.", 400)
 
     # Accept JPEG blobs from the crop-modal (filename comes as 'crop.jpg')
     raw_name = file.filename or ""
@@ -268,8 +268,8 @@ def update_avatar():
 
     user.profile_photo = filename
     db.session.commit()
-    # Return 200 OK (JS reloads the page after success)
-    return ("ok", 200)
+    from flask import jsonify
+    return jsonify({"url": url_for("static", filename=f"uploads/avatars/{filename}")}), 200
 
 
 @dashboard_bp.route("/profile/photo/default", methods=["POST"])
