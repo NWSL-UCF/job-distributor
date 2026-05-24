@@ -330,14 +330,9 @@ def _build_frpc_config(exp: Experiment) -> str:
 # frps calls this endpoint for Login, NewProxy, and CloseProxy.
 #
 #   Login     — validate per-experiment frpc_token (meta_exp_token in frpc config)
-#   NewProxy  — allow only HTTP proxies for the token owner's two assigned domains
+#   NewProxy  — allow HTTP proxies whose custom_domain belongs to an experiment
+#               (Login already authenticated the frpc client).
 #   CloseProxy — notify experiment owner when the server tunnel closes
-#
-# NewProxy checks: HTTP type, valid token, domain belongs to experiment.
-# Login already authenticates the frpc client; no heartbeat gate on NewProxy.
-#
-# Security: port 5000 is never exposed outside the Docker network.  We also
-# verify the caller's IP is RFC-1918 for defence in depth.
 #
 # frp plugin response contract:
 #   {"reject": false, "unchange": true}       → allow
@@ -351,12 +346,38 @@ _NOTIF_COOLDOWN_SECS = 300   # 5 minutes
 
 def _parse_custom_domains(content: dict) -> list[str]:
     """Normalize custom_domains from frp plugin payload (string or list)."""
-    raw = content.get("custom_domains")
+    raw = (
+        content.get("custom_domains")
+        or content.get("customDomains")
+    )
     if isinstance(raw, str):
         return [d.strip() for d in raw.split(",") if d.strip()]
     if isinstance(raw, list):
         return [str(d).strip() for d in raw if str(d).strip()]
     return []
+
+
+def _exp_for_domains(domains: list[str]) -> "Experiment | None":
+    """Resolve an experiment from a registered frp custom domain."""
+    from sqlalchemy import or_
+
+    for domain in domains:
+        exp = Experiment.query.filter(
+            or_(
+                Experiment.frpc_subdomain_server == domain,
+                Experiment.frpc_subdomain_dashboard == domain,
+            ),
+            Experiment.status.notin_(["DELETED", "EXPIRED"]),
+        ).first()
+        if exp:
+            return exp
+        for candidate in Experiment.query.filter(
+            Experiment.status.notin_(["DELETED", "EXPIRED"])
+        ).all():
+            server_domain, dash_domain = _exp_frpc_domains(candidate)
+            if domain in (server_domain, dash_domain):
+                return candidate
+    return None
 
 
 def _extract_exp_token(content: dict) -> str:
@@ -367,22 +388,6 @@ def _extract_exp_token(content: dict) -> str:
         if token:
             return token
     return ""
-
-
-def _is_private_ip(ip: str) -> bool:
-    if ip in ("127.0.0.1", "::1"):
-        return True
-    if ip.startswith("10."):
-        return True
-    if ip.startswith("192.168."):
-        return True
-    if ip.startswith("172."):
-        try:
-            second = int(ip.split(".")[1])
-            return 16 <= second <= 31
-        except (IndexError, ValueError):
-            return False
-    return False
 
 
 def _frp_reject(reason: str, **context: str):
@@ -421,13 +426,15 @@ def _exp_from_proxy_name(proxy_name: str) -> "Experiment | None":
 def frp_plugin_hook():
     from ..email_service import send_server_connected, send_server_disconnected
 
-    remote_ip = request.remote_addr or ""
-    if not _is_private_ip(remote_ip):
-        return _frp_reject(f"Forbidden (caller {remote_ip})")
-
     data    = request.get_json(silent=True) or {}
     op      = data.get("op", "NewProxy")
-    content = data.get("content", {})
+    content = data.get("content", {}) or {}
+    proxy_name = (content.get("proxy_name") or content.get("proxyName") or "").strip()
+
+    log.info(
+        "frp plugin op=%s from=%s proxy=%s",
+        op, request.remote_addr or "?", proxy_name or "-",
+    )
 
     # ── Login ─────────────────────────────────────────────────────────────────
     # frps calls this when a frpc client connects, before accepting it.
@@ -458,45 +465,22 @@ def frp_plugin_hook():
         return _frp_allow()
 
     # ── NewProxy ──────────────────────────────────────────────────────────────
-    # Authorisation: valid experiment token + HTTP proxy on an assigned domain.
-    # Login already verified the token; do not re-check heartbeat here.
-
-    proxy_name = (content.get("proxy_name") or "").strip()
-    proxy_type = (content.get("proxy_type") or "").strip().lower()
-    if proxy_type not in ("http", ""):
-        return _frp_reject(
-            f"Only HTTP proxies are allowed (got '{proxy_type}')",
-            proxy=proxy_name,
-        )
+    # Login already authenticated the client — only verify the requested domain
+    # belongs to a known experiment.
 
     domains = _parse_custom_domains(content)
     if not domains:
-        return _frp_reject("HTTP proxy must specify custom_domains", proxy=proxy_name)
+        return _frp_reject("missing custom_domains", proxy=proxy_name)
 
-    if (content.get("subdomain") or "").strip():
-        return _frp_reject("subdomain routing is not allowed", proxy=proxy_name)
-
-    remote_port = content.get("remote_port")
-    if remote_port is not None and remote_port != 0:
-        return _frp_reject("remote_port is not allowed for HTTP proxies", proxy=proxy_name)
-
-    exp_token = _extract_exp_token(content)
-    if not exp_token:
-        return _frp_reject("Missing experiment token (metadatas.exp_token)", proxy=proxy_name)
-
-    exp = Experiment.query.filter(
-        Experiment.frpc_token == exp_token,
-        Experiment.status.notin_(["DELETED", "EXPIRED"]),
-    ).first()
+    exp = _exp_for_domains(domains)
     if exp is None:
-        return _frp_reject("Invalid or expired experiment token", proxy=proxy_name)
+        return _frp_reject("unknown custom_domain", proxy=proxy_name)
 
     server_domain, dash_domain = _exp_frpc_domains(exp)
     allowed_domains = {server_domain, dash_domain}
-    bad_domains = [d for d in domains if d not in allowed_domains]
-    if bad_domains:
+    if not all(d in allowed_domains for d in domains):
         return _frp_reject(
-            f"Domain(s) not assigned to experiment '{exp.name}': {', '.join(bad_domains)}",
+            f"domain not assigned to experiment '{exp.name}'",
             proxy=proxy_name,
         )
 
