@@ -267,44 +267,6 @@ def _collect_metrics(machine_type: str, logger: logging.Logger) -> dict:
         )} | {"worker_type": machine_type}
 
 
-def _averaged_metrics(machine_type: str, logger: logging.Logger,
-                      samples: int = 5, interval: float = 3.0) -> dict:
-    """Collect `samples` snapshots and return their numeric averages."""
-    logger.info(f"Collecting system metrics ({samples} samples × {interval}s)…")
-    snapshots = []
-    for i in range(samples):
-        logger.info(f"  Sample {i+1}/{samples}")
-        snapshots.append(_collect_metrics(machine_type, logger))
-        if i < samples - 1:
-            time.sleep(interval)
-
-    numeric = [
-        "cpu_util", "ram_util", "ram_available", "ram_total",
-        "idle_slots", "load_1min", "load_5min", "load_15min",
-        "load_per_cpu", "disk_io_util", "cpu_freq_mhz",
-    ]
-    result = {"worker_type": machine_type,
-              "cpu_cores":   snapshots[0]["cpu_cores"],
-              "cpu_threads": snapshots[0]["cpu_threads"]}
-    for key in numeric:
-        vals = [s[key] for s in snapshots]
-        avg  = sum(vals) / len(vals)
-        if key in ("idle_slots", "cpu_freq_mhz"):
-            result[key] = int(round(avg))
-        elif key in ("cpu_util", "ram_util", "ram_total"):
-            result[key] = round(avg, 1)
-        elif key == "ram_available":
-            result[key] = round(avg, 15)
-        elif key in ("load_1min", "load_5min", "load_15min"):
-            result[key] = round(avg, 10)
-        elif key == "load_per_cpu":
-            result[key] = round(avg, 13)
-        else:
-            result[key] = round(avg, 2)
-    logger.info("System metrics ready.")
-    return result
-
-
 # ── Server communication ──────────────────────────────────────────────────────
 
 def _request_job(url: str, runner_id: str, metrics: dict,
@@ -473,7 +435,7 @@ def _run_worker(cfg: dict) -> None:
             if token_mgr:
                 token_mgr.ensure_fresh()
 
-            metrics      = _averaged_metrics(cfg['machine_type'], logger)
+            metrics      = _collect_metrics(cfg['machine_type'], logger)
             job, reason  = _request_job(urls['request'], runner_id, metrics, logger,
                                         token_mgr=token_mgr)
 
