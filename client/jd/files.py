@@ -31,6 +31,7 @@ Environment variables (set automatically by jd_worker)
                                   (auto-refreshed by jd_worker_cli)
     JD_WORKER_ID                — short random id for this worker process (Hub mode)
     JD_WORKER_TOKEN               — initial JWT at job start (fallback if file unreadable)
+    JD_UPLOAD_MAX_RETRIES         — total jd_upload attempts (default 5)
 
 You can override server/job_id via the upload/checkpoint function keyword arguments.
 """
@@ -39,6 +40,8 @@ import io
 import logging
 import os
 import pickle
+import random
+import time
 
 import requests
 
@@ -48,6 +51,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_BYTES = 100 * 1024 * 1024   # 100 MB
 _TIMEOUT   = 180                  # seconds for upload/download HTTP calls
+
+_UPLOAD_MAX_RETRIES = max(1, int(os.environ.get("JD_UPLOAD_MAX_RETRIES", "5")))
+_UPLOAD_RETRY_SLEEP_MIN = 1.0
+_UPLOAD_RETRY_SLEEP_MAX = 20.0
+# Transient routing / overload errors (e.g. frps 404 during tunnel reconnect).
+_UPLOAD_RETRYABLE_STATUS = {404, 408, 429, 500, 502, 503, 504}
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -85,9 +94,18 @@ def _check_size(data: bytes, label: str) -> None:
         )
 
 
+def _upload_retry_delay() -> float:
+    return random.uniform(_UPLOAD_RETRY_SLEEP_MIN, _UPLOAD_RETRY_SLEEP_MAX)
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def jd_upload(file_path: str, job_id: int = None, server: str = None) -> dict:
+def jd_upload(
+    file_path: str,
+    job_id: int = None,
+    server: str = None,
+    max_retries: int = None,
+) -> dict:
     """
     Upload a result file (≤ 100 MB) to the server.
 
@@ -97,6 +115,10 @@ def jd_upload(file_path: str, job_id: int = None, server: str = None) -> dict:
 
     where N auto-increments across calls so every upload is preserved.
 
+    On transient HTTP or network errors the upload is retried with a random
+    1–20 second delay between attempts (default 5 attempts; override with
+    ``max_retries`` or ``JD_UPLOAD_MAX_RETRIES``).
+
     Parameters
     ----------
     file_path : str
@@ -105,6 +127,8 @@ def jd_upload(file_path: str, job_id: int = None, server: str = None) -> dict:
         Defaults to the JD_JOB_ID environment variable.
     server : str, optional
         Job server base URL. Defaults to JD_SERVER environment variable.
+    max_retries : int, optional
+        Total upload attempts (default from ``JD_UPLOAD_MAX_RETRIES``, usually 5).
 
     Returns
     -------
@@ -122,19 +146,50 @@ def jd_upload(file_path: str, job_id: int = None, server: str = None) -> dict:
     _check_size(data, f"File '{os.path.basename(file_path)}'")
 
     original_name = os.path.basename(file_path)
-    logger.info(f"[jd_upload] Uploading '{original_name}' ({len(data)/(1024**2):.2f} MB) …")
-
-    resp = requests.post(
-        f"{server}/upload",
-        data={"job_id": str(job_id)},
-        files={"file": (original_name, io.BytesIO(data), "application/octet-stream")},
-        headers=_auth_headers(),
-        timeout=_TIMEOUT,
+    attempts = max(1, max_retries if max_retries is not None else _UPLOAD_MAX_RETRIES)
+    logger.info(
+        f"[jd_upload] Uploading '{original_name}' ({len(data)/(1024**2):.2f} MB) "
+        f"(up to {attempts} attempt(s)) …"
     )
-    resp.raise_for_status()
-    result = resp.json()
-    logger.info(f"[jd_upload] Saved as '{result.get('filename')}' (version {result.get('version')})")
-    return result
+
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = requests.post(
+                f"{server}/upload",
+                data={"job_id": str(job_id)},
+                files={"file": (original_name, io.BytesIO(data), "application/octet-stream")},
+                headers=_auth_headers(),
+                timeout=_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                if attempt > 1:
+                    logger.info(f"[jd_upload] Succeeded on attempt {attempt}/{attempts}")
+                logger.info(
+                    f"[jd_upload] Saved as '{result.get('filename')}' "
+                    f"(version {result.get('version')})"
+                )
+                return result
+
+            if resp.status_code in _UPLOAD_RETRYABLE_STATUS and attempt < attempts:
+                delay = _upload_retry_delay()
+                logger.warning(
+                    f"[jd_upload] HTTP {resp.status_code} on attempt {attempt}/{attempts}; "
+                    f"retrying in {delay:.1f}s …"
+                )
+                time.sleep(delay)
+                continue
+
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            if attempt >= attempts:
+                raise
+            delay = _upload_retry_delay()
+            logger.warning(
+                f"[jd_upload] Request failed on attempt {attempt}/{attempts} ({exc}); "
+                f"retrying in {delay:.1f}s …"
+            )
+            time.sleep(delay)
 
 
 def jd_update_checkpoint(obj, job_id: int = None, server: str = None) -> dict:
