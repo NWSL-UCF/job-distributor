@@ -392,6 +392,8 @@ def upload_file():
     with open(save_path, "wb") as out:
         out.write(data)
 
+    db.record_upload(int(job_id), version, filename, len(data), float(timestamp))
+
     logging.info(f"Upload saved: job={job_id}  file={filename}  bytes={len(data)}")
     return jsonify({"success": True, "filename": filename, "version": version,
                     "size_bytes": len(data)})

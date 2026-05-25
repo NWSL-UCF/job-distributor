@@ -1006,6 +1006,135 @@
             .modal-tab-content { display: none; padding-top: 16px; }
             .modal-tab-content.active { display: block; }
 
+            /* Upload results tab */
+            .uploads-loading, .uploads-empty {
+                text-align: center;
+                padding: 32px 16px;
+                color: #adb5bd;
+            }
+            .uploads-empty i { font-size: 2rem; display: block; margin-bottom: 10px; }
+            .uploads-empty p { margin: 0; }
+            .uploads-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 12px;
+                padding: 12px 14px;
+                background: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+            }
+            .uploads-toolbar-row {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 10px;
+            }
+            .uploads-label { font-weight: bold; font-size: 0.9rem; color: #495057; }
+            .uploads-version-select {
+                min-width: 220px;
+                padding: 6px 10px;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                font-family: monospace;
+                font-size: 0.85rem;
+            }
+            .uploads-meta { font-size: 0.82rem; color: #6c757d; }
+            .upload-download-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 8px 14px;
+                background: #007bff;
+                color: white !important;
+                text-decoration: none;
+                border-radius: 5px;
+                font-size: 0.88rem;
+                font-weight: bold;
+            }
+            .upload-download-btn:hover { background: #0056b3; }
+            .upload-preview-notice {
+                margin-bottom: 10px;
+                padding: 10px 12px;
+                background: #fff3cd;
+                border: 1px solid #ffeaa7;
+                border-radius: 6px;
+                font-size: 0.85rem;
+                color: #856404;
+            }
+            .upload-preview-area {
+                max-height: 420px;
+                overflow: auto;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                background: #fff;
+            }
+            .upload-table-wrap { overflow: auto; }
+            .upload-data-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.82rem;
+            }
+            .upload-data-table th,
+            .upload-data-table td {
+                border: 1px solid #dee2e6;
+                padding: 6px 8px;
+                text-align: left;
+                vertical-align: top;
+            }
+            .upload-data-table th {
+                background: #f1f3f5;
+                position: sticky;
+                top: 0;
+                z-index: 1;
+            }
+            .upload-data-table tr:nth-child(even) td { background: #fafbfc; }
+            .upload-tree {
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 0.82rem;
+                padding: 10px 12px;
+                line-height: 1.45;
+            }
+            .upload-tree-node { margin-left: 0; }
+            .upload-tree-children {
+                margin-left: 18px;
+                border-left: 1px solid #e9ecef;
+                padding-left: 8px;
+            }
+            .upload-tree-row {
+                display: flex;
+                align-items: flex-start;
+                gap: 4px;
+                padding: 1px 0;
+            }
+            .upload-tree-toggle {
+                cursor: pointer;
+                user-select: none;
+                width: 14px;
+                color: #6c757d;
+                flex-shrink: 0;
+            }
+            .upload-tree-key { color: #0d6efd; }
+            .upload-tree-val-string { color: #198754; }
+            .upload-tree-val-number { color: #d63384; }
+            .upload-tree-val-bool { color: #6f42c1; }
+            .upload-tree-val-null { color: #adb5bd; font-style: italic; }
+            .upload-yaml-block { margin-left: 0; }
+            .upload-yaml-line {
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 0.82rem;
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
+            .upload-download-only {
+                text-align: center;
+                padding: 28px 16px;
+                color: #6c757d;
+            }
+            .upload-download-only i { font-size: 1.6rem; display: block; margin-bottom: 8px; color: #adb5bd; }
+
             /* Timeline Styling */
             .timeline { position: relative; }
             .timeline-empty {

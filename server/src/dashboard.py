@@ -10,8 +10,16 @@ from pathlib import Path
 
 import pytz
 from database import JobDatabase
-from flask import Flask, jsonify, make_response, redirect, render_template, request
+from flask import Flask, jsonify, make_response, redirect, render_template, request, send_file
 from workspace_layout import ensure_exp_layout, exp_meta_dir, jobs_db_path
+from job_files import (
+    MAX_PREVIEW_BYTES,
+    file_format,
+    read_upload_preview,
+    resolve_result_file,
+    scan_uploads_from_disk,
+    validate_result_filename,
+)
 
 app = Flask(__name__)
 
@@ -628,6 +636,103 @@ def get_jobs_paginated():
 
     except Exception as e:
         logging.error(f"Error getting paginated jobs: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+def _upload_rows_for_job(job_id: int) -> list:
+    """List uploads from SQLite, backfilling from disk when the table is empty."""
+    rows = db.list_uploads(job_id)
+    if not rows:
+        disk_rows = scan_uploads_from_disk(BASE_DIR, EXP_ID, str(job_id))
+        if disk_rows:
+            db.backfill_uploads(disk_rows)
+            rows = db.list_uploads(job_id)
+    enriched = []
+    for row in rows:
+        ext = os.path.splitext(row["filename"])[1]
+        item = dict(row)
+        item["format"] = file_format(ext)
+        enriched.append(item)
+    return enriched
+
+
+@app.route("/job_uploads", methods=["GET"])
+def list_job_uploads():
+    """List result upload versions for a job (newest first)."""
+    db.track_api_request("Job Uploads List", "GET")
+    try:
+        job_id = request.args.get("job_id")
+        if not job_id:
+            return jsonify({"error": "job_id is required"}), 400
+        job_id = int(job_id)
+        if db.get_job_by_id(job_id) is None:
+            return jsonify({"error": "Job not found"}), 404
+
+        uploads = _upload_rows_for_job(job_id)
+        return jsonify(
+            {
+                "job_id": job_id,
+                "uploads": uploads,
+                "max_preview_bytes": MAX_PREVIEW_BYTES,
+            }
+        )
+    except ValueError:
+        return jsonify({"error": "Invalid job_id"}), 400
+    except Exception as e:
+        logging.error(f"Error listing job uploads: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/job_uploads/content", methods=["GET"])
+def job_upload_content():
+    """Return upload file content for in-dashboard preview (≤2 MB, known formats)."""
+    db.track_api_request("Job Upload Content", "GET")
+    try:
+        job_id = request.args.get("job_id")
+        filename = request.args.get("filename", "")
+        if not job_id or not filename:
+            return jsonify({"error": "job_id and filename are required"}), 400
+        if not validate_result_filename(filename):
+            return jsonify({"error": "Invalid filename"}), 400
+
+        job_id = int(job_id)
+        path = resolve_result_file(BASE_DIR, EXP_ID, str(job_id), filename)
+        if not path:
+            return jsonify({"error": "File not found"}), 404
+
+        preview = read_upload_preview(path)
+        preview["job_id"] = job_id
+        preview["filename"] = filename
+        return jsonify(preview)
+    except ValueError:
+        return jsonify({"error": "Invalid job_id"}), 400
+    except Exception as e:
+        logging.error(f"Error reading upload content: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/job_uploads/download", methods=["GET"])
+def job_upload_download():
+    """Download a result upload file (full size, up to upload limit)."""
+    db.track_api_request("Job Upload Download", "GET")
+    try:
+        job_id = request.args.get("job_id")
+        filename = request.args.get("filename", "")
+        if not job_id or not filename:
+            return jsonify({"error": "job_id and filename are required"}), 400
+        if not validate_result_filename(filename):
+            return jsonify({"error": "Invalid filename"}), 400
+
+        job_id = int(job_id)
+        path = resolve_result_file(BASE_DIR, EXP_ID, str(job_id), filename)
+        if not path:
+            return jsonify({"error": "File not found"}), 404
+
+        return send_file(path, as_attachment=True, download_name=filename)
+    except ValueError:
+        return jsonify({"error": "Invalid job_id"}), 400
+    except Exception as e:
+        logging.error(f"Error downloading upload: {e}")
         return jsonify({"error": str(e)}), 500
 
 

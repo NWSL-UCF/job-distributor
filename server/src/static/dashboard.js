@@ -428,11 +428,360 @@ function openModal() {
                 });
             });
 
+            let _modalJobId = null;
+            let _jobUploads = [];
+
             function switchModalTab(tabName, btn) {
                 document.querySelectorAll('.modal-tab-content').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.modal-tab-btn').forEach(el => el.classList.remove('active'));
                 document.getElementById('modalTab-' + tabName).classList.add('active');
                 btn.classList.add('active');
+                if (tabName === 'results' && _modalJobId != null) {
+                    loadJobUploads(_modalJobId);
+                }
+            }
+
+            function _formatBytes(n) {
+                if (n == null || isNaN(n)) return '—';
+                if (n < 1024) return n + ' B';
+                if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+                return (n / (1024 * 1024)).toFixed(2) + ' MB';
+            }
+
+            function _formatUploadTime(ts) {
+                if (!ts) return '';
+                try {
+                    return new Date(ts * 1000).toLocaleString();
+                } catch (e) {
+                    return String(ts);
+                }
+            }
+
+            function _resetUploadsTab() {
+                _jobUploads = [];
+                document.getElementById('uploadsLoading').style.display = 'none';
+                document.getElementById('uploadsEmpty').style.display = 'none';
+                document.getElementById('uploadsEmpty').innerHTML =
+                    '<i class="fas fa-inbox"></i><p>No uploaded results for this job yet.</p>';
+                document.getElementById('uploadsPanel').style.display = 'none';
+                document.getElementById('uploadVersionSelect').innerHTML = '';
+                document.getElementById('uploadMeta').textContent = '';
+                document.getElementById('uploadPreviewNotice').style.display = 'none';
+                document.getElementById('uploadPreviewArea').innerHTML = '';
+                const dl = document.getElementById('uploadDownloadBtn');
+                dl.href = '#';
+                dl.onclick = function(e) { e.preventDefault(); };
+            }
+
+            function loadJobUploads(jobId) {
+                _resetUploadsTab();
+                document.getElementById('uploadsLoading').style.display = 'block';
+
+                fetch('/job_uploads?job_id=' + encodeURIComponent(jobId))
+                    .then(function(resp) {
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        return resp.json();
+                    })
+                    .then(function(data) {
+                        document.getElementById('uploadsLoading').style.display = 'none';
+                        _jobUploads = data.uploads || [];
+                        if (!_jobUploads.length) {
+                            document.getElementById('uploadsEmpty').style.display = 'block';
+                            return;
+                        }
+                        document.getElementById('uploadsPanel').style.display = 'block';
+                        const sel = document.getElementById('uploadVersionSelect');
+                        sel.innerHTML = '';
+                        _jobUploads.forEach(function(u, idx) {
+                            const opt = document.createElement('option');
+                            opt.value = u.filename;
+                            opt.textContent = 'v' + u.version + ' — ' + u.filename + ' (' + _formatBytes(u.size_bytes) + ')';
+                            if (idx === 0) opt.selected = true;
+                            sel.appendChild(opt);
+                        });
+                        onUploadVersionChange();
+                    })
+                    .catch(function(err) {
+                        console.error('loadJobUploads failed:', err);
+                        document.getElementById('uploadsLoading').style.display = 'none';
+                        document.getElementById('uploadsEmpty').style.display = 'block';
+                        document.getElementById('uploadsEmpty').innerHTML =
+                            '<i class="fas fa-exclamation-triangle"></i><p>Could not load uploads.</p>';
+                    });
+            }
+
+            function onUploadVersionChange() {
+                const jobId = _modalJobId;
+                const sel = document.getElementById('uploadVersionSelect');
+                const filename = sel.value;
+                if (!jobId || !filename) return;
+
+                const meta = _jobUploads.find(function(u) { return u.filename === filename; }) || {};
+                document.getElementById('uploadMeta').textContent =
+                    _formatBytes(meta.size_bytes) +
+                    (meta.uploaded_at ? ' · ' + _formatUploadTime(meta.uploaded_at) : '') +
+                    (meta.format ? ' · ' + meta.format : '');
+
+                const dlUrl = '/job_uploads/download?job_id=' + encodeURIComponent(jobId) +
+                    '&filename=' + encodeURIComponent(filename);
+                const dlBtn = document.getElementById('uploadDownloadBtn');
+                dlBtn.href = dlUrl;
+                dlBtn.onclick = null;
+
+                const notice = document.getElementById('uploadPreviewNotice');
+                const area = document.getElementById('uploadPreviewArea');
+                notice.style.display = 'none';
+                notice.textContent = '';
+                area.innerHTML = '<div class="uploads-loading"><i class="fas fa-spinner fa-spin"></i> Loading preview…</div>';
+
+                fetch('/job_uploads/content?job_id=' + encodeURIComponent(jobId) +
+                    '&filename=' + encodeURIComponent(filename))
+                    .then(function(resp) {
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        return resp.json();
+                    })
+                    .then(function(data) {
+                        renderUploadPreview(data);
+                    })
+                    .catch(function(err) {
+                        console.error('upload preview failed:', err);
+                        area.innerHTML = '<div class="upload-download-only"><i class="fas fa-exclamation-circle"></i>Preview unavailable. Use Download.</div>';
+                    });
+            }
+
+            function renderUploadPreview(data) {
+                const notice = document.getElementById('uploadPreviewNotice');
+                const area = document.getElementById('uploadPreviewArea');
+                notice.style.display = 'none';
+                area.innerHTML = '';
+
+                if (data.too_large) {
+                    notice.style.display = 'block';
+                    notice.textContent = 'File exceeds 2 MB — preview hidden. Use Download to view on your machine.';
+                    area.innerHTML = '<div class="upload-download-only"><i class="fas fa-file-download"></i>File too large for in-browser preview.</div>';
+                    return;
+                }
+
+                if (!data.viewable) {
+                    area.innerHTML = '<div class="upload-download-only"><i class="fas fa-file"></i>Preview not available for this file type. Use Download.</div>';
+                    return;
+                }
+
+                if (data.format === 'tabular') {
+                    area.appendChild(renderTabularPreview(data.content, data.filename));
+                } else if (data.format === 'json') {
+                    try {
+                        const parsed = JSON.parse(data.content);
+                        area.appendChild(buildJsonTree(parsed, true));
+                    } catch (e) {
+                        area.innerHTML = '<pre class="upload-tree">' + escapeHtml(data.content) + '</pre>';
+                    }
+                } else if (data.format === 'yaml') {
+                    area.appendChild(buildYamlTree(data.content));
+                } else {
+                    area.innerHTML = '<div class="upload-download-only"><i class="fas fa-file"></i>Use Download to view this file.</div>';
+                }
+            }
+
+            function escapeHtml(text) {
+                const d = document.createElement('div');
+                d.textContent = text;
+                return d.innerHTML;
+            }
+
+            function parseDelimitedText(text, filename) {
+                const ext = (filename || '').split('.').pop().toLowerCase();
+                const delim = (ext === 'tsv' || ext === 'tab') ? '\t' : ',';
+                const rows = [];
+                let row = [];
+                let cell = '';
+                let inQuotes = false;
+                for (let i = 0; i < text.length; i++) {
+                    const ch = text[i];
+                    if (inQuotes) {
+                        if (ch === '"') {
+                            if (text[i + 1] === '"') { cell += '"'; i++; }
+                            else inQuotes = false;
+                        } else cell += ch;
+                    } else if (ch === '"') {
+                        inQuotes = true;
+                    } else if (ch === delim) {
+                        row.push(cell);
+                        cell = '';
+                    } else if (ch === '\n') {
+                        row.push(cell);
+                        if (row.length > 1 || row[0] !== '') rows.push(row);
+                        row = [];
+                        cell = '';
+                    } else if (ch !== '\r') {
+                        cell += ch;
+                    }
+                }
+                if (cell.length || row.length) {
+                    row.push(cell);
+                    rows.push(row);
+                }
+                return rows;
+            }
+
+            function renderTabularPreview(content, filename) {
+                const wrap = document.createElement('div');
+                wrap.className = 'upload-table-wrap';
+                const rows = parseDelimitedText(content, filename);
+                if (!rows.length) {
+                    wrap.innerHTML = '<div class="upload-download-only">Empty table</div>';
+                    return wrap;
+                }
+                const table = document.createElement('table');
+                table.className = 'upload-data-table';
+                const thead = document.createElement('thead');
+                const headRow = document.createElement('tr');
+                rows[0].forEach(function(h) {
+                    const th = document.createElement('th');
+                    th.textContent = h;
+                    headRow.appendChild(th);
+                });
+                thead.appendChild(headRow);
+                table.appendChild(thead);
+                const tbody = document.createElement('tbody');
+                rows.slice(1).forEach(function(r) {
+                    const tr = document.createElement('tr');
+                    rows[0].forEach(function(_, ci) {
+                        const td = document.createElement('td');
+                        td.textContent = r[ci] != null ? r[ci] : '';
+                        tr.appendChild(td);
+                    });
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+                wrap.appendChild(table);
+                return wrap;
+            }
+
+            function buildJsonTree(value, expanded) {
+                const root = document.createElement('div');
+                root.className = 'upload-tree';
+                root.appendChild(jsonTreeNode(null, value, expanded));
+                return root;
+            }
+
+            function jsonTreeNode(key, value, expanded) {
+                const node = document.createElement('div');
+                node.className = 'upload-tree-node';
+
+                if (value !== null && typeof value === 'object') {
+                    const isArr = Array.isArray(value);
+                    const keys = isArr ? value.map(function(_, i) { return i; }) : Object.keys(value);
+                    const row = document.createElement('div');
+                    row.className = 'upload-tree-row';
+                    const toggle = document.createElement('span');
+                    toggle.className = 'upload-tree-toggle';
+                    toggle.textContent = expanded ? '▼' : '▶';
+                    row.appendChild(toggle);
+                    const label = document.createElement('span');
+                    if (key !== null) {
+                        label.innerHTML = '<span class="upload-tree-key">' + escapeHtml(String(key)) + '</span>: ';
+                    }
+                    label.innerHTML += isArr ? '[ ' + keys.length + ' ]' : '{ ' + keys.length + ' }';
+                    row.appendChild(label);
+                    node.appendChild(row);
+
+                    const children = document.createElement('div');
+                    children.className = 'upload-tree-children';
+                    children.style.display = expanded ? 'block' : 'none';
+                    keys.forEach(function(k) {
+                        children.appendChild(jsonTreeNode(k, value[k], false));
+                    });
+                    node.appendChild(children);
+
+                    toggle.onclick = function() {
+                        const open = children.style.display !== 'none';
+                        children.style.display = open ? 'none' : 'block';
+                        toggle.textContent = open ? '▶' : '▼';
+                    };
+                } else {
+                    const row = document.createElement('div');
+                    row.className = 'upload-tree-row';
+                    const spacer = document.createElement('span');
+                    spacer.className = 'upload-tree-toggle';
+                    spacer.textContent = ' ';
+                    row.appendChild(spacer);
+                    const valSpan = document.createElement('span');
+                    let valHtml = '';
+                    if (key !== null) {
+                        valHtml += '<span class="upload-tree-key">' + escapeHtml(String(key)) + '</span>: ';
+                    }
+                    if (value === null) valHtml += '<span class="upload-tree-val-null">null</span>';
+                    else if (typeof value === 'string') valHtml += '<span class="upload-tree-val-string">"' + escapeHtml(value) + '"</span>';
+                    else if (typeof value === 'number') valHtml += '<span class="upload-tree-val-number">' + value + '</span>';
+                    else if (typeof value === 'boolean') valHtml += '<span class="upload-tree-val-bool">' + value + '</span>';
+                    else valHtml += escapeHtml(String(value));
+                    valSpan.innerHTML = valHtml;
+                    row.appendChild(valSpan);
+                    node.appendChild(row);
+                }
+                return node;
+            }
+
+            function buildYamlTree(text) {
+                const root = document.createElement('div');
+                root.className = 'upload-tree';
+                const lines = text.split('\n');
+                let i = 0;
+
+                function indentOf(line) {
+                    const m = line.match(/^(\s*)/);
+                    return m ? m[1].length : 0;
+                }
+
+                function parseBlock(minIndent) {
+                    const block = document.createElement('div');
+                    block.className = 'upload-yaml-block';
+                    while (i < lines.length) {
+                        const line = lines[i];
+                        if (!line.trim()) { i++; continue; }
+                        const ind = indentOf(line);
+                        if (ind < minIndent) break;
+
+                        const nextLine = (i + 1 < lines.length) ? lines[i + 1] : '';
+                        const nextInd = nextLine.trim() ? indentOf(nextLine) : -1;
+                        const hasChildren = nextInd > ind;
+
+                        if (hasChildren) {
+                            const row = document.createElement('div');
+                            row.className = 'upload-tree-row';
+                            const toggle = document.createElement('span');
+                            toggle.className = 'upload-tree-toggle';
+                            toggle.textContent = '▼';
+                            row.appendChild(toggle);
+                            const lbl = document.createElement('span');
+                            lbl.className = 'upload-yaml-line';
+                            lbl.textContent = line.trim();
+                            row.appendChild(lbl);
+                            block.appendChild(row);
+                            i++;
+                            const childWrap = document.createElement('div');
+                            childWrap.className = 'upload-tree-children';
+                            childWrap.appendChild(parseBlock(nextInd));
+                            block.appendChild(childWrap);
+                            toggle.onclick = function() {
+                                const open = childWrap.style.display !== 'none';
+                                childWrap.style.display = open ? 'none' : 'block';
+                                toggle.textContent = open ? '▶' : '▼';
+                            };
+                        } else {
+                            const row = document.createElement('div');
+                            row.className = 'upload-yaml-line';
+                            row.textContent = line.slice(minIndent);
+                            block.appendChild(row);
+                            i++;
+                        }
+                    }
+                    return block;
+                }
+
+                root.appendChild(parseBlock(0));
+                return root;
             }
 
             function getTimelineClass(reason) {
@@ -634,6 +983,9 @@ function openModal() {
                 const deleteSection = document.getElementById("deleteSection");
                 const restoreSection = document.getElementById("restoreSection");
                 const updateParamsSection = document.getElementById("updateParamsSection");
+
+                _modalJobId = jobId;
+                _resetUploadsTab();
 
                 // Set Job ID and status badge
                 jobIdSpan.textContent = jobId;

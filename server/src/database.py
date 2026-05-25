@@ -118,6 +118,21 @@ class JobDatabase:
             cursor.execute(
                 'CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)'
             )
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS uploads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id INTEGER NOT NULL,
+                    version INTEGER NOT NULL,
+                    filename TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    uploaded_at REAL NOT NULL,
+                    UNIQUE(job_id, version)
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_uploads_job_id ON uploads(job_id)'
+            )
             
             # Create indexes for optimal query performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)')
@@ -1045,6 +1060,68 @@ class JobDatabase:
             
             return counts
     
+    def record_upload(
+        self,
+        job_id: int,
+        version: int,
+        filename: str,
+        size_bytes: int,
+        uploaded_at: float,
+    ) -> None:
+        """Persist metadata for a worker result upload."""
+        with self.lock:
+            with self.get_connection() as conn:
+                conn.execute(
+                    '''
+                    INSERT INTO uploads (job_id, version, filename, size_bytes, uploaded_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(job_id, version) DO UPDATE SET
+                        filename = excluded.filename,
+                        size_bytes = excluded.size_bytes,
+                        uploaded_at = excluded.uploaded_at
+                    ''',
+                    (job_id, version, filename, size_bytes, uploaded_at),
+                )
+                conn.commit()
+
+    def list_uploads(self, job_id: int) -> List[Dict[str, Any]]:
+        """Return upload rows for a job, newest version first."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                SELECT job_id, version, filename, size_bytes, uploaded_at
+                FROM uploads
+                WHERE job_id = ?
+                ORDER BY version DESC
+                ''',
+                (job_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def backfill_uploads(self, rows: List[Dict[str, Any]]) -> None:
+        """Insert disk-scanned uploads that are not yet in SQLite."""
+        if not rows:
+            return
+        with self.lock:
+            with self.get_connection() as conn:
+                for row in rows:
+                    conn.execute(
+                        '''
+                        INSERT OR IGNORE INTO uploads
+                        (job_id, version, filename, size_bytes, uploaded_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        ''',
+                        (
+                            row["job_id"],
+                            row["version"],
+                            row["filename"],
+                            row["size_bytes"],
+                            row["uploaded_at"],
+                        ),
+                    )
+                conn.commit()
+
     def get_percentile_runtime(self, percentile: float) -> float:
         """
         Get the percentile runtime from completed jobs.
