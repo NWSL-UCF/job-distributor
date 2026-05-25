@@ -514,12 +514,12 @@ function openModal() {
                 const jobId = _modalJobId;
                 const sel = document.getElementById('uploadVersionSelect');
                 const filename = sel.value;
-                if (!jobId || !filename) return;
+                if (_modalJobId == null || !filename) return;
 
                 const meta = _jobUploads.find(function(u) { return u.filename === filename; }) || {};
                 document.getElementById('uploadMeta').textContent =
                     _formatBytes(meta.size_bytes) +
-                    (meta.uploaded_at ? ' · ' + _formatUploadTime(meta.uploaded_at) : '') +
+                    (meta.uploaded_at != null ? ' · ' + _formatUploadTime(meta.uploaded_at) : '') +
                     (meta.format ? ' · ' + meta.format : '');
 
                 const dlUrl = '/job_uploads/download?job_id=' + encodeURIComponent(jobId) +
