@@ -92,6 +92,8 @@ def experiment_runtime_config(name: str):
     if not exp.worker_shared_secret:
         return jsonify({"error": "Experiment not provisioned"}), 503
 
+    _ensure_frpc_token(exp)
+
     return jsonify({
         "name":                 exp.name,
         "server_url":           f"https://{exp.name}-server.{config.JD_BASE_DOMAIN}",
@@ -279,6 +281,15 @@ def _exp_to_dict(exp: Experiment) -> dict:
         "created_at":   exp.created_at.isoformat() if exp.created_at else None,
         "last_activity":exp.last_activity_at.isoformat() if exp.last_activity_at else None,
     }
+
+
+def _ensure_frpc_token(exp: Experiment) -> None:
+    """Generate and persist frpc_token if missing (legacy web-created experiments)."""
+    if (exp.frpc_token or "").strip():
+        return
+    exp.frpc_token = secrets.token_hex(32)
+    db.session.commit()
+    log.info("Generated frpc_token for experiment %s", exp.name)
 
 
 def _exp_frpc_domains(exp: Experiment) -> tuple[str, str]:

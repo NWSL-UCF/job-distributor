@@ -504,6 +504,7 @@ def _provision_experiment(user: User, name: str) -> Experiment:
         name                     = name,
         status                   = "ACTIVE",
         worker_shared_secret     = worker_secret,
+        frpc_token               = secrets.token_hex(32),
         frpc_subdomain_server    = f"{name}-server.{config.JD_BASE_DOMAIN}",
         frpc_subdomain_dashboard = f"{name}-dashboard.{config.JD_BASE_DOMAIN}",
         last_activity_at         = _now(),
