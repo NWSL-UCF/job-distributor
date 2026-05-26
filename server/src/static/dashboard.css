@@ -362,9 +362,10 @@
             }
             
             .chart-wrapper {
-                flex: 1;
+                flex: 0 0 max(7rem, calc(50% - 1.5in));
                 position: relative;
-                min-height: 0;
+                min-height: 7rem;
+                max-height: max(7rem, calc(50% - 1.5in));
             }
             
             #jobChart {
@@ -539,7 +540,7 @@
             .tabcontent.active {
                 display: flex;
                 flex-direction: column;
-                flex: 1;
+                flex: 1 1 0;
                 min-height: 0;
                 overflow: hidden;
             }
@@ -581,7 +582,7 @@
                 overflow-y: auto;
             }
             .api-stats--modal {
-                max-height: min(60vh, 520px);
+                max-height: min(60vh, 480px);
                 margin-top: 8px;
             }
             .api-stats-empty {
@@ -592,12 +593,11 @@
             }
             .api-stat-item--total {
                 border-top: 2px solid #e2e8f0;
-                margin-top: 8px;
+                margin-top: 6px;
                 padding-top: 12px;
             }
             .api-stat-item--total .api-endpoint {
-                font-weight: 700;
-                color: #1e293b;
+                font-weight: 600;
             }
             .api-count--total {
                 background: #3b82f6;
@@ -605,35 +605,102 @@
             }
             .modal-content-2--api-stats {
                 text-align: left;
-                width: min(480px, 92vw);
+                width: min(420px, calc(100vw - 32px));
+                max-width: 420px;
+                margin: 6% auto;
+                padding: 20px 22px 18px;
             }
             .modal-content-2--api-stats h2 {
                 text-align: center;
                 margin-bottom: 4px;
+                font-size: 1.15rem;
             }
             .api-stats-modal-hint {
                 text-align: center;
-                font-size: 0.8rem;
+                font-size: 0.78rem;
                 color: #6c757d;
-                margin: 0 0 12px;
+                margin: 0 0 14px;
+                line-height: 1.4;
             }
             
             .api-stat-item {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 12px 0;
-                border-bottom: 1px solid #f1f5f9;
+                gap: 12px;
+                padding: 10px 0;
+                border-bottom: 1px solid #f1f3f5;
             }
             
             .api-stat-item:last-child {
                 border-bottom: none;
             }
+
+            .api-stat-line {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                min-width: 0;
+                flex: 1;
+            }
+
+            .api-method-tag {
+                flex-shrink: 0;
+                display: inline-block;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.03em;
+                line-height: 1.2;
+                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            }
+            .api-method-tag--post {
+                background: #dbeafe;
+                color: #1d4ed8;
+                border: 1px solid #93c5fd;
+            }
+            .api-method-tag--get {
+                background: #d1fae5;
+                color: #047857;
+                border: 1px solid #6ee7b7;
+            }
+            .api-method-tag--put {
+                background: #fef3c7;
+                color: #b45309;
+                border: 1px solid #fcd34d;
+            }
+            .api-method-tag--delete {
+                background: #fee2e2;
+                color: #b91c1c;
+                border: 1px solid #fca5a5;
+            }
+            .api-method-tag--other {
+                background: #f1f5f9;
+                color: #475569;
+                border: 1px solid #cbd5e1;
+            }
+            .api-method-tag--total {
+                background: #e0e7ff;
+                color: #4338ca;
+                border: 1px solid #a5b4fc;
+            }
+
+            .api-stat-sep {
+                color: #cbd5e1;
+                font-weight: 300;
+                flex-shrink: 0;
+                user-select: none;
+            }
             
             .api-endpoint {
                 font-weight: 500;
                 color: #1e293b;
-                font-size: 0.875rem;
+                font-size: 0.84rem;
+                line-height: 1.3;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
             
             .api-method {
@@ -643,16 +710,20 @@
             }
             
             .api-count {
+                flex-shrink: 0;
                 background: #3498db;
                 color: white;
-                padding: 4px 8px;
-                border-radius: 4px;
+                padding: 4px 10px;
+                border-radius: 6px;
                 font-size: 0.75rem;
-                font-weight: 500;
+                font-weight: 600;
+                min-width: 2.5em;
+                text-align: center;
             }
             
             .tabcontent {
-                flex: 1;
+                flex: 1 1 0;
+                min-height: 0;
                 overflow-y: auto;
                 padding: 0;
             }

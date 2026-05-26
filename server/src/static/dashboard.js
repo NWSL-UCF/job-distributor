@@ -5,6 +5,16 @@ function openModal() {
                 document.getElementById("statsModal").style.display = "none";
             }
 
+            function _apiMethodTag(method) {
+                const m = String(method || 'GET').toUpperCase().replace(/&/g, '&amp;').replace(/</g, '&lt;');
+                const cls = m === 'POST' ? 'api-method-tag--post'
+                    : m === 'GET' ? 'api-method-tag--get'
+                    : m === 'PUT' ? 'api-method-tag--put'
+                    : m === 'DELETE' ? 'api-method-tag--delete'
+                    : 'api-method-tag--other';
+                return `<span class="api-method-tag ${cls}">${m}</span>`;
+            }
+
             function _renderApiStatsList(stats) {
                 const body = document.getElementById('apiStatsModalBody');
                 if (!body) return;
@@ -18,19 +28,20 @@ function openModal() {
                     const count = stat.request_count || 0;
                     total += count;
                     const ep = String(stat.endpoint || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-                    const method = String(stat.method || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
                     html += `<div class="api-stat-item">
-                        <div>
-                            <div class="api-endpoint">${ep}</div>
-                            <div class="api-method">${method}</div>
+                        <div class="api-stat-line">
+                            ${_apiMethodTag(stat.method)}
+                            <span class="api-stat-sep" aria-hidden="true">|</span>
+                            <span class="api-endpoint">${ep}</span>
                         </div>
                         <div class="api-count">${count}</div>
                     </div>`;
                 });
                 html += `<div class="api-stat-item api-stat-item--total">
-                    <div>
-                        <div class="api-endpoint">Total</div>
-                        <div class="api-method">All Endpoints</div>
+                    <div class="api-stat-line">
+                        <span class="api-method-tag api-method-tag--total">ALL</span>
+                        <span class="api-stat-sep" aria-hidden="true">|</span>
+                        <span class="api-endpoint">All endpoints</span>
                     </div>
                     <div class="api-count api-count--total">${total}</div>
                 </div>`;
