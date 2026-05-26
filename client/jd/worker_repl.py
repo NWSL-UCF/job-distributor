@@ -50,8 +50,9 @@ Trailing semicolons are optional (mysql-style).
 
 
 def _history_path() -> str:
-    parent = os.environ.get("JD_WORKSPACE_PATH", "").strip()
-    root = os.path.abspath(os.path.expanduser(parent or "~"))
+    from jd.worker_registry import resolve_cache_parent
+
+    root = resolve_cache_parent()
     hist_dir = os.path.join(root, ".cache")
     os.makedirs(hist_dir, exist_ok=True)
     return os.path.join(hist_dir, "jd_worker_history")

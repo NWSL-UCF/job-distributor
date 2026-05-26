@@ -25,12 +25,21 @@ from jd.worker_registry import (
     new_worker_id,
     prune_all,
     registry_db_path,
+    resolve_cache_parent,
+    resolve_workspace_parent,
     slot_from_worker_id,
 )
 
 
 def _cache_parent() -> Optional[str]:
-    return os.environ.get("JD_WORKSPACE_PATH", "").strip() or None
+    """Registry root for CLI commands (``JD_CACHE_PATH`` or workspace parent)."""
+    cp = os.environ.get("JD_CACHE_PATH", "").strip()
+    if cp:
+        return resolve_cache_parent(cp)
+    wp = os.environ.get("JD_WORKSPACE_PATH", "").strip()
+    if wp:
+        return resolve_cache_parent(wp)
+    return None
 
 
 def _resolve_exp_id(kv: dict) -> Optional[str]:
@@ -251,13 +260,14 @@ def cmd_where(kv: dict) -> None:
         print("Usage: jd_worker_cli expId=<id> where")
         sys.exit(1)
 
-    parent = _cache_parent()
+    cache_p = _cache_parent()
     cfg = _resolve_cfg({**kv, "expId": exp_id})
     print(f"Experiment:     {exp_id}")
-    print(f"Cache root:     {cache_root(parent)}")
-    print(f"Registry DB:    {registry_db_path(exp_id, parent)}")
-    print(f"Experiment dir: {exp_cache_dir(exp_id, parent)}")
-    print(f"jd_data root:   {cfg['workspace_path']}")
+    print(f"Workspace parent: {resolve_workspace_parent()}")
+    print(f"Cache root:       {cache_root(cache_p)}")
+    print(f"Registry DB:      {registry_db_path(exp_id, cache_p)}")
+    print(f"Experiment dir:   {exp_cache_dir(exp_id, cache_p)}")
+    print(f"jd_data root:     {cfg['workspace_path']}")
     print(f"Job data:       {os.path.join(cfg['workspace_path'], exp_id)}")
     if cfg.get("log_dir_override"):
         print(f"Logs:           {os.path.join(cfg['log_dir_override'], exp_id)}")

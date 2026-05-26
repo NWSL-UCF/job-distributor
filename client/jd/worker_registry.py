@@ -46,11 +46,31 @@ _WORKER_COLUMNS = (
 )
 
 
-def cache_root(parent: Optional[str] = None) -> str:
-    if parent:
-        return os.path.abspath(os.path.expanduser(parent))
+def resolve_workspace_parent(explicit: Optional[str] = None) -> str:
+    """Parent directory for ``jd_data/`` (job sandboxes, default logs)."""
+    if explicit is not None and str(explicit).strip():
+        return os.path.abspath(os.path.expanduser(str(explicit)))
     env = os.environ.get("JD_WORKSPACE_PATH", "").strip()
     return os.path.abspath(os.path.expanduser(env or "~"))
+
+
+def resolve_cache_parent(explicit: Optional[str] = None) -> str:
+    """Root directory under which ``.cache/<expId>/`` is created.
+
+    Uses ``JD_CACHE_PATH`` when set (recommended on Lustre/NFS for SQLite),
+    otherwise the same parent as ``resolve_workspace_parent()``.
+    """
+    if explicit is not None and str(explicit).strip():
+        return os.path.abspath(os.path.expanduser(str(explicit)))
+    env = os.environ.get("JD_CACHE_PATH", "").strip()
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    return resolve_workspace_parent()
+
+
+def cache_root(parent: Optional[str] = None) -> str:
+    """Alias for :func:`resolve_cache_parent` (registry / ``.cache`` root)."""
+    return resolve_cache_parent(parent)
 
 
 def registry_db_path(exp_id: str, parent: Optional[str] = None) -> str:

@@ -88,8 +88,11 @@ Other optional arguments
 
     Local job data lives under ``<parent>/jd_data/<expId>/<job_id>/``.
     ``parent`` is ``JD_WORKSPACE_PATH`` if set, otherwise ``~``.
-    Worker process metadata is stored in ``~/.cache/<expId>/workers.db``
-    (or ``<JD_WORKSPACE_PATH>/.cache/<expId>/workers.db``).
+
+    Worker registry (SQLite) lives under ``<cache>/.cache/<expId>/workers.db``.
+    ``cache`` is ``JD_CACHE_PATH`` if set, otherwise the same as ``parent``.
+    On HPC, set ``JD_CACHE_PATH`` to node-local scratch and keep
+    ``JD_WORKSPACE_PATH`` on shared storage for large job I/O.
 
 Install
 -------
@@ -120,6 +123,9 @@ from jd.worker_registry import (
     WorkerRegistry,
     host_from_worker_id,
     new_worker_id as new_registry_worker_id,
+    registry_db_path,
+    resolve_cache_parent,
+    resolve_workspace_parent,
 )
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -175,10 +181,8 @@ def _resolve(cfg: dict) -> dict:
     base_url = _normalize_server_base_url(server_raw, port_raw)
 
     # …/<parent>/jd_data/<expId>/<job_id>/  — parent from env or ~
-    parent = os.environ.get("JD_WORKSPACE_PATH", "").strip()
-    if not parent:
-        parent = os.path.expanduser("~")
-    parent = os.path.abspath(os.path.expanduser(parent))
+    parent = resolve_workspace_parent()
+    cache_parent = resolve_cache_parent()
     workspace_path = os.path.join(parent, _WORKER_JD_DATA_DIRNAME)
     os.makedirs(workspace_path, exist_ok=True)
 
@@ -194,6 +198,7 @@ def _resolve(cfg: dict) -> dict:
         'base_url':         base_url,
         'workspace_path':   workspace_path,
         'workspace_parent': parent,
+        'cache_parent':     cache_parent,
         'log_dir_override': log_override,
         'machine_type':     get('machine_type', 'JD_MACHINE_TYPE', 'worker'),
         'process_id':       get('process_id',   None,              '0'),
@@ -464,7 +469,7 @@ def _run_worker(cfg: dict) -> None:
     registry: Optional[WorkerRegistry] = None
     config_json = _cfg_for_storage(cfg)
     if cfg.get('_register'):
-        registry = WorkerRegistry(cfg['exp_id'], cfg['workspace_parent'])
+        registry = WorkerRegistry(cfg['exp_id'], cfg['cache_parent'])
         registry.register(
             worker_id=worker_id,
             pid=os.getpid(),
@@ -518,6 +523,7 @@ def _run_worker(cfg: dict) -> None:
     logger.info(f"Hub mode:       {'enabled' if token_mgr else 'disabled'}")
     logger.info(f"Local jd_data root: {cfg['workspace_path']} "
                 f"(each job: …/jd_data/<expId>/<job_id>/)")
+    logger.info(f"Registry DB:     {registry_db_path(cfg['exp_id'], cfg['cache_parent'])}")
     if cfg['once']:
         logger.info("Mode: single job (once=true)")
     else:
@@ -653,6 +659,8 @@ def _run_worker(cfg: dict) -> None:
             child_env["JD_WORKER_JOB_DIR"]          = job_root
             child_env["JD_WORKER_WORKSPACE_ROOT"]   = cfg["workspace_path"]
             child_env["JD_WORKSPACE_PATH"]        = cfg["workspace_parent"]
+            if cfg["cache_parent"] != cfg["workspace_parent"]:
+                child_env["JD_CACHE_PATH"] = cfg["cache_parent"]
             if token_mgr:
                 child_env["JD_WORKER_ID"]         = worker_id
                 child_env["JD_WORKER_TOKEN"]      = token_mgr.get_token()

@@ -169,8 +169,34 @@ All job files live under:
 - **`parent`** = **`JD_WORKSPACE_PATH`** if set, otherwise **`~`** (home).
 - So the default **`jd_data`** root is **`~/jd_data/`**.
 
+Worker registry (SQLite, drain flag, Hub tokens) lives under:
+
+`<cache>/.cache/<expId>/workers.db`
+
+- **`cache`** = **`JD_CACHE_PATH`** if set, otherwise the same as **`parent`**.
+- On a normal laptop you usually set only **`JD_WORKSPACE_PATH`** (or neither) — behavior is unchanged.
+
 There is **no** `workspace_path=…` CLI argument.  
 **Note:** The job server **`start.py`** also uses an env var named **`JD_WORKSPACE_PATH`** for **server** paths — use separate shells or unset between server and worker so they don’t pick up each other’s value.
+
+#### HPC: Lustre (or NFS) for jobs, local disk for registry
+
+SQLite on shared filesystems often causes `disk I/O error` when many workers update the same `workers.db`. Put **job sandboxes** on Lustre and the **registry** on node-local scratch:
+
+```bash
+# Shared — checkpoints, uploads, job dirs
+export JD_WORKSPACE_PATH=/lustre/fs1/home/you/jd_client/jd_data
+
+# Node-local — workers.db only (per job or per node)
+export JD_CACHE_PATH="${TMPDIR:-/tmp}/jd_cache_${USER}_${SLURM_JOB_ID:-$$}"
+mkdir -p "$JD_CACHE_PATH"
+
+jd_worker_cli expId=my_exp entry_script=train.py ...
+```
+
+Use the same exports when running management commands (`exp-status`, `where`, `drain`) on a login node if you need them to see that registry — compute-node workers use the cache on the node where they run.
+
+Worker logs at startup include **`Registry DB:`** with the resolved path.
 
 ### Behaviour
 

@@ -165,10 +165,9 @@ def _read_token_from_registry() -> str:
     exp_id = os.environ.get("JD_EXP_ID", "").strip().lower()
     if not worker_id or not exp_id:
         return ""
-    parent = os.environ.get("JD_WORKSPACE_PATH", "").strip() or None
     try:
-        from jd.worker_registry import WorkerRegistry
-        return WorkerRegistry(exp_id, parent).get_worker_token(worker_id)
+        from jd.worker_registry import WorkerRegistry, resolve_cache_parent
+        return WorkerRegistry(exp_id, resolve_cache_parent()).get_worker_token(worker_id)
     except Exception:
         return ""
 
