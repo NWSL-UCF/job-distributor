@@ -330,7 +330,7 @@ function openModal() {
                     loadWorkerHistoryPage(_workerHistoryPage);
                 }
                 if (tab === 'metrics') {
-                    loadWorkerMetricsHistoryIndex(_workerMetricsHistoryIndex);
+                    loadWorkerMetricsView(false);
                 }
             }
 
@@ -384,16 +384,20 @@ function openModal() {
                         const histPag = document.getElementById('workerHistoryPagination');
                         if (histPag) histPag.style.display = 'none';
 
-                        const metricsEl = document.getElementById('workerMetricsTable');
-                        if (w.system_metrics && Object.keys(w.system_metrics).length) {
-                            renderSystemMetrics(metricsEl, w.system_metrics);
-                        } else {
-                            metricsEl.innerHTML = '<p style="color:#adb5bd;text-align:center;padding:20px 0;">No metrics recorded yet.</p>';
+                        const metricsPanel = document.getElementById('workerMetricsPanel');
+                        const metricsControls = document.getElementById('workerHistoryMetricsControls');
+                        const metricsLabel = document.getElementById('workerHistoryMetricsEventLabel');
+                        const metricsTime = document.getElementById('workerMetricsSnapshotTime');
+                        if (metricsPanel) {
+                            metricsPanel.innerHTML =
+                                '<p class="worker-metrics-empty">Loading metrics…</p>';
                         }
-                        const metricsSection = document.getElementById('workerHistoryMetricsSection');
-                        const histMetricsPanel = document.getElementById('workerHistoryMetricsPanel');
-                        if (metricsSection) metricsSection.style.display = 'none';
-                        if (histMetricsPanel) histMetricsPanel.innerHTML = '';
+                        if (metricsControls) metricsControls.style.display = 'none';
+                        if (metricsLabel) {
+                            metricsLabel.style.display = 'none';
+                            metricsLabel.textContent = '';
+                        }
+                        if (metricsTime) metricsTime.textContent = '—';
 
                         switchWorkerModalTab('info', document.getElementById('tab-btn-worker-info'));
                         document.getElementById('workerDetailModal').style.display = 'block';
@@ -538,10 +542,64 @@ function openModal() {
                 return _workerMetricsHistoryTotal;
             }
 
+            function _updateMetricsSnapshotTime(entry) {
+                const el = document.getElementById('workerMetricsSnapshotTime');
+                if (!el) return;
+                const ts = entry?.timestamp ?? _workerDetailCache?.last_poll_at;
+                el.textContent = ts ? _formatWorkerPollTime(ts) : '—';
+            }
+
+            function _showLiveWorkerMetricsFallback() {
+                const panel = document.getElementById('workerMetricsPanel');
+                const controlsEl = document.getElementById('workerHistoryMetricsControls');
+                const labelEl = document.getElementById('workerHistoryMetricsEventLabel');
+                const infoEl = document.getElementById('workerHistoryMetricsPaginationInfo');
+                const w = _workerDetailCache;
+                if (!panel || !w) return;
+
+                const sm = w.system_metrics;
+                if (!sm || !Object.keys(sm).length) {
+                    panel.innerHTML = '<p class="worker-metrics-empty">No metrics recorded yet.</p>';
+                    if (controlsEl) controlsEl.style.display = 'none';
+                    if (labelEl) {
+                        labelEl.style.display = 'none';
+                        labelEl.textContent = '';
+                    }
+                    if (infoEl) infoEl.textContent = '';
+                    _updateMetricsSnapshotTime(null);
+                    return;
+                }
+
+                _workerMetricsHistoryEntry = {
+                    metrics: sm,
+                    timestamp: w.last_poll_at,
+                    event: 'heartbeat',
+                };
+                if (labelEl) {
+                    labelEl.style.display = 'block';
+                    labelEl.textContent = 'Latest heartbeat (no metrics history snapshots yet).';
+                }
+                if (controlsEl) controlsEl.style.display = 'none';
+                if (infoEl) infoEl.textContent = '';
+                _updateMetricsSnapshotTime(_workerMetricsHistoryEntry);
+                renderSystemMetrics(panel, sm);
+            }
+
+            function loadWorkerMetricsView(silent) {
+                const panel = document.getElementById('workerMetricsPanel');
+                if (!_workerDetailCache || !panel) {
+                    return Promise.resolve();
+                }
+                return loadWorkerMetricsHistoryIndex(_workerMetricsHistoryIndex, silent).then(() => {
+                    if (_workerMetricsHistoryTotal === 0) {
+                        _showLiveWorkerMetricsFallback();
+                    }
+                });
+            }
+
             function loadWorkerMetricsHistoryIndex(index, silent) {
-                const section = document.getElementById('workerHistoryMetricsSection');
-                const panel = document.getElementById('workerHistoryMetricsPanel');
-                if (!_workerDetailCache || !section || !panel) {
+                const panel = document.getElementById('workerMetricsPanel');
+                if (!_workerDetailCache || !panel) {
                     return Promise.resolve();
                 }
                 if (!silent && _workerMetricsHistoryLoading) {
@@ -551,10 +609,8 @@ function openModal() {
                 const fetchGen = ++_workerMetricsFetchGen;
                 if (!silent) {
                     _workerMetricsHistoryLoading = true;
-                    section.style.display = 'block';
                     if (!panel.querySelector('.metrics-panel[data-metrics-ready]')) {
-                        panel.innerHTML =
-                            '<p style="color:#adb5bd;text-align:center;padding:20px 0;">Loading metrics snapshot…</p>';
+                        panel.innerHTML = '<p class="worker-metrics-empty">Loading metrics snapshot…</p>';
                     }
                 }
 
@@ -564,7 +620,7 @@ function openModal() {
                         _workerMetricsHistoryIndex = data.page ?? index;
                         _workerMetricsHistoryTotal = data.total ?? 0;
                         _workerMetricsHistoryEntry = (data.entries || [])[0] || null;
-                        renderWorkerHistoryMetrics(silent);
+                        renderWorkerMetricsView(silent);
                     })
                     .catch(err => {
                         if (fetchGen !== _workerMetricsFetchGen) return;
@@ -572,9 +628,10 @@ function openModal() {
                         _workerMetricsHistoryEntry = null;
                         _workerMetricsHistoryTotal = 0;
                         panel.innerHTML =
-                            `<p style="color:#dc3545;text-align:center;padding:20px 0;">${_escHtml(err.message)}</p>`;
+                            `<p class="worker-metrics-empty" style="color:#dc3545;">${_escHtml(err.message)}</p>`;
                         const controlsEl = document.getElementById('workerHistoryMetricsControls');
                         if (controlsEl) controlsEl.style.display = 'none';
+                        _updateMetricsSnapshotTime(null);
                     })
                     .finally(() => {
                         if (!silent && fetchGen === _workerMetricsFetchGen) {
@@ -607,7 +664,7 @@ function openModal() {
             function toggleWorkerHistoryMetricsPlayback() {
                 if (_workerMetricsPlayTimer) {
                     stopWorkerHistoryMetricsPlayback();
-                    renderWorkerHistoryMetrics();
+                    renderWorkerMetricsView(true);
                     return;
                 }
                 const startTimer = () => {
@@ -626,38 +683,33 @@ function openModal() {
                 loadWorkerMetricsHistoryIndex(0).then(startTimer);
             }
 
-            function renderWorkerHistoryMetrics(silentUpdate) {
-                const section = document.getElementById('workerHistoryMetricsSection');
+            function renderWorkerMetricsView(silentUpdate) {
                 const labelEl = document.getElementById('workerHistoryMetricsEventLabel');
                 const controlsEl = document.getElementById('workerHistoryMetricsControls');
                 const infoEl = document.getElementById('workerHistoryMetricsPaginationInfo');
                 const playBtn = document.getElementById('workerHistoryMetricsPlayPause');
-                const panel = document.getElementById('workerHistoryMetricsPanel');
-                if (!section || !panel) return;
+                const panel = document.getElementById('workerMetricsPanel');
+                if (!panel) return;
 
                 const entry = _workerMetricsHistoryEntry;
                 const total = _workerMetricsHistoryTotal;
                 if (!entry || !entry.metrics || !Object.keys(entry.metrics).length) {
                     stopWorkerHistoryMetricsPlayback();
                     if (total === 0 && !_workerMetricsHistoryLoading) {
-                        section.style.display = 'none';
-                        panel.innerHTML = '';
-                        if (labelEl) labelEl.textContent = '';
-                        if (controlsEl) controlsEl.style.display = 'none';
+                        _showLiveWorkerMetricsFallback();
                     }
                     return;
                 }
 
-                if (!silentUpdate) {
-                    section.style.display = 'block';
-                }
                 if (labelEl) {
+                    labelEl.style.display = 'block';
                     labelEl.textContent = _formatWorkerHistoryEventLabel(entry);
                 }
+                _updateMetricsSnapshotTime(entry);
                 renderSystemMetrics(panel, entry.metrics);
 
                 const pos = _workerMetricsHistoryIndex + 1;
-                if (!silentUpdate && controlsEl) {
+                if (controlsEl) {
                     controlsEl.style.display = total > 1 ? 'flex' : 'none';
                 }
                 if (infoEl) {
@@ -666,7 +718,7 @@ function openModal() {
                         ? `Playing snapshot ${pos} of ${total} (newest first)`
                         : `Snapshot ${pos} of ${total} (newest first)`;
                 }
-                if (!silentUpdate && playBtn) {
+                if (playBtn) {
                     playBtn.disabled = total <= 1;
                 }
                 const prevBtn = document.getElementById('workerHistoryMetricsPrev');

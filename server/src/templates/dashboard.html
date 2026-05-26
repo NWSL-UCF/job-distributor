@@ -678,26 +678,29 @@
                     </div>
                 </div>
                 <div id="modalTab-worker-metrics" class="modal-tab-content">
-                    <div id="workerMetricsTable"></div>
-                    <div id="workerHistoryMetricsSection" style="display:none; margin-top:16px;">
-                        <h4 style="margin:0 0 8px 0; font-size:0.9rem;">Metrics from history</h4>
-                        <div id="workerHistoryMetricsEventLabel" class="worker-history-metrics-event-label"></div>
-                        <div id="workerHistoryMetricsControls" class="worker-history-metrics-controls" style="display:none;">
-                            <button type="button" id="workerHistoryMetricsPlayPause" class="workers-btn worker-history-metrics-play-btn" onclick="toggleWorkerHistoryMetricsPlayback()" aria-label="Play metrics snapshots">
-                                <i class="fas fa-play" id="workerHistoryMetricsPlayPauseIcon"></i>
-                                <span id="workerHistoryMetricsPlayPauseLabel">Play</span>
-                            </button>
-                            <div class="worker-history-metrics-nav">
-                                <button type="button" id="workerHistoryMetricsPrev" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(-1)">
-                                    <i class="fas fa-chevron-left"></i> Previous
+                    <div id="workerMetricsUnified" class="worker-metrics-unified">
+                        <div class="worker-metrics-unified-header">
+                            <div id="workerHistoryMetricsControls" class="worker-history-metrics-controls" style="display:none;">
+                                <button type="button" id="workerHistoryMetricsPlayPause" class="workers-btn worker-history-metrics-play-btn" onclick="toggleWorkerHistoryMetricsPlayback()" aria-label="Play metrics snapshots">
+                                    <i class="fas fa-play" id="workerHistoryMetricsPlayPauseIcon"></i>
+                                    <span id="workerHistoryMetricsPlayPauseLabel">Play</span>
                                 </button>
-                                <span id="workerHistoryMetricsPaginationInfo" class="worker-history-metrics-status">—</span>
-                                <button type="button" id="workerHistoryMetricsNext" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(1)">
-                                    Next <i class="fas fa-chevron-right"></i>
-                                </button>
+                                <div class="worker-history-metrics-nav">
+                                    <button type="button" id="workerHistoryMetricsPrev" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(-1)">
+                                        <i class="fas fa-chevron-left"></i> Previous
+                                    </button>
+                                    <span id="workerHistoryMetricsPaginationInfo" class="worker-history-metrics-status">—</span>
+                                    <button type="button" id="workerHistoryMetricsNext" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(1)">
+                                        Next <i class="fas fa-chevron-right"></i>
+                                    </button>
+                                </div>
                             </div>
+                            <span id="workerMetricsSnapshotTime" class="worker-metrics-snapshot-time" title="Snapshot time (local)">—</span>
                         </div>
-                        <div id="workerHistoryMetricsPanel"></div>
+                        <div id="workerHistoryMetricsEventLabel" class="worker-history-metrics-event-label" style="display:none;"></div>
+                        <div id="workerMetricsPanel">
+                            <p class="worker-metrics-empty">Loading metrics…</p>
+                        </div>
                     </div>
                 </div>
             </div>

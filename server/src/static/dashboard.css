@@ -1976,12 +1976,43 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 border: 1px solid #e9ecef;
                 word-break: break-word;
             }
+            .worker-metrics-unified {
+                display: flex;
+                flex-direction: column;
+                gap: 0;
+            }
+            .worker-metrics-unified-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                flex-wrap: wrap;
+                margin-bottom: 12px;
+            }
+            .worker-metrics-snapshot-time {
+                font-size: 0.88rem;
+                font-weight: 600;
+                color: #1a1f2e;
+                white-space: nowrap;
+                margin-left: auto;
+                padding: 6px 10px;
+                background: #f1f3f5;
+                border-radius: 6px;
+                border: 1px solid #e9ecef;
+            }
+            .worker-metrics-empty {
+                color: #adb5bd;
+                text-align: center;
+                padding: 24px 16px;
+                margin: 0;
+            }
             .worker-history-metrics-controls {
                 display: flex;
                 align-items: center;
                 gap: 16px;
                 flex-wrap: wrap;
-                margin-bottom: 12px;
+                flex: 1 1 auto;
+                min-width: 0;
             }
             .worker-history-metrics-play-btn {
                 min-width: 100px;
