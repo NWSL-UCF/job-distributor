@@ -27,6 +27,14 @@
                     </h1>
                     <span class="header-exp-badge" title="Experiment ID">{{ expId }}</span>
                 </div>
+                <nav class="header-nav main-nav-tabs" role="tablist" aria-label="Dashboard sections">
+                    <button type="button" class="main-nav-tab active" id="mainTabJobs" onclick="switchMainView('jobs')" aria-selected="true">
+                        <i class="fas fa-tasks"></i> Jobs
+                    </button>
+                    <button type="button" class="main-nav-tab" id="mainTabWorkers" onclick="switchMainView('workers')" aria-selected="false">
+                        <i class="fas fa-server"></i> Workers Management
+                    </button>
+                </nav>
                 <div class="header-actions">
                     <button type="button" class="header-add-btn" onclick="openSetupOverlay()">
                         <i class="fas fa-plus-circle"></i> Add Jobs
@@ -39,15 +47,6 @@
                     </button>
                 </div>
             </div>
-
-            <nav class="main-nav-tabs" role="tablist">
-                <button type="button" class="main-nav-tab active" id="mainTabJobs" onclick="switchMainView('jobs')">
-                    <i class="fas fa-tasks"></i> Jobs
-                </button>
-                <button type="button" class="main-nav-tab" id="mainTabWorkers" onclick="switchMainView('workers')">
-                    <i class="fas fa-server"></i> Workers Management
-                </button>
-            </nav>
             
             <div class="main-content">
 
@@ -645,12 +644,30 @@
                 </div>
                 <div id="modalTab-worker-history" class="modal-tab-content">
                     <div class="timeline" id="workerHistoryTimeline"></div>
+                    <div id="workerHistoryPagination" class="pagination-controls worker-history-pagination" style="display:none;">
+                        <button type="button" id="workerHistoryPrev" class="pagination-btn" onclick="changeWorkerHistoryPage(-1)">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </button>
+                        <span id="workerHistoryPaginationInfo" class="pagination-info">—</span>
+                        <button type="button" id="workerHistoryNext" class="pagination-btn" onclick="changeWorkerHistoryPage(1)">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
                 </div>
                 <div id="modalTab-worker-metrics" class="modal-tab-content">
                     <div id="workerMetricsTable"></div>
                     <div id="workerHistoryMetricsSection" style="display:none; margin-top:16px;">
                         <h4 style="margin:0 0 8px 0; font-size:0.9rem;">Metrics from history</h4>
-                        <select id="workerHistoryMetricsSelect" class="form-select" onchange="onWorkerHistoryMetricsSelect()" style="max-width:420px; margin-bottom:12px;"></select>
+                        <div id="workerHistoryMetricsEventLabel" class="worker-history-metrics-event-label"></div>
+                        <div id="workerHistoryMetricsPagination" class="pagination-controls worker-history-pagination" style="display:none;">
+                            <button type="button" id="workerHistoryMetricsPrev" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(-1)">
+                                <i class="fas fa-chevron-left"></i> Previous
+                            </button>
+                            <span id="workerHistoryMetricsPaginationInfo" class="pagination-info">—</span>
+                            <button type="button" id="workerHistoryMetricsNext" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(1)">
+                                Next <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
                         <div id="workerHistoryMetricsPanel"></div>
                     </div>
                 </div>

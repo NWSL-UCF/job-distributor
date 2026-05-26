@@ -202,47 +202,13 @@ def format_timestamp(timestamp):
     return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
 
 
-@app.route("/request_job", methods=["POST"])
-def request_job():
-    """Assign the next available PENDING job to the requesting worker."""
-    _, err = _require_worker_token()
-    if err:
-        return err
-    db.track_api_request("Job Request", "POST")
-
-    data = request.json or {}
-    requested_by = data.get("requested_by")
-    system_metrics = data.get("system_metrics", {})
-
-    if not requested_by:
-        logging.warning("Job request failed: No requester identification provided.")
-        return jsonify({"error": "Requester identification is required"}), 400
-
-    try:
-        job = db.request_job(requested_by, system_metrics, None, 0.0, time.time())
-    except Exception as e:
-        logging.error(f"Error assigning job to {requested_by}: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-    if not job:
-        logging.info(f"No PENDING jobs available for {requested_by}.")
-        return jsonify({"error": "No available jobs"}), 404
-
-    logging.info(f"Assigned job {job['id']} to {requested_by}.")
-    return jsonify({
-        "job_id": job["id"],
-        "parameters": job["parameters"],
-        "status": STATUS_SERVED,
-    }), 200
-
-
-@app.route("/worker/poll", methods=["POST"])
-def worker_poll():
+@app.route("/worker/heartbeat", methods=["POST"])
+def worker_heartbeat():
     """Worker heartbeat + control channel. Idle workers may receive a job."""
     _, err = _require_worker_token()
     if err:
         return err
-    db.track_api_request("Worker Poll", "POST")
+    db.track_api_request("Worker Heartbeat", "POST")
 
     data = request.json or {}
     worker_id = (data.get("worker_id") or data.get("requested_by") or "").strip()
@@ -272,7 +238,7 @@ def worker_poll():
     jd_worker_version = (data.get("jd_worker_version") or "").strip()
 
     try:
-        result = db.worker_poll(
+        result = db.worker_heartbeat(
             worker_id=worker_id,
             host=host,
             machine_type=machine_type,
@@ -283,11 +249,11 @@ def worker_poll():
             jd_worker_version=jd_worker_version,
         )
     except Exception as e:
-        logging.error(f"Worker poll error for {worker_id}: {e}")
+        logging.error(f"Worker heartbeat error for {worker_id}: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
     if result.get("job"):
-        logging.info(f"Poll assigned job {result['job']['job_id']} to {worker_id}.")
+        logging.info(f"Heartbeat assigned job {result['job']['job_id']} to {worker_id}.")
     return jsonify(result), 200
 
 
@@ -387,41 +353,6 @@ def update_job_status():
         logging.info(f"Job {job_id} ABORTED. Reason: {message or 'No reason provided'}.")
 
     return jsonify({"message": f"Job {job_id} status updated to {status}", "job_id": job_id, "status": status}), 200
-
-
-@app.route("/ping", methods=["POST"])
-def ping_job():
-    """Update last_ping_timestamp and system_metrics for a SERVED job."""
-    _, err = _require_worker_token()
-    if err:
-        return err
-    db.track_api_request("Job Ping", "POST")
-
-    data = request.json or {}
-    job_id = data.get("job_id", data.get("id"))
-    system_metrics = data.get("system_metrics")
-
-    if not isinstance(job_id, int):
-        logging.warning(f"Invalid ping request: job_id={job_id}")
-        return jsonify({"error": "Invalid job_id"}), 400
-
-    if system_metrics is not None and not isinstance(system_metrics, dict):
-        return jsonify({"error": "system_metrics must be an object"}), 400
-
-    success = db.ping_job(job_id, system_metrics)
-    if not success:
-        job = db.get_job_by_id(job_id)
-        if job:
-            now = round(time.time())
-            logging.debug(f"Ping received for job {job_id} (status: {job.get('status', 'UNKNOWN')}). Job not in SERVED state.")
-            return jsonify({"message": f"Job {job_id} is not in SERVED state (current: {job.get('status', 'UNKNOWN')})",
-                            "timestamp": now}), 200
-        else:
-            return jsonify({"error": "Job not found"}), 404
-
-    now = round(time.time())
-    logging.info(f"Ping received for job {job_id}. Updated last_ping_timestamp.")
-    return jsonify({"message": f"Ping received for job {job_id}", "timestamp": now}), 200
 
 
 @app.route("/job_counts", methods=["GET"])

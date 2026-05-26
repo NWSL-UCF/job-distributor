@@ -2,8 +2,9 @@
 jd_worker_cli — Job Distributor Worker CLI
 =======================================
 Requests jobs from a jd server, runs the entry script with the job's
-parameters as CLI flags, sends a heartbeat ping every 57 seconds, and
-reports DONE or ABORTED when the script finishes.
+parameters as CLI flags, sends a unified heartbeat via POST /worker/heartbeat
+(every 57 s while busy, every 3 min when idle), and reports DONE or ABORTED
+when the script finishes.
 
 Usage
 -----
@@ -122,9 +123,8 @@ from jd.worker_registry import (
 )
 
 IS_WINDOWS = platform.system() == "Windows"
-PING_INTERVAL = 57  # seconds — intentionally not 60 to avoid racing the idle timeout
-NO_JOBS_POLL_INTERVAL = 180  # seconds — idle probe when the server queue is empty
-REQUEST_RETRY_INTERVAL = 10  # seconds — retry when the server cannot be reached
+BUSY_HEARTBEAT_INTERVAL = 57   # seconds while a job runs (also refreshes the job row)
+IDLE_POLL_INTERVAL = 180         # seconds when idle — heartbeat + optional job assignment
 
 # Fixed subdirectory under JD_WORKSPACE_PATH (or home): …/jd_data/<expId>/<job_id>/
 _WORKER_JD_DATA_DIRNAME = "jd_data"
@@ -306,26 +306,7 @@ def _collect_metrics(machine_type: str, logger: logging.Logger) -> dict:
 
 # ── Server communication ──────────────────────────────────────────────────────
 
-def _request_job(url: str, worker_id: str, metrics: dict,
-                 logger: logging.Logger,
-                 token_mgr: Optional[WorkerTokenManager] = None):
-    """Returns (job_dict, None) on success, (None, reason) on failure."""
-    try:
-        headers = token_mgr.auth_headers() if token_mgr else {}
-        r = requests.post(url, json={"requested_by": worker_id,
-                                     "system_metrics": metrics},
-                          headers=headers,
-                          timeout=30)
-        if r.status_code == 404:
-            return None, 'no_jobs'
-        if r.status_code == 200:
-            return r.json(), None
-        return None, f"HTTP {r.status_code}: {r.text[:200]}"
-    except Exception as exc:
-        return None, str(exc)
-
-
-def _worker_poll(
+def _worker_heartbeat(
     url: str,
     worker_id: str,
     host: str,
@@ -337,7 +318,7 @@ def _worker_poll(
     logger: logging.Logger,
     token_mgr: Optional[WorkerTokenManager] = None,
 ):
-    """POST /worker/poll — heartbeat, control channel, optional job assignment."""
+    """POST /worker/heartbeat — liveness, control channel, optional job assignment."""
     try:
         headers = token_mgr.auth_headers() if token_mgr else {}
         payload = {
@@ -351,8 +332,6 @@ def _worker_poll(
             "jd_worker_version": __version__,
         }
         r = requests.post(url, json=payload, headers=headers, timeout=30)
-        if r.status_code == 404:
-            return None, "legacy"
         if r.status_code == 200:
             return r.json(), None
         return None, f"HTTP {r.status_code}: {r.text[:200]}"
@@ -361,17 +340,17 @@ def _worker_poll(
 
 
 def _apply_server_control(
-    poll_resp: dict,
+    heartbeat_resp: dict,
     applied_version: int,
     registry: Optional[WorkerRegistry],
     logger: logging.Logger,
 ) -> Tuple[int, bool, bool]:
-    """Apply desired_state from poll response.
+    """Apply desired_state from heartbeat response.
 
     Returns (new_applied_version, exit_immediately, stop_after_current_job).
     """
-    desired_state = poll_resp.get("desired_state", "run")
-    desired_version = int(poll_resp.get("desired_version") or 0)
+    desired_state = heartbeat_resp.get("desired_state", "run")
+    desired_version = int(heartbeat_resp.get("desired_version") or 0)
     if desired_version <= applied_version:
         return applied_version, False, False
 
@@ -396,8 +375,8 @@ def _apply_server_control(
     return desired_version, False, False
 
 
-def _poll_control_loop(
-    url: str,
+def _heartbeat_loop(
+    heartbeat_url: str,
     worker_id: str,
     host: str,
     machine_type: str,
@@ -408,19 +387,19 @@ def _poll_control_loop(
     token_mgr: Optional[WorkerTokenManager] = None,
     registry: Optional[WorkerRegistry] = None,
 ) -> None:
-    """Background poll while a job runs — picks up drain/stop from the dashboard."""
-    while not stop_event.wait(NO_JOBS_POLL_INTERVAL):
+    """Background heartbeat via POST /worker/heartbeat while a job runs."""
+    while not stop_event.wait(BUSY_HEARTBEAT_INTERVAL):
         try:
             if token_mgr:
                 token_mgr.ensure_fresh()
             metrics = _collect_metrics(machine_type, logger)
-            resp, err = _worker_poll(
-                url, worker_id, host, machine_type, "busy", job_id,
-                control["applied_version"], metrics, logger, token_mgr=token_mgr,
+            resp, err = _worker_heartbeat(
+                heartbeat_url, worker_id, host, machine_type,
+                "busy", job_id, control["applied_version"], metrics,
+                logger, token_mgr=token_mgr,
             )
             if resp is None:
-                if err != "legacy":
-                    logger.warning(f"Control poll failed: {err}")
+                logger.warning(f"Heartbeat failed (job {job_id}): {err}")
                 continue
             av, exit_now, stop_after = _apply_server_control(
                 resp, control["applied_version"], registry, logger,
@@ -431,7 +410,7 @@ def _poll_control_loop(
             if exit_now:
                 control["stop_after_job"] = True
         except Exception as exc:
-            logger.warning(f"Control poll error (job {job_id}): {exc}")
+            logger.warning(f"Heartbeat error (job {job_id}): {exc}")
 
 
 def _update_status(url: str, job_id: int, status: str,
@@ -454,38 +433,6 @@ def _update_status(url: str, job_id: int, status: str,
 
 def _cfg_for_storage(cfg: dict) -> str:
     return json.dumps({k: v for k, v in cfg.items() if not str(k).startswith('_')})
-
-
-def _ping_loop(url: str, job_id: int,
-               stop_event: threading.Event,
-               logger: logging.Logger,
-               machine_type: str,
-               token_mgr: Optional[WorkerTokenManager] = None,
-               registry: Optional[WorkerRegistry] = None,
-               worker_id: Optional[str] = None) -> None:
-    """Background thread: ping the server every PING_INTERVAL seconds."""
-    while not stop_event.wait(PING_INTERVAL):
-        try:
-            if token_mgr:
-                token_mgr.ensure_fresh()
-                headers = token_mgr.auth_headers()
-            else:
-                headers = {}
-            metrics = _collect_metrics(machine_type, logger)
-            r = requests.post(
-                url,
-                json={"id": job_id, "system_metrics": metrics},
-                headers=headers,
-                timeout=10,
-            )
-            if r.status_code == 200:
-                logger.info(f"Ping OK (job {job_id})")
-                if registry and worker_id:
-                    registry.touch_ping(worker_id)
-            else:
-                logger.warning(f"Ping HTTP {r.status_code} (job {job_id})")
-        except Exception as exc:
-            logger.warning(f"Ping error (job {job_id}): {exc}")
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -549,15 +496,12 @@ def _run_worker(cfg: dict) -> None:
         )
 
     urls = {
-        'request': f"{cfg['base_url']}/request_job",
-        'poll':    f"{cfg['base_url']}/worker/poll",
-        'update':  f"{cfg['base_url']}/update_job_status",
-        'ping':    f"{cfg['base_url']}/ping",
+        'heartbeat': f"{cfg['base_url']}/worker/heartbeat",
+        'update':    f"{cfg['base_url']}/update_job_status",
     }
 
     host = host_from_worker_id(worker_id)
     applied_version = 0
-    use_poll = True
 
     logger.info(f"jd_worker_cli v{__version__}  |  worker_id: {worker_id}")
     logger.info(f"Server:        {cfg['base_url']}")
@@ -565,12 +509,12 @@ def _run_worker(cfg: dict) -> None:
     logger.info(f"Hub mode:       {'enabled' if token_mgr else 'disabled'}")
     logger.info(f"Local jd_data root: {cfg['workspace_path']} "
                 f"(each job: …/jd_data/<expId>/<job_id>/)")
-    logger.info(f"Ping interval: {PING_INTERVAL}s")
     if cfg['once']:
         logger.info("Mode: single job (once=true)")
     else:
         logger.info(
-            f"Poll interval: {NO_JOBS_POLL_INTERVAL}s (heartbeat + job request + dashboard control)"
+            f"Heartbeat: {IDLE_POLL_INTERVAL}s idle / "
+            f"{BUSY_HEARTBEAT_INTERVAL}s while running a job (POST /worker/heartbeat)"
         )
 
     # Track the current child process so SIGINT/SIGTERM can clean it up
@@ -604,10 +548,8 @@ def _run_worker(cfg: dict) -> None:
             break
 
         job_id = None
-        stop_ping = threading.Event()
-        stop_poll = threading.Event()
-        pinger = None
-        poller = None
+        stop_heartbeat = threading.Event()
+        heartbeat = None
         control = {"applied_version": applied_version, "stop_after_job": False}
         try:
             if token_mgr:
@@ -615,69 +557,45 @@ def _run_worker(cfg: dict) -> None:
 
             metrics = _collect_metrics(cfg['machine_type'], logger)
             job = None
-            poll_interval = NO_JOBS_POLL_INTERVAL
+            reason = "no_jobs"
+            poll_interval = IDLE_POLL_INTERVAL
 
-            if use_poll:
-                poll_resp, reason = _worker_poll(
-                    urls['poll'], worker_id, host, cfg['machine_type'],
-                    "idle", None, applied_version, metrics, logger,
-                    token_mgr=token_mgr,
-                )
-                if poll_resp is None and reason == "legacy":
-                    logger.info("Server has no /worker/poll — using legacy /request_job.")
-                    use_poll = False
-                    job, reason = _request_job(
-                        urls['request'], worker_id, metrics, logger,
-                        token_mgr=token_mgr,
-                    )
-                elif poll_resp is None:
-                    logger.error(
-                        f"Worker poll failed: {reason}. "
-                        f"Retrying in {REQUEST_RETRY_INTERVAL}s…"
-                    )
-                    time.sleep(REQUEST_RETRY_INTERVAL)
-                    continue
-                else:
-                    poll_interval = int(poll_resp.get("poll_interval") or NO_JOBS_POLL_INTERVAL)
-                    applied_version, exit_now, _ = _apply_server_control(
-                        poll_resp, applied_version, registry, logger,
-                    )
-                    control["applied_version"] = applied_version
-                    if exit_now:
-                        logger.info("Stop command applied — exiting.")
-                        break
-                    if poll_resp.get("job"):
-                        job = poll_resp["job"]
-                    else:
-                        reason = "no_jobs"
+            hb_resp, reason = _worker_heartbeat(
+                urls['heartbeat'], worker_id, host, cfg['machine_type'],
+                "idle", None, applied_version, metrics, logger,
+                token_mgr=token_mgr,
+            )
+            if hb_resp is None:
+                logger.error(f"Idle heartbeat failed: {reason}.")
+                time.sleep(IDLE_POLL_INTERVAL)
+                continue
+
+            poll_interval = int(
+                hb_resp.get("heartbeat_interval")
+                or hb_resp.get("poll_interval")
+                or IDLE_POLL_INTERVAL
+            )
+            applied_version, exit_now, _ = _apply_server_control(
+                hb_resp, applied_version, registry, logger,
+            )
+            control["applied_version"] = applied_version
+            if exit_now:
+                logger.info("Stop command applied — exiting.")
+                break
+            if hb_resp.get("job"):
+                job = hb_resp["job"]
             else:
-                job, reason = _request_job(
-                    urls['request'], worker_id, metrics, logger,
-                    token_mgr=token_mgr,
-                )
+                reason = "no_jobs"
 
             if job is None:
-                if reason == 'no_jobs':
-                    if cfg['once']:
-                        logger.info("No jobs available (once=true). Exiting.")
-                        break
+                if reason == "no_jobs" and cfg["once"]:
+                    logger.info("No jobs available (once=true). Exiting.")
+                    break
+                if reason == "no_jobs":
                     logger.info(
-                        f"No jobs available. Polling again in {poll_interval}s…"
+                        f"No jobs available. Next idle heartbeat in {poll_interval}s…"
                     )
-                    time.sleep(poll_interval)
-                    continue
-                if not use_poll:
-                    logger.error(
-                        f"Job request failed: {reason}. "
-                        f"Retrying in {REQUEST_RETRY_INTERVAL}s…"
-                    )
-                    time.sleep(REQUEST_RETRY_INTERVAL)
-                    continue
-                logger.error(
-                    f"Worker poll returned no job unexpectedly. "
-                    f"Retrying in {REQUEST_RETRY_INTERVAL}s…"
-                )
-                time.sleep(REQUEST_RETRY_INTERVAL)
+                time.sleep(poll_interval)
                 continue
 
             job_id = job['job_id']
@@ -699,25 +617,17 @@ def _run_worker(cfg: dict) -> None:
             logger.info(f"Job workspace: {job_root}")
             logger.info(f"Command: {' '.join(cmd)}")
 
-            # Start heartbeat ping thread
-            pinger = threading.Thread(
-                target=_ping_loop,
-                args=(urls['ping'], job_id, stop_ping, logger,
-                      cfg['machine_type'], token_mgr, registry, worker_id),
+            # Background heartbeat: poll (busy) updates worker + job on the server
+            heartbeat = threading.Thread(
+                target=_heartbeat_loop,
+                args=(
+                    urls["heartbeat"], worker_id, host, cfg["machine_type"],
+                    job_id, stop_heartbeat, control, logger,
+                ),
+                kwargs={"token_mgr": token_mgr, "registry": registry},
                 daemon=True,
             )
-            pinger.start()
-
-            if use_poll:
-                poller = threading.Thread(
-                    target=_poll_control_loop,
-                    args=(
-                        urls['poll'], worker_id, host, cfg['machine_type'],
-                        job_id, stop_poll, control, logger, token_mgr, registry,
-                    ),
-                    daemon=True,
-                )
-                poller.start()
+            heartbeat.start()
 
             # Build child environment: inherit everything + inject JD_ context
             # so jd_upload / jd_update_checkpoint / jd_get_last_checkpoint work
@@ -800,12 +710,9 @@ def _run_worker(cfg: dict) -> None:
                 )
             break
         finally:
-            stop_ping.set()
-            stop_poll.set()
-            if pinger is not None:
-                pinger.join(timeout=5)
-            if poller is not None:
-                poller.join(timeout=5)
+            stop_heartbeat.set()
+            if heartbeat is not None:
+                heartbeat.join(timeout=5)
 
         if cfg['once']:
             logger.info("once=true — exiting after one job.")

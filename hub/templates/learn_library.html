@@ -17,7 +17,7 @@
     <a class="sub" href="#cli-background">Background workers</a>
     <a class="sub" href="#cli-interactive">Interactive mode</a>
     <a class="sub" href="#cli-management">Management commands</a>
-    <a class="sub" href="#cli-poll">Poll protocol</a>
+    <a class="sub" href="#cli-heartbeat">Heartbeat protocol</a>
     <a class="sub" href="#cli-dashboard-control">Dashboard control</a>
     <a class="sub" href="#cli-examples">Examples</a>
     <a href="#path-helpers">Path helpers</a>
@@ -54,8 +54,8 @@
         <li>
           <strong>A CLI tool (<code>jd_worker_cli</code>)</strong> — the worker
           process you run in your terminal. It polls the job server every
-          ~3 minutes via <code>POST /worker/poll</code> (heartbeat, dashboard
-          control, and job assignment when idle), pings every 57 s while a job
+          ~3 minutes via <code>POST /worker/heartbeat</code> (liveness, dashboard
+          control, and job assignment when idle), heartbeats every 57 s while a job
           runs, invokes your script once per job, and reports results.
         </li>
         <li>
@@ -125,7 +125,7 @@ python -c "import jd; print(jd.__version__)"</code></pre>
         <li>Polls the server for the next <em>PENDING</em> job.</li>
         <li>Sets environment variables describing the job and calls your entry
             script as a subprocess.</li>
-        <li>Sends a heartbeat ping every <strong>57 seconds</strong> while the
+        <li>Sends <code>POST /worker/heartbeat</code> every <strong>57 seconds</strong> while the
             script runs.</li>
         <li>Marks the job <em>DONE</em> or <em>ABORTED</em> depending on the
             exit code, then goes back to step 3.</li>
@@ -407,13 +407,14 @@ jd_worker_cli expId=digits-tune stop job=42
 jd_worker_cli prune</code></pre>
       </div>
 
-      <h3 id="cli-poll">Poll protocol (<code>POST /worker/poll</code>)</h3>
+      <h3 id="cli-heartbeat">Heartbeat protocol (<code>POST /worker/heartbeat</code>)</h3>
 
       <p>
-        Workers registered with jd-worker <strong>1.15.0+</strong> use a single
-        poll endpoint instead of idle-only <code>/request_job</code>. Every
-        <strong>180 seconds</strong> (and again immediately after each job
-        finishes), the worker sends:
+        Workers registered with jd-worker <strong>1.15.0+</strong> use
+        <code>POST /worker/heartbeat</code> for liveness, job assignment, and
+        dashboard control. Every
+        <strong>180 seconds</strong> when idle (and every <strong>57 seconds</strong>
+        while a job runs), the worker sends:
       </p>
 
       <ul>
@@ -421,7 +422,7 @@ jd_worker_cli prune</code></pre>
         <li><code>reported_status</code> — <code>idle</code> or <code>busy</code></li>
         <li><code>current_job_id</code> — set while running a job</li>
         <li><code>applied_version</code> — ack of the last dashboard command applied</li>
-        <li><code>system_metrics</code> — CPU/RAM snapshot (same as job request)</li>
+        <li><code>system_metrics</code> — CPU/RAM snapshot</li>
       </ul>
 
       <p>The server responds with:</p>
@@ -430,15 +431,14 @@ jd_worker_cli prune</code></pre>
         <li><code>desired_state</code> — <code>run</code>, <code>drain</code>, or <code>stop</code></li>
         <li><code>desired_version</code> / <code>applied_version</code> — command versioning</li>
         <li><code>job</code> — optional job payload when idle and <code>desired_state=run</code></li>
-        <li><code>poll_interval</code> — seconds until the next poll (default 180)</li>
+        <li><code>heartbeat_interval</code> — seconds until the next heartbeat (180 idle, 57 busy)</li>
       </ul>
 
       <p>
-        While a job runs, a background poll thread keeps checking for dashboard
-        commands. <strong>Stop</strong> and <strong>drain</strong> take effect
-        after the current job completes (or immediately when idle for
-        <strong>stop</strong>). Older servers without <code>/worker/poll</code>
-        fall back to legacy <code>/request_job</code> automatically.
+        While a job runs, a background heartbeat thread keeps the worker and job
+        rows fresh and picks up dashboard commands. <strong>Stop</strong> and
+        <strong>drain</strong> take effect after the current job completes (or
+        immediately when idle for <strong>stop</strong>).
       </p>
 
       <h3 id="cli-dashboard-control">Dashboard worker control</h3>
@@ -456,8 +456,8 @@ jd_worker_cli prune</code></pre>
         <li>Filter workers by host, instance, and slot</li>
         <li>Queue <strong>Resume</strong>, <strong>Drain</strong>, or
             <strong>Stop</strong> on the <strong>Active Workers</strong> sub-tab</li>
-        <li>Review <strong>Disabled / Stopped</strong> workers (read-only) after shutdown or lost poll</li>
-        <li>Cancel a queued command before the worker’s next poll (~3 min)</li>
+        <li>Review <strong>Disabled / Stopped</strong> workers (read-only) after shutdown or lost heartbeat</li>
+        <li>Cancel a queued command before the worker’s next heartbeat (~3 min idle)</li>
       </ul>
 
       <p>
@@ -472,7 +472,7 @@ jd_worker_cli prune</code></pre>
         <span class="tut-note__icon">ℹ️</span>
         <span>
           Queued commands show as <strong>queued drain</strong> / <strong>queued stop</strong>
-          in the dashboard until the worker polls and applies them. Use
+          in the dashboard until the worker heartbeats and applies them. Use
           <strong>Cancel</strong> to revert to the previous desired state.
         </span>
       </div>

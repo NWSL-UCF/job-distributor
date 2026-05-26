@@ -9,6 +9,9 @@ function openModal() {
             let _workerSubtab = 'active';
             let _workerFiltersData = null;
             let _workerDetailCache = null;
+            let _workerHistoryPage = 0;
+            let _workerMetricsHistoryIndex = 0;
+            const WORKER_HISTORY_PAGE_SIZE = 10;
 
             function switchMainView(view) {
                 const jobsView = document.getElementById('view-jobs');
@@ -21,12 +24,16 @@ function openModal() {
                     workersView.classList.add('active');
                     tabJobs.classList.remove('active');
                     tabWorkers.classList.add('active');
+                    tabJobs.setAttribute('aria-selected', 'false');
+                    tabWorkers.setAttribute('aria-selected', 'true');
                     refreshWorkersPage();
                 } else {
                     workersView.classList.remove('active');
                     jobsView.classList.add('active');
                     tabWorkers.classList.remove('active');
                     tabJobs.classList.add('active');
+                    tabWorkers.setAttribute('aria-selected', 'false');
+                    tabJobs.setAttribute('aria-selected', 'true');
                 }
             }
 
@@ -284,6 +291,8 @@ function openModal() {
                             return;
                         }
                         _workerDetailCache = w;
+                        _workerHistoryPage = 0;
+                        _workerMetricsHistoryIndex = 0;
                         document.getElementById('workerDetailId').textContent = w.worker_id;
                         const badge = document.getElementById('workerDetailBadge');
                         const lc = w.lifecycle_status || 'active';
@@ -333,11 +342,28 @@ function openModal() {
                 timelineEl.innerHTML = '';
                 const list = Array.isArray(entries) ? entries.slice() : [];
                 list.sort((a, b) => (floatOrZero(b.timestamp) - floatOrZero(a.timestamp)));
+
+                const pagEl = document.getElementById('workerHistoryPagination');
+                const infoEl = document.getElementById('workerHistoryPaginationInfo');
+                const prevBtn = document.getElementById('workerHistoryPrev');
+                const nextBtn = document.getElementById('workerHistoryNext');
+
                 if (!list.length) {
                     timelineEl.innerHTML = '<div class="timeline-empty"><i class="fas fa-history"></i>No history yet.</div>';
+                    if (pagEl) pagEl.style.display = 'none';
                     return;
                 }
-                list.forEach(entry => {
+
+                const total = list.length;
+                const totalPages = Math.max(1, Math.ceil(total / WORKER_HISTORY_PAGE_SIZE));
+                if (_workerHistoryPage >= totalPages) _workerHistoryPage = totalPages - 1;
+                if (_workerHistoryPage < 0) _workerHistoryPage = 0;
+
+                const start = _workerHistoryPage * WORKER_HISTORY_PAGE_SIZE;
+                const end = Math.min(start + WORKER_HISTORY_PAGE_SIZE, total);
+                const pageItems = list.slice(start, end);
+
+                pageItems.forEach(entry => {
                     const item = document.createElement('div');
                     item.className = 'timeline-item ' + getTimelineClass(entry.reason || '');
                     let tsLabel = 'Time unknown';
@@ -357,6 +383,25 @@ function openModal() {
                         `<div class="tl-time">${tsLabel}</div>`;
                     timelineEl.appendChild(item);
                 });
+
+                if (pagEl) {
+                    pagEl.style.display = total > WORKER_HISTORY_PAGE_SIZE ? 'flex' : 'none';
+                }
+                if (infoEl) {
+                    infoEl.textContent =
+                        `Showing ${start + 1}–${end} of ${total} (newest first)`;
+                }
+                if (prevBtn) prevBtn.disabled = _workerHistoryPage <= 0;
+                if (nextBtn) nextBtn.disabled = _workerHistoryPage >= totalPages - 1;
+            }
+
+            function changeWorkerHistoryPage(direction) {
+                if (!_workerDetailCache) return;
+                _workerHistoryPage += direction;
+                renderWorkerHistory(
+                    document.getElementById('workerHistoryTimeline'),
+                    _workerDetailCache.history || [],
+                );
             }
 
             function floatOrZero(v) {
@@ -364,37 +409,83 @@ function openModal() {
                 return Number.isFinite(n) ? n : 0;
             }
 
-            function _populateWorkerHistoryMetricsSelect(history) {
-                const sel = document.getElementById('workerHistoryMetricsSelect');
+            function _getWorkerHistoryWithMetrics(history) {
+                const list = (history || []).filter(
+                    e => e.metrics && Object.keys(e.metrics).length,
+                );
+                list.sort((a, b) => floatOrZero(b.timestamp) - floatOrZero(a.timestamp));
+                return list;
+            }
+
+            function _formatWorkerHistoryEventLabel(entry) {
+                const ts = entry.timestamp
+                    ? new Date(entry.timestamp * 1000).toLocaleString('en-US', {
+                        weekday: 'short', year: 'numeric', month: 'short',
+                        day: 'numeric', hour: '2-digit', minute: '2-digit',
+                        second: '2-digit', hour12: true,
+                    })
+                    : 'unknown time';
+                const event = entry.event || 'event';
+                const reason = (entry.reason || '').trim();
+                const shortReason = reason.length > 80 ? reason.slice(0, 77) + '…' : reason;
+                return shortReason
+                    ? `${event} — ${ts} — ${shortReason}`
+                    : `${event} — ${ts}`;
+            }
+
+            function renderWorkerHistoryMetrics() {
                 const section = document.getElementById('workerHistoryMetricsSection');
+                const labelEl = document.getElementById('workerHistoryMetricsEventLabel');
+                const pagEl = document.getElementById('workerHistoryMetricsPagination');
+                const infoEl = document.getElementById('workerHistoryMetricsPaginationInfo');
+                const prevBtn = document.getElementById('workerHistoryMetricsPrev');
+                const nextBtn = document.getElementById('workerHistoryMetricsNext');
                 const panel = document.getElementById('workerHistoryMetricsPanel');
-                const withMetrics = (history || []).filter(e => e.metrics && Object.keys(e.metrics).length);
+                if (!section || !panel) return;
+
+                const withMetrics = _getWorkerHistoryWithMetrics(
+                    _workerDetailCache ? _workerDetailCache.history : [],
+                );
                 if (!withMetrics.length) {
                     section.style.display = 'none';
                     panel.innerHTML = '';
+                    if (labelEl) labelEl.textContent = '';
+                    if (pagEl) pagEl.style.display = 'none';
                     return;
                 }
+
                 section.style.display = 'block';
-                sel.innerHTML = withMetrics.map((e, i) => {
-                    const ts = e.timestamp ? new Date(e.timestamp * 1000).toLocaleString() : 'unknown time';
-                    return `<option value="${i}">${_escHtml((e.event || 'event') + ' — ' + ts)}</option>`;
-                }).join('');
-                onWorkerHistoryMetricsSelect();
+                if (_workerMetricsHistoryIndex >= withMetrics.length) {
+                    _workerMetricsHistoryIndex = withMetrics.length - 1;
+                }
+                if (_workerMetricsHistoryIndex < 0) _workerMetricsHistoryIndex = 0;
+
+                const entry = withMetrics[_workerMetricsHistoryIndex];
+                if (labelEl) {
+                    labelEl.textContent = _formatWorkerHistoryEventLabel(entry);
+                }
+                renderSystemMetrics(panel, entry.metrics);
+
+                const total = withMetrics.length;
+                const pos = _workerMetricsHistoryIndex + 1;
+                if (pagEl) {
+                    pagEl.style.display = total > 1 ? 'flex' : 'none';
+                }
+                if (infoEl) {
+                    infoEl.textContent = `Snapshot ${pos} of ${total} (newest first)`;
+                }
+                if (prevBtn) prevBtn.disabled = _workerMetricsHistoryIndex <= 0;
+                if (nextBtn) nextBtn.disabled = _workerMetricsHistoryIndex >= total - 1;
             }
 
-            function onWorkerHistoryMetricsSelect() {
-                const sel = document.getElementById('workerHistoryMetricsSelect');
-                const panel = document.getElementById('workerHistoryMetricsPanel');
-                if (!_workerDetailCache || !sel) return;
-                const withMetrics = (_workerDetailCache.history || []).filter(
-                    e => e.metrics && Object.keys(e.metrics).length
-                );
-                const idx = parseInt(sel.value, 10);
-                if (!withMetrics[idx]) {
-                    panel.innerHTML = '';
-                    return;
-                }
-                renderSystemMetrics(panel, withMetrics[idx].metrics);
+            function _populateWorkerHistoryMetricsSelect(history) {
+                renderWorkerHistoryMetrics();
+            }
+
+            function changeWorkerHistoryMetricsPage(direction) {
+                if (!_workerDetailCache) return;
+                _workerMetricsHistoryIndex += direction;
+                renderWorkerHistoryMetrics();
             }
 
             document.addEventListener('DOMContentLoaded', function() {

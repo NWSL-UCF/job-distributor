@@ -88,7 +88,7 @@ SQLite-backed data layer. All write methods hold a `threading.Lock()`, making th
 | `request_job` | Atomically (under lock) selects the lowest-id PENDING job, marks it SERVED, records `requested_by`, `system_metrics`, timestamps, and appends an audit message |
 | `update_job_status` | Marks a SERVED job DONE or ABORTED; records `completion_timestamp` and `required_time` |
 | `change_job_status` | Manual override; moves DONE/ABORTED/PENDING jobs to any of those three states; resets all timestamps and `requested_by` when moving to PENDING |
-| `ping_job` | Updates `last_ping_timestamp` for a SERVED job |
+| `worker_heartbeat` | Worker liveness + dashboard control; idle may assign jobs; busy updates job `last_ping_timestamp` |
 | `reset_aborted_jobs` | Resets all ABORTED jobs to PENDING, clearing timestamps and appending an audit message |
 | `reset_stale_served_jobs(idle_timeout)` | Resets SERVED jobs whose `last_ping_timestamp` is older than `idle_timeout` seconds |
 | `get_jobs_paginated` | Paginated query with optional status filter and job ID search |
@@ -104,9 +104,8 @@ Synchronous Flask server with `threaded=True`. Every endpoint responds in a sing
 
 | Endpoint | Method | Request Body | Success Response | Error Responses |
 |---|---|---|---|---|
-| `/request_job` | POST | `{requested_by, system_metrics}` | 200 `{job_id, parameters, status}` | 400 missing requester, 404 no jobs, 500 DB error |
+| `/worker/heartbeat` | POST | `{worker_id, reported_status, current_job_id, …}` | 200 `{desired_state, job?, heartbeat_interval}` | 400 invalid input, 500 DB error |
 | `/update_job_status` | POST | `{job_id, status, message}` | 200 `{message, job_id, status}` | 400 invalid input or job not SERVED, 404 job not found |
-| `/ping` | POST | `{job_id}` (or `id`) | 200 `{message, timestamp}` | 400 invalid id, 404 job not found |
 | `/cleanup/reset_aborted_jobs` | POST | `{}` | 200 `{message, jobs_reset}` | 500 DB error |
 | `/cleanup/reset_stale_served_jobs` | POST | `{idle_timeout}` | 200 `{message, jobs_reset, idle_timeout}` | 400 invalid timeout, 500 DB error |
 

@@ -12,7 +12,7 @@ The same Python package exposes three helpers for use **inside** the entry scrip
 
 - **Python** ≥ 3.8  
 - **Dependencies** (installed with the package): `requests`, `psutil`  
-- A running Job Distributor **job server** (`/worker/poll`, `/request_job`, `/update_job_status`, `/ping`, `/upload`, `/checkpoint`, `/checkpoint/latest`) reachable from the worker machine.
+- A running Job Distributor **job server** (`/worker/heartbeat`, `/update_job_status`, `/upload`, `/checkpoint`, `/checkpoint/latest`) reachable from the worker machine.
 
 ---
 
@@ -174,18 +174,16 @@ There is **no** `workspace_path=…` CLI argument.
 
 ### Behaviour
 
-1. **Poll / request job** — `POST /worker/poll` every **180** seconds when idle (and in a background thread while busy) with worker id, host, status, applied command version, and system metrics. The response may include a job when idle and `desired_state=run`, plus dashboard control fields (`desired_state`, `desired_version`). Older servers without `/worker/poll` fall back to `POST /request_job`.  
+1. **Heartbeat** — `POST /worker/heartbeat` every **180** seconds when idle (liveness + optional job assignment + dashboard control). While a job runs, a **single background thread** sends `POST /worker/heartbeat` with `reported_status=busy` every **57** seconds — the server updates **both** the worker row and the current job (`last_ping_timestamp`).
 2. **Run entry script** — For each key/value in the job’s `parameters`, the worker appends `--<key> <value>` (stringified). It always appends `--base_path <dir>` where:
 
    `<dir> = <parent>/jd_data/<expId>/<job_id>` (absolute path on the worker)
 
    The directory is created before launch. Treat this directory as the sandbox for local reads/writes/deletes for that job.
 
-3. **Heartbeat** — Background thread: `POST /ping` every **57** seconds with `{"id": <job_id>}`.
+3. **Status** — Exit code `0` → `POST /update_job_status` with `DONE`; non-zero → `ABORTED` with a short message derived from stderr when useful.
 
-4. **Status** — Exit code `0` → `POST /update_job_status` with `DONE`; non-zero → `ABORTED` with a short message derived from stderr when useful.
-
-5. **Loop** — After each job, waits 3 seconds and polls again. When no job is available, the worker **keeps running** and polls every **3 minutes** (heartbeat + dashboard control). Server connection errors retry every **10 seconds**. With **`once=true`**, exits when no job is available or after one completed job.
+4. **Loop** — After each job, waits 3 seconds and polls again. When no job is available (or idle heartbeat fails), waits **3 minutes** before the next idle heartbeat. With **`once=true`**, exits when no job is available or after one completed job.
 
 6. **Dashboard control** — The server dashboard can queue **run**, **drain**, or **stop** per worker, host, or all workers. Commands apply on the next poll; cancel reverts queued commands before they are applied.
 

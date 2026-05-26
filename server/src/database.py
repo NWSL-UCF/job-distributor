@@ -23,7 +23,9 @@ WORKER_STATE_STOP = "stop"
 WORKER_REPORTED_IDLE = "idle"
 WORKER_REPORTED_BUSY = "busy"
 WORKER_STALE_SECONDS = 600
-WORKER_POLL_INTERVAL = 180
+WORKER_POLL_INTERVAL_IDLE = 180
+WORKER_POLL_INTERVAL_BUSY = 57
+WORKER_POLL_INTERVAL = WORKER_POLL_INTERVAL_IDLE  # backward-compatible alias
 WORKER_LIFECYCLE_ACTIVE = "active"
 WORKER_LIFECYCLE_DISABLED = "disabled"
 _WORKER_INSTANCE_RE = re.compile(r"^[0-9A-Za-z]{6}$")
@@ -784,6 +786,14 @@ class JobDatabase:
                     SET status = ?, completion_timestamp = ?, required_time = ?, message = ?
                     WHERE id = ?
                 ''', (status, now, required_time, json.dumps(messages), job_id))
+
+                requested_by = (job.get("requested_by") or "").strip()
+                if requested_by:
+                    self._touch_worker_presence_locked(
+                        conn, requested_by,
+                        current_job_id=None,
+                        reported_status=WORKER_REPORTED_IDLE,
+                    )
                 
                 conn.commit()
                 return True
@@ -844,42 +854,6 @@ class JobDatabase:
                         SET status = ?, message = ?
                         WHERE id = ?
                     ''', (new_status, json.dumps(messages), job_id))
-                
-                conn.commit()
-                return True
-    
-    def ping_job(
-        self,
-        job_id: int,
-        system_metrics: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """Update last_ping_timestamp (and optional system_metrics) for a SERVED job."""
-        with self.lock:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Check if job exists and is SERVED
-                cursor.execute(
-                    "SELECT id FROM jobs WHERE id = ? AND status = ?",
-                    (job_id, STATUS_SERVED)
-                )
-                row = cursor.fetchone()
-                
-                if not row:
-                    return False
-                
-                now = round(time.time())
-                if system_metrics:
-                    cursor.execute(
-                        "UPDATE jobs SET last_ping_timestamp = ?, system_metrics = ? "
-                        "WHERE id = ?",
-                        (now, json.dumps(system_metrics), job_id),
-                    )
-                else:
-                    cursor.execute(
-                        "UPDATE jobs SET last_ping_timestamp = ? WHERE id = ?",
-                        (now, job_id),
-                    )
                 
                 conn.commit()
                 return True
@@ -1286,6 +1260,82 @@ class JobDatabase:
             (json.dumps(entries), worker_id),
         )
 
+    def _touch_worker_presence_locked(
+        self,
+        conn: sqlite3.Connection,
+        worker_id: str,
+        *,
+        system_metrics: Optional[Dict[str, Any]] = None,
+        current_job_id: Optional[int] = None,
+        reported_status: str = WORKER_REPORTED_IDLE,
+        machine_type: Optional[str] = None,
+    ) -> None:
+        """Refresh worker row from job lifecycle events (e.g. update_job_status)."""
+        worker_id = (worker_id or "").strip()
+        if not worker_id:
+            return
+        status = reported_status if reported_status in (
+            WORKER_REPORTED_IDLE, WORKER_REPORTED_BUSY,
+        ) else WORKER_REPORTED_IDLE
+        now = time.time()
+        host, instance, slot = self.parse_worker_id_parts(worker_id)
+        metrics = system_metrics or {}
+        mtype = (machine_type or metrics.get("worker_type") or "worker").strip()
+        metrics_json = json.dumps(metrics)
+        cur = conn.cursor()
+        cur.execute("SELECT worker_id FROM workers WHERE worker_id = ?", (worker_id,))
+        if cur.fetchone():
+            cur.execute(
+                """
+                UPDATE workers SET
+                    host = ?, instance = ?, slot = ?, machine_type = ?,
+                    reported_status = ?, current_job_id = ?,
+                    last_poll_at = ?, system_metrics = ?,
+                    lifecycle_status = ?, disabled_at = 0
+                WHERE worker_id = ?
+                """,
+                (
+                    host, instance, slot, mtype, status, current_job_id,
+                    now, metrics_json, WORKER_LIFECYCLE_ACTIVE, worker_id,
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO workers
+                (worker_id, host, instance, slot, machine_type, reported_status,
+                 current_job_id, last_poll_at, applied_version, desired_state,
+                 desired_version, previous_desired_state, system_metrics,
+                 lifecycle_status, disabled_at, history, first_poll_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'run', 0, 'run', ?, ?, 0, '[]', ?)
+                """,
+                (
+                    worker_id, host, instance, slot, mtype, status, current_job_id,
+                    now, metrics_json, WORKER_LIFECYCLE_ACTIVE, now,
+                ),
+            )
+
+    def touch_worker_presence(
+        self,
+        worker_id: str,
+        *,
+        system_metrics: Optional[Dict[str, Any]] = None,
+        current_job_id: Optional[int] = None,
+        reported_status: str = WORKER_REPORTED_IDLE,
+        machine_type: Optional[str] = None,
+    ) -> None:
+        with self.lock:
+            with self.get_connection() as conn:
+                self._backfill_worker_identity_columns(conn)
+                self._touch_worker_presence_locked(
+                    conn, worker_id,
+                    system_metrics=system_metrics,
+                    current_job_id=current_job_id,
+                    reported_status=reported_status,
+                    machine_type=machine_type,
+                )
+                conn.commit()
+
     def _disable_stale_workers(self, conn: sqlite3.Connection) -> None:
         """Move active workers with no recent poll to disabled lifecycle."""
         now = time.time()
@@ -1441,7 +1491,7 @@ class JobDatabase:
             grouped.setdefault(host, []).append(row)
         return grouped
 
-    def worker_poll(
+    def worker_heartbeat(
         self,
         worker_id: str,
         host: str,
@@ -1544,6 +1594,15 @@ class JobDatabase:
                         metrics=system_metrics,
                     )
 
+                if status == WORKER_REPORTED_BUSY and current_job_id is not None:
+                    cur.execute(
+                        """
+                        UPDATE jobs SET last_ping_timestamp = ?, system_metrics = ?
+                        WHERE id = ? AND status = ?
+                        """,
+                        (now, metrics_json, int(current_job_id), STATUS_SERVED),
+                    )
+
                 conn.commit()
                 cur.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
                 worker = self._worker_row_to_dict(cur.fetchone())
@@ -1588,7 +1647,16 @@ class JobDatabase:
             "desired_version": worker["desired_version"],
             "applied_version": worker["applied_version"],
             "pending": worker["pending"],
-            "poll_interval": WORKER_POLL_INTERVAL,
+            "heartbeat_interval": (
+                WORKER_POLL_INTERVAL_BUSY
+                if status == WORKER_REPORTED_BUSY
+                else WORKER_POLL_INTERVAL_IDLE
+            ),
+            "poll_interval": (
+                WORKER_POLL_INTERVAL_BUSY
+                if status == WORKER_REPORTED_BUSY
+                else WORKER_POLL_INTERVAL_IDLE
+            ),
             "job": job_payload,
         }
 
