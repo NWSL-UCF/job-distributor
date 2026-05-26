@@ -1583,6 +1583,40 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 text-align: center;
                 box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
             }
+            .modal-content-2--machine-stats {
+                width: max-content;
+                max-width: min(520px, 92vw);
+                min-width: 0;
+            }
+            .modal-content-2--machine-stats .stats-table-wrap {
+                margin: 0 auto;
+                overflow-x: auto;
+                max-width: 100%;
+            }
+            .modal-content-2--machine-stats .stats-table {
+                width: auto;
+                margin: 0 auto;
+                font-size: 0.875rem;
+            }
+            .modal-content-2--machine-stats .stats-table th,
+            .modal-content-2--machine-stats .stats-table td {
+                padding: 6px 10px;
+                white-space: nowrap;
+            }
+            .modal-content-2--machine-stats .stats-table thead th {
+                position: sticky;
+                top: 0;
+                z-index: 2;
+            }
+            .modal-content-2--machine-stats .stats-table th:first-child,
+            .modal-content-2--machine-stats .stats-table td:first-child {
+                text-align: left;
+                position: static;
+            }
+            .modal-content-2--machine-stats .stats-table th:not(:first-child),
+            .modal-content-2--machine-stats .stats-table td:not(:first-child) {
+                text-align: right;
+            }
             table.stats-table td:first-child, table.stats-table th:first-child {
                 position: sticky;
                 left: 0;
@@ -1597,6 +1631,9 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 width: 100%;
                 border-collapse: collapse;
                 font-size: 16px;
+            }
+            .modal-content-2--machine-stats .stats-table {
+                width: auto;
             }
             .stats-table th, .stats-table td {
                 padding: 10px;

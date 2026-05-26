@@ -51,7 +51,7 @@
             <div class="main-content">
 
         <div id="statsModal" class="modal-2">
-            <div class="modal-content-2">
+            <div class="modal-content-2 modal-content-2--machine-stats">
                 <span class="close" onclick="closeModal()">&times;</span>
                 <h2>Machine Specific Stats</h2>
                 <div style="text-align: center; margin-bottom: 20px;">
@@ -69,15 +69,19 @@
                     </div>
                     <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">Overall Progress</p>
                 </div>
+                <div class="stats-table-wrap">
                 <table class="stats-table">
-                    <tr style="position:sticky; top:-17px; z-index:2;">
+                    <thead>
+                    <tr>
                         <th>Host</th>
-                        <th>Instances</th>
+                        <th>Inst.</th>
                         <th>Workers</th>
-                        <th>Jobs Done</th>
-                        <th>Avg Completion Time</th>
-                        <th>Percentage of Share</th>
+                        <th>Jobs</th>
+                        <th>Avg time</th>
+                        <th>% share</th>
                     </tr>
+                    </thead>
+                    <tbody>
                     {% for machine, data in machine_stats.items() %}
                     <tr>
                         <td>{{ machine }}</td>
@@ -88,7 +92,9 @@
                         <td>{{ data.percentage }}%</td>
                     </tr>
                     {% endfor %}
+                    </tbody>
                 </table>
+                </div>
             </div>
         </div>
 
