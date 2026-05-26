@@ -859,7 +859,7 @@ def workers_history():
 
 @app.route("/workers/command", methods=["POST"])
 def workers_command():
-    """Queue run / drain / stop for active workers (applied on next poll)."""
+    """Queue run / pause / drain / stop for active workers (applied on next poll)."""
     db.track_api_request("Worker Command", "POST")
     data = request.json or {}
     action = (data.get("action") or "").strip().lower()

@@ -2021,8 +2021,10 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
             }
             .workers-btn:hover { opacity: 0.85; }
             .workers-btn--run { border-color: #b2dfcc; color: #2e7d32; background: #f0fff4; }
+            .workers-btn--pause { border-color: #90caf9; color: #1565c0; background: #e3f2fd; }
             .workers-btn--drain { border-color: #ffe082; color: #f57f17; background: #fffde7; }
             .workers-btn--stop { border-color: #f5c6cb; color: #c62828; background: #fff5f5; }
+            .workers-btn-sm.workers-btn--pause { border-color: #90caf9; color: #1565c0; }
             .workers-btn--cancel { border-color: #ced4da; color: #495057; }
             .workers-toolbar .workers-btn--refresh { margin-left: auto; }
             .workers-sidebar-refresh { margin-left: 0; }
@@ -2084,7 +2086,10 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
             .worker-badge--idle { background: #e8f5e9; color: #2e7d32; }
             .worker-badge--busy { background: #fff3e0; color: #e65100; }
             .worker-badge--pending { background: #e3f2fd; color: #1565c0; }
-            .worker-badge--applied { background: #fce4ec; color: #c62828; }
+            .worker-badge--pause { background: #e3f2fd; color: #1565c0; }
+            .worker-badge--drain { background: #fff8e1; color: #f57f17; }
+            .worker-badge--stop { background: #ffebee; color: #c62828; }
+            .worker-badge--applied { background: #eceff1; color: #546e7a; }
             .worker-badge--stale { background: #eceff1; color: #78909c; }
             .workers-loading, .workers-empty, .workers-error {
                 font-size: 0.9rem;

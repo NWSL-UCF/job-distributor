@@ -360,6 +360,15 @@ def _apply_server_control(
         logger.info(f"Server control: resume (v{desired_version})")
         return desired_version, False, False
 
+    if desired_state == "pause":
+        if registry:
+            registry.set_drained(False)
+        logger.info(
+            f"Server control: pause — finish current job, stay idle without new jobs "
+            f"(v{desired_version})"
+        )
+        return desired_version, False, False
+
     if desired_state == "drain":
         if registry:
             registry.set_drained(True)
@@ -591,7 +600,12 @@ def _run_worker(cfg: dict) -> None:
                 if reason == "no_jobs" and cfg["once"]:
                     logger.info("No jobs available (once=true). Exiting.")
                     break
-                if reason == "no_jobs":
+                if hb_resp.get("desired_state") == "pause":
+                    logger.info(
+                        f"Worker paused — no new jobs until resume. "
+                        f"Next heartbeat in {poll_interval}s…"
+                    )
+                elif reason == "no_jobs":
                     logger.info(
                         f"No jobs available. Next idle heartbeat in {poll_interval}s…"
                     )

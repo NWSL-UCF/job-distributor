@@ -185,7 +185,7 @@ There is **no** `workspace_path=…` CLI argument.
 
 4. **Loop** — After each job, waits 3 seconds and polls again. When no job is available (or idle heartbeat fails), waits **3 minutes** before the next idle heartbeat. With **`once=true`**, exits when no job is available or after one completed job.
 
-6. **Dashboard control** — The server dashboard can queue **run**, **drain**, or **stop** per worker, host, or all workers. Commands apply on the next poll; cancel reverts queued commands before they are applied.
+6. **Dashboard control** — The server dashboard can queue **run** (resume), **pause**, **drain**, or **stop** per worker, host, or all workers. **Pause** finishes the current job and keeps the worker process idle without new jobs. **Drain** finishes the current job and exits the worker. Commands apply on the next poll; cancel reverts queued commands before they are applied.
 
 ### Examples
 

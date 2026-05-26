@@ -16,6 +16,7 @@ function openModal() {
             let _workerMetricsHistoryTotal = 0;
             let _workerMetricsHistoryEntry = null;
             let _workerMetricsHistoryLoading = false;
+            let _workerMetricsFetchGen = 0;
             let _workerMetricsPlayTimer = null;
             const WORKER_HISTORY_PAGE_SIZE = 10;
             const WORKER_METRICS_PLAY_INTERVAL_MS = 500;
@@ -91,7 +92,12 @@ function openModal() {
                 }
                 const ds = w.desired_state || 'run';
                 if (ds !== 'run') {
-                    return `<span class="worker-badge worker-badge--applied">${ds}</span>`;
+                    const appliedCls = ds === 'pause' ? 'worker-badge--pause'
+                        : ds === 'drain' ? 'worker-badge--drain'
+                        : ds === 'stop' ? 'worker-badge--stop'
+                        : 'worker-badge--applied';
+                    const label = ds === 'pause' ? 'paused' : ds;
+                    return `<span class="worker-badge ${appliedCls}">${label}</span>`;
                 }
                 const rs = w.reported_status || 'idle';
                 const cls = rs === 'busy' ? 'worker-badge--busy' : 'worker-badge--idle';
@@ -229,11 +235,14 @@ function openModal() {
                             const completedJobs = Number.isFinite(w.completed_jobs)
                                 ? w.completed_jobs
                                 : (parseInt(w.completed_jobs, 10) || 0);
-                            const lastPoll = w.last_poll_at_fmt || '—';
+                            const lastPoll = _formatWorkerPollTime(
+                                w.last_poll_at ?? w.last_poll_at_fmt,
+                            );
                             const isActive = _workerSubtab === 'active';
                             let actions = `<button type="button" class="workers-btn-sm" onclick="openWorkerDetail('${_escHtml(wid)}')">Details</button>`;
                             if (isActive) {
                                 actions += `
+                                    <button type="button" class="workers-btn-sm workers-btn--pause" onclick="workerCommand('pause','worker','${_escHtml(wid)}')">Pause</button>
                                     <button type="button" class="workers-btn-sm workers-btn--drain" onclick="workerCommand('drain','worker','${_escHtml(wid)}')">Drain</button>
                                     <button type="button" class="workers-btn-sm workers-btn--stop" onclick="workerCommand('stop','worker','${_escHtml(wid)}')">Stop</button>
                                     <button type="button" class="workers-btn-sm workers-btn--run" onclick="workerCommand('run','worker','${_escHtml(wid)}')">Resume</button>
@@ -263,7 +272,7 @@ function openModal() {
             }
 
             function workerCommand(action, scope, target) {
-                const labels = { run: 'resume', drain: 'drain', stop: 'stop' };
+                const labels = { run: 'resume', pause: 'pause', drain: 'drain', stop: 'stop' };
                 const label = labels[action] || action;
                 const scopeLabel = scope === 'all' ? 'all active workers'
                     : scope === 'host' ? `host ${target}`
@@ -361,9 +370,9 @@ function openModal() {
                                     : (parseInt(w.completed_jobs, 10) || 0),
                             )],
                             ['Worker version', w.jd_worker_version || '—'],
-                            ['First poll', w.first_poll_at_fmt || '—'],
-                            ['Last poll', w.last_poll_at_fmt || '—'],
-                            ['Disabled at', w.disabled_at_fmt || '—'],
+                            ['First poll', _formatWorkerPollTime(w.first_poll_at ?? w.first_poll_at_fmt)],
+                            ['Last poll', _formatWorkerPollTime(w.last_poll_at ?? w.last_poll_at_fmt)],
+                            ['Disabled at', _formatWorkerPollTime(w.disabled_at ?? w.disabled_at_fmt)],
                         ];
                         info.innerHTML = '<table class="modal-kv-table"><tr><th>Field</th><th>Value</th></tr>' +
                             rows.map(([k, v]) => `<tr><td><strong>${k}</strong></td><td>${_escHtml(String(v))}</td></tr>`).join('') +
@@ -382,7 +391,9 @@ function openModal() {
                             metricsEl.innerHTML = '<p style="color:#adb5bd;text-align:center;padding:20px 0;">No metrics recorded yet.</p>';
                         }
                         const metricsSection = document.getElementById('workerHistoryMetricsSection');
+                        const histMetricsPanel = document.getElementById('workerHistoryMetricsPanel');
                         if (metricsSection) metricsSection.style.display = 'none';
+                        if (histMetricsPanel) histMetricsPanel.innerHTML = '';
 
                         switchWorkerModalTab('info', document.getElementById('tab-btn-worker-info'));
                         document.getElementById('workerDetailModal').style.display = 'block';
@@ -487,6 +498,26 @@ function openModal() {
                 return Number.isFinite(n) ? n : 0;
             }
 
+            function _formatWorkerPollTime(ts) {
+                if (ts == null || ts === '' || ts === 'N/A') return '—';
+                const n = typeof ts === 'number' ? ts : parseFloat(ts);
+                if (!Number.isFinite(n) || n <= 0) return '—';
+                try {
+                    return new Date(n * 1000).toLocaleString(undefined, {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: true,
+                    });
+                } catch (e) {
+                    return '—';
+                }
+            }
+
             function _formatWorkerHistoryEventLabel(entry) {
                 const ts = entry.timestamp
                     ? new Date(entry.timestamp * 1000).toLocaleString('en-US', {
@@ -507,26 +538,36 @@ function openModal() {
                 return _workerMetricsHistoryTotal;
             }
 
-            function loadWorkerMetricsHistoryIndex(index) {
+            function loadWorkerMetricsHistoryIndex(index, silent) {
                 const section = document.getElementById('workerHistoryMetricsSection');
                 const panel = document.getElementById('workerHistoryMetricsPanel');
-                if (!_workerDetailCache || !section || !panel || _workerMetricsHistoryLoading) {
+                if (!_workerDetailCache || !section || !panel) {
+                    return Promise.resolve();
+                }
+                if (!silent && _workerMetricsHistoryLoading) {
                     return Promise.resolve();
                 }
 
-                _workerMetricsHistoryLoading = true;
-                section.style.display = 'block';
-                panel.innerHTML =
-                    '<p style="color:#adb5bd;text-align:center;padding:20px 0;">Loading metrics snapshot…</p>';
+                const fetchGen = ++_workerMetricsFetchGen;
+                if (!silent) {
+                    _workerMetricsHistoryLoading = true;
+                    section.style.display = 'block';
+                    if (!panel.querySelector('.metrics-panel[data-metrics-ready]')) {
+                        panel.innerHTML =
+                            '<p style="color:#adb5bd;text-align:center;padding:20px 0;">Loading metrics snapshot…</p>';
+                    }
+                }
 
                 return _workerHistoryQuery(index, 1, true)
                     .then(data => {
+                        if (fetchGen !== _workerMetricsFetchGen) return;
                         _workerMetricsHistoryIndex = data.page ?? index;
                         _workerMetricsHistoryTotal = data.total ?? 0;
                         _workerMetricsHistoryEntry = (data.entries || [])[0] || null;
-                        renderWorkerHistoryMetrics();
+                        renderWorkerHistoryMetrics(silent);
                     })
                     .catch(err => {
+                        if (fetchGen !== _workerMetricsFetchGen) return;
                         stopWorkerHistoryMetricsPlayback();
                         _workerMetricsHistoryEntry = null;
                         _workerMetricsHistoryTotal = 0;
@@ -535,7 +576,11 @@ function openModal() {
                         const controlsEl = document.getElementById('workerHistoryMetricsControls');
                         if (controlsEl) controlsEl.style.display = 'none';
                     })
-                    .finally(() => { _workerMetricsHistoryLoading = false; });
+                    .finally(() => {
+                        if (!silent && fetchGen === _workerMetricsFetchGen) {
+                            _workerMetricsHistoryLoading = false;
+                        }
+                    });
             }
 
             function stopWorkerHistoryMetricsPlayback() {
@@ -556,7 +601,7 @@ function openModal() {
                 if (total <= 1) return;
                 let next = _workerMetricsHistoryIndex + 1;
                 if (next >= total) next = 0;
-                loadWorkerMetricsHistoryIndex(next);
+                loadWorkerMetricsHistoryIndex(next, true);
             }
 
             function toggleWorkerHistoryMetricsPlayback() {
@@ -581,7 +626,7 @@ function openModal() {
                 loadWorkerMetricsHistoryIndex(0).then(startTimer);
             }
 
-            function renderWorkerHistoryMetrics() {
+            function renderWorkerHistoryMetrics(silentUpdate) {
                 const section = document.getElementById('workerHistoryMetricsSection');
                 const labelEl = document.getElementById('workerHistoryMetricsEventLabel');
                 const controlsEl = document.getElementById('workerHistoryMetricsControls');
@@ -603,14 +648,16 @@ function openModal() {
                     return;
                 }
 
-                section.style.display = 'block';
+                if (!silentUpdate) {
+                    section.style.display = 'block';
+                }
                 if (labelEl) {
                     labelEl.textContent = _formatWorkerHistoryEventLabel(entry);
                 }
                 renderSystemMetrics(panel, entry.metrics);
 
                 const pos = _workerMetricsHistoryIndex + 1;
-                if (controlsEl) {
+                if (!silentUpdate && controlsEl) {
                     controlsEl.style.display = total > 1 ? 'flex' : 'none';
                 }
                 if (infoEl) {
@@ -619,7 +666,7 @@ function openModal() {
                         ? `Playing snapshot ${pos} of ${total} (newest first)`
                         : `Snapshot ${pos} of ${total} (newest first)`;
                 }
-                if (playBtn) {
+                if (!silentUpdate && playBtn) {
                     playBtn.disabled = total <= 1;
                 }
                 const prevBtn = document.getElementById('workerHistoryMetricsPrev');
@@ -633,7 +680,7 @@ function openModal() {
                 stopWorkerHistoryMetricsPlayback();
                 const next = _workerMetricsHistoryIndex + direction;
                 if (next < 0 || next >= _workerMetricsHistoryTotal) return;
-                loadWorkerMetricsHistoryIndex(next);
+                loadWorkerMetricsHistoryIndex(next, false);
             }
 
             document.addEventListener('DOMContentLoaded', function() {
@@ -1444,9 +1491,10 @@ function openModal() {
                 return (typeof v === 'number' && !Number.isNaN(v)) ? v : fallback;
             }
 
-            function _metricsBar(label, valueText, ratio, icon) {
+            function _metricsBar(label, valueText, ratio, icon, dataKey) {
                 const row = document.createElement('div');
                 row.className = 'metrics-bar-row';
+                if (dataKey) row.dataset.metricBar = dataKey;
 
                 const lbl = document.createElement('div');
                 lbl.className = 'metrics-bar-label';
@@ -1491,11 +1539,7 @@ function openModal() {
                 return chip;
             }
 
-            function renderSystemMetrics(container, metrics) {
-                container.innerHTML = '';
-                const panel = document.createElement('div');
-                panel.className = 'metrics-panel';
-
+            function _metricsSnapshotValues(metrics) {
                 const cpuThreads = Math.max(1, _num(metrics, 'cpu_threads', 1));
                 const cpuCores   = _num(metrics, 'cpu_cores', 0);
                 const cpuFreq    = _num(metrics, 'cpu_freq_mhz', 0);
@@ -1511,72 +1555,146 @@ function openModal() {
                 const load15     = _num(metrics, 'load_15min', 0);
                 const loadPerCpu = _num(metrics, 'load_per_cpu', 0);
                 const idleSlots  = _num(metrics, 'idle_slots', 0);
+                return {
+                    cpuThreads, cpuCores, cpuFreq, workerType,
+                    cpuUtil, ramUtil, ramTotal, ramAvail, ramUsed, diskUtil,
+                    load1, load5, load15, loadPerCpu, idleSlots,
+                };
+            }
 
-                // Hardware header
+            function _updateMetricsBarRow(row, valueText, ratio) {
+                if (!row) return;
+                const val = row.querySelector('.metrics-bar-value');
+                const fill = row.querySelector('.metrics-bar-fill');
+                if (val) val.textContent = valueText;
+                if (fill) {
+                    const r = Math.min(1, Math.max(0, ratio));
+                    fill.style.width = (r * 100).toFixed(1) + '%';
+                    fill.className = 'metrics-bar-fill ' + _metricsLevel(r);
+                }
+            }
+
+            function _buildMetricsPanel(metrics) {
+                const v = _metricsSnapshotValues(metrics);
+                const panel = document.createElement('div');
+                panel.className = 'metrics-panel';
+                panel.dataset.metricsReady = '1';
+
                 const hw = document.createElement('div');
                 hw.className = 'metrics-hardware';
-                const badge = document.createElement('span');
-                badge.className = 'metrics-worker-badge';
-                badge.innerHTML = `<i class="fas fa-server"></i> ${workerType}`;
-                hw.appendChild(badge);
-                if (cpuCores > 0)   hw.appendChild(_metricsChip(`${cpuCores} cores`, 'fa-microchip'));
-                if (cpuThreads > 0) hw.appendChild(_metricsChip(`${cpuThreads} threads`, 'fa-layer-group'));
-                if (cpuFreq > 0)    hw.appendChild(_metricsChip(`${cpuFreq} MHz`, 'fa-tachometer-alt'));
+                hw.dataset.metricsHw = '1';
                 panel.appendChild(hw);
 
-                // Utilization
                 const utilSec = _metricsSection('Utilization', 'fa-chart-bar');
-                utilSec.appendChild(_metricsBar('CPU', cpuUtil.toFixed(1) + '%', cpuUtil / 100, 'fa-microchip'));
+                utilSec.appendChild(_metricsBar(
+                    'CPU', v.cpuUtil.toFixed(1) + '%', v.cpuUtil / 100, 'fa-microchip', 'cpu',
+                ));
                 utilSec.appendChild(_metricsBar(
                     'Memory',
-                    ramUtil.toFixed(1) + '% · ' + ramUsed.toFixed(1) + ' / ' + ramTotal.toFixed(1) + ' GB',
-                    ramUtil / 100,
-                    'fa-database'
+                    v.ramUtil.toFixed(1) + '% · ' + v.ramUsed.toFixed(1) + ' / ' + v.ramTotal.toFixed(1) + ' GB',
+                    v.ramUtil / 100,
+                    'fa-database',
+                    'memory',
                 ));
-                utilSec.appendChild(_metricsBar('Disk I/O', diskUtil.toFixed(1) + '%', diskUtil / 100, 'fa-hdd'));
+                utilSec.appendChild(_metricsBar(
+                    'Disk I/O', v.diskUtil.toFixed(1) + '%', v.diskUtil / 100, 'fa-hdd', 'disk',
+                ));
                 panel.appendChild(utilSec);
 
-                // Load averages
                 const loadSec = _metricsSection('Load average', 'fa-weight-hanging');
                 const loadNote = document.createElement('div');
                 loadNote.className = 'metrics-section-note';
-                loadNote.textContent = 'Relative to ' + cpuThreads + ' logical threads';
+                loadNote.dataset.metricsLoadNote = '1';
                 loadSec.appendChild(loadNote);
-                loadSec.appendChild(_metricsBar('1 min', load1.toFixed(2), load1 / cpuThreads, null));
-                loadSec.appendChild(_metricsBar('5 min', load5.toFixed(2), load5 / cpuThreads, null));
-                loadSec.appendChild(_metricsBar('15 min', load15.toFixed(2), load15 / cpuThreads, null));
+                loadSec.appendChild(_metricsBar('1 min', v.load1.toFixed(2), v.load1 / v.cpuThreads, null, 'load1'));
+                loadSec.appendChild(_metricsBar('5 min', v.load5.toFixed(2), v.load5 / v.cpuThreads, null, 'load5'));
+                loadSec.appendChild(_metricsBar('15 min', v.load15.toFixed(2), v.load15 / v.cpuThreads, null, 'load15'));
                 panel.appendChild(loadSec);
 
-                // Summary cards
                 const stats = document.createElement('div');
                 stats.className = 'metrics-stat-grid';
 
                 const idleCard = document.createElement('div');
                 idleCard.className = 'metrics-stat-card highlight';
+                idleCard.dataset.metricStat = 'idle_slots';
                 idleCard.innerHTML =
                     '<div class="metrics-stat-label"><i class="fas fa-hourglass-half"></i> Idle slots</div>' +
-                    '<div class="metrics-stat-value">' + idleSlots + '</div>' +
+                    '<div class="metrics-stat-value"></div>' +
                     '<div class="metrics-stat-hint">estimated free worker capacity</div>';
                 stats.appendChild(idleCard);
 
                 const lpcCard = document.createElement('div');
                 lpcCard.className = 'metrics-stat-card';
+                lpcCard.dataset.metricStat = 'load_per_cpu';
                 lpcCard.innerHTML =
                     '<div class="metrics-stat-label"><i class="fas fa-divide"></i> Load / CPU</div>' +
-                    '<div class="metrics-stat-value">' + loadPerCpu.toFixed(2) + '</div>' +
+                    '<div class="metrics-stat-value"></div>' +
                     '<div class="metrics-stat-hint">1-min load per thread</div>';
                 stats.appendChild(lpcCard);
 
                 const capCard = document.createElement('div');
                 capCard.className = 'metrics-stat-card';
+                capCard.dataset.metricStat = 'ram_free';
                 capCard.innerHTML =
                     '<div class="metrics-stat-label"><i class="fas fa-memory"></i> RAM free</div>' +
-                    '<div class="metrics-stat-value">' + ramAvail.toFixed(1) + ' GB</div>' +
-                    '<div class="metrics-stat-hint">of ' + ramTotal.toFixed(1) + ' GB total</div>';
+                    '<div class="metrics-stat-value"></div>' +
+                    '<div class="metrics-stat-hint"></div>';
                 stats.appendChild(capCard);
 
                 panel.appendChild(stats);
-                container.appendChild(panel);
+                _updateMetricsPanel(panel, metrics);
+                return panel;
+            }
+
+            function _updateMetricsPanel(panel, metrics) {
+                const v = _metricsSnapshotValues(metrics);
+                const hw = panel.querySelector('[data-metrics-hw]');
+                if (hw) {
+                    const hwKey = `${v.workerType}|${v.cpuCores}|${v.cpuThreads}|${v.cpuFreq}`;
+                    if (hw.dataset.hwKey !== hwKey) {
+                        hw.dataset.hwKey = hwKey;
+                        hw.innerHTML = '';
+                        const badge = document.createElement('span');
+                        badge.className = 'metrics-worker-badge';
+                        badge.innerHTML = `<i class="fas fa-server"></i> ${_escHtml(v.workerType)}`;
+                        hw.appendChild(badge);
+                        if (v.cpuCores > 0) hw.appendChild(_metricsChip(`${v.cpuCores} cores`, 'fa-microchip'));
+                        if (v.cpuThreads > 0) hw.appendChild(_metricsChip(`${v.cpuThreads} threads`, 'fa-layer-group'));
+                        if (v.cpuFreq > 0) hw.appendChild(_metricsChip(`${v.cpuFreq} MHz`, 'fa-tachometer-alt'));
+                    }
+                }
+                const loadNote = panel.querySelector('[data-metrics-load-note]');
+                if (loadNote) {
+                    loadNote.textContent = 'Relative to ' + v.cpuThreads + ' logical threads';
+                }
+                _updateMetricsBarRow(panel.querySelector('[data-metric-bar="cpu"]'), v.cpuUtil.toFixed(1) + '%', v.cpuUtil / 100);
+                _updateMetricsBarRow(
+                    panel.querySelector('[data-metric-bar="memory"]'),
+                    v.ramUtil.toFixed(1) + '% · ' + v.ramUsed.toFixed(1) + ' / ' + v.ramTotal.toFixed(1) + ' GB',
+                    v.ramUtil / 100,
+                );
+                _updateMetricsBarRow(panel.querySelector('[data-metric-bar="disk"]'), v.diskUtil.toFixed(1) + '%', v.diskUtil / 100);
+                _updateMetricsBarRow(panel.querySelector('[data-metric-bar="load1"]'), v.load1.toFixed(2), v.load1 / v.cpuThreads);
+                _updateMetricsBarRow(panel.querySelector('[data-metric-bar="load5"]'), v.load5.toFixed(2), v.load5 / v.cpuThreads);
+                _updateMetricsBarRow(panel.querySelector('[data-metric-bar="load15"]'), v.load15.toFixed(2), v.load15 / v.cpuThreads);
+                const idleVal = panel.querySelector('[data-metric-stat="idle_slots"] .metrics-stat-value');
+                const lpcVal = panel.querySelector('[data-metric-stat="load_per_cpu"] .metrics-stat-value');
+                const ramVal = panel.querySelector('[data-metric-stat="ram_free"] .metrics-stat-value');
+                const ramHint = panel.querySelector('[data-metric-stat="ram_free"] .metrics-stat-hint');
+                if (idleVal) idleVal.textContent = String(v.idleSlots);
+                if (lpcVal) lpcVal.textContent = v.loadPerCpu.toFixed(2);
+                if (ramVal) ramVal.textContent = v.ramAvail.toFixed(1) + ' GB';
+                if (ramHint) ramHint.textContent = 'of ' + v.ramTotal.toFixed(1) + ' GB total';
+            }
+
+            function renderSystemMetrics(container, metrics) {
+                const existing = container.querySelector('.metrics-panel[data-metrics-ready]');
+                if (existing) {
+                    _updateMetricsPanel(existing, metrics);
+                    return;
+                }
+                container.innerHTML = '';
+                container.appendChild(_buildMetricsPanel(metrics));
             }
 
             /** Load one job from the API so history/params never break the onclick handler. */

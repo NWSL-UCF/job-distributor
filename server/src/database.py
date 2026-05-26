@@ -18,6 +18,7 @@ STATUS_ABORTED = "ABORTED"
 STATUS_DELETED = "DELETED"
 
 WORKER_STATE_RUN = "run"
+WORKER_STATE_PAUSE = "pause"
 WORKER_STATE_DRAIN = "drain"
 WORKER_STATE_STOP = "stop"
 WORKER_REPORTED_IDLE = "idle"
@@ -1758,9 +1759,12 @@ class JobDatabase:
         }
 
     def _worker_state_rank(self, state: str) -> int:
-        return {WORKER_STATE_RUN: 0, WORKER_STATE_DRAIN: 1, WORKER_STATE_STOP: 2}.get(
-            state, 0
-        )
+        return {
+            WORKER_STATE_RUN: 0,
+            WORKER_STATE_PAUSE: 1,
+            WORKER_STATE_DRAIN: 2,
+            WORKER_STATE_STOP: 3,
+        }.get(state, 0)
 
     def _worker_is_actionable(self, row: Dict[str, Any], now: float) -> bool:
         if (row.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE) != WORKER_LIFECYCLE_ACTIVE:
@@ -1774,12 +1778,22 @@ class JobDatabase:
         scope: str,
         target: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Set desired worker state. Precedence: stop > drain > run; narrow scope only."""
-        if action not in (WORKER_STATE_RUN, WORKER_STATE_DRAIN, WORKER_STATE_STOP):
+        """Set desired worker state. Precedence: stop > drain > pause > run."""
+        if action not in (
+            WORKER_STATE_RUN,
+            WORKER_STATE_PAUSE,
+            WORKER_STATE_DRAIN,
+            WORKER_STATE_STOP,
+        ):
             raise ValueError(f"Invalid action: {action}")
         batch_id = secrets.token_hex(8) if scope in ("host", "all") else None
         affected = 0
-        labels = {"run": "resume", "drain": "drain", "stop": "stop"}
+        labels = {
+            "run": "resume",
+            "pause": "pause",
+            "drain": "drain",
+            "stop": "stop",
+        }
 
         with self.lock:
             with self.get_connection() as conn:
