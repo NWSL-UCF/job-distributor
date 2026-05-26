@@ -833,6 +833,8 @@ jd_worker_cli expId=digits-tune entry_script=train.py \
           <tr><td><code>once=true</code></td><td><code>JD_ONCE</code></td><td><code>false</code></td><td>Run one job then exit (useful for debugging)</td></tr>
           <tr><td><code>foreground=true</code></td><td><code>JD_FOREGROUND</code></td><td><code>false</code></td><td>Run in the foreground — <strong>required on Slurm</strong>; optional for local debugging</td></tr>
           <tr><td><code>hub=&lt;url&gt;</code></td><td><code>JD_HUB_URL</code></td><td>hub.jobdistributor.net</td><td>Hub base URL</td></tr>
+          <tr><td>—</td><td><code>JD_WORKSPACE_PATH</code></td><td><code>~</code></td><td>Parent directory for <code>jd_data/&lt;exp&gt;/&lt;job_id&gt;/</code> (job files, default logs)</td></tr>
+          <tr><td>—</td><td><code>JD_CACHE_PATH</code></td><td>same as workspace</td><td>Parent directory for <code>.cache/&lt;exp&gt;/workers.db</code> (registry). On HPC, set to <strong>node-local</strong> scratch — see Step 6</td></tr>
         </tbody>
       </table>
 
@@ -865,6 +867,21 @@ jd_worker_cli expId=digits-tune entry_script=train.py \
         when the script ends.
       </p>
 
+      <p>
+        <strong>Two storage paths on HPC.</strong>
+        <code>JD_WORKSPACE_PATH</code> is where job sandboxes live
+        (<code>…/jd_data/&lt;expId&gt;/&lt;job_id&gt;/</code>) — usually a
+        <strong>shared</strong> directory (home or Lustre) so checkpoints and
+        uploads persist.
+        <code>JD_CACHE_PATH</code> is where the worker keeps its SQLite registry
+        (<code>…/.cache/&lt;expId&gt;/workers.db</code>) — use
+        <strong>node-local</strong> scratch (<code>$TMPDIR</code>) so many array
+        tasks do not hammer the same database on a network filesystem (which
+        can cause <code>disk I/O error</code> in worker logs).
+        On a laptop you typically omit <code>JD_CACHE_PATH</code>; both paths
+        default to your home directory.
+      </p>
+
       <div class="code-block">
         <div class="code-block__lang">
           <span>submit_jd.slurm — Slurm batch script</span>
@@ -892,9 +909,13 @@ mkdir -p logs
 source ./venv/bin/activate
 
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-export JD_WORKSPACE_PATH=./jd_data
 
-mkdir -p "${JD_WORKSPACE_PATH}"
+# Shared — job dirs, checkpoints, worker logs (adjust for Lustre/home)
+export JD_WORKSPACE_PATH="${SLURM_SUBMIT_DIR}/jd_data"
+# Node-local — registry only (one cache dir per Slurm job)
+export JD_CACHE_PATH="${TMPDIR:-/tmp}/jd_cache_${USER}_${SLURM_JOB_ID:-$$}"
+
+mkdir -p "${JD_WORKSPACE_PATH}" "${JD_CACHE_PATH}"
 
 python --version
 which jd_worker_cli
@@ -935,6 +956,17 @@ squeue -u $USER</code></pre>
           You can run Slurm workers and local workers simultaneously.
           All workers pull from the same queue, so jobs are distributed
           dynamically across all available resources.
+        </span>
+      </div>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          After a worker starts, its log line <code>Registry DB:</code> shows the
+          resolved <code>workers.db</code> path (under <code>JD_CACHE_PATH</code>).
+          Job data paths use <code>JD_WORKSPACE_PATH</code>. Run
+          <code>jd_worker_cli expId=digits-tune where</code> on the login node with
+          the same exports if you use management commands there.
         </span>
       </div>
     </section>
