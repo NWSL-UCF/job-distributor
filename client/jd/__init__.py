@@ -1,5 +1,5 @@
 """jd — Job Distributor client package."""
-__version__ = "1.2.0"
+__version__ = "1.17.0"
 
 from jd.files import jd_get_last_checkpoint, jd_update_checkpoint, jd_upload
 from jd.paths import jd_exp_dir, jd_job_dir, jd_worker_workspace

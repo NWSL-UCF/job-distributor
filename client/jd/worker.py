@@ -7,10 +7,43 @@ reports DONE or ABORTED when the script finishes.
 
 Usage
 -----
+    # Start workers in the background (default — no tmux needed)
     jd_worker_cli expId=<id> entry_script=<script.py> [options]
 
-Required
---------
+    # List background workers for an experiment
+    jd_worker_cli expId=<id> worker-list
+
+    # List all experiments with running worker counts on this machine
+    jd_worker_cli exp-list
+
+    # Stop workers
+    jd_worker_cli expId=<id> stop all
+    jd_worker_cli expId=<id> stop <worker-id>
+
+    # Management (see docs/jd-worker.md)
+    jd_worker_cli version
+    jd_worker_cli health [expId=<id>]
+    jd_worker_cli expId=<id> exp-status
+    jd_worker_cli expId=<id> worker-status <worker-id>
+    jd_worker_cli expId=<id> worker-logs <worker-id> [lines=N] [follow=true]
+    jd_worker_cli expId=<id> server-info
+    jd_worker_cli expId=<id> where
+    jd_worker_cli expId=<id> show-config <worker-id>
+    jd_worker_cli expId=<id> restart all|<worker-id>
+    jd_worker_cli expId=<id> scale num_workers=<N>
+    jd_worker_cli expId=<id> drain
+    jd_worker_cli expId=<id> stop job=<job-id>
+    jd_worker_cli expId=<id> confirm-stop
+    jd_worker_cli stop all-experiments
+    jd_worker_cli prune
+
+    # Interactive shell (mysql-style)
+    jd_worker_cli
+    jd_worker_cli interactive
+    jd_worker_cli -i
+
+Required (start)
+----------------
     expId=<id>              Experiment identifier (must match the server).
     entry_script=<path>     Python script to run for each job.
 
@@ -45,23 +78,27 @@ Other optional arguments
                             (default: 1).  Each process gets an auto-assigned
                             process_id (0 … N-1).  Cannot be combined with
                             a manual process_id=.
-    once=true               Exit after completing a single job instead of
-                            looping until no jobs remain.
+    foreground=true         Run in the foreground (attached to terminal) instead
+                            of the default background mode.
+    once=true               Exit after completing a single job (or when no
+                            job is available).  Without this flag the worker
+                            keeps running and probes every 3 minutes when the
+                            queue is empty or the server is unreachable.
 
     Local job data lives under ``<parent>/jd_data/<expId>/<job_id>/``.
     ``parent`` is ``JD_WORKSPACE_PATH`` if set, otherwise ``~``.
-    Inside your entry script use ``jd_job_dir()`` to get this path —
-    no need to handle ``--base_path`` yourself.
+    Worker process metadata is stored in ``~/.cache/<expId>/workers.db``
+    (or ``<JD_WORKSPACE_PATH>/.cache/<expId>/workers.db``).
 
 Install
 -------
     pip install jd-worker
 """
 
+import json
 import logging
 import os
 import platform
-import random
 import signal
 import socket
 import subprocess
@@ -75,29 +112,24 @@ import psutil
 import requests
 
 from jd import __version__
-from jd.auth import WorkerTokenManager, new_worker_id, worker_token_file_path
+from jd.auth import WorkerTokenManager
+from jd.worker_registry import (
+    WorkerRegistry,
+    host_from_worker_id,
+    new_worker_id as new_registry_worker_id,
+)
 
 IS_WINDOWS = platform.system() == "Windows"
 PING_INTERVAL = 57  # seconds — intentionally not 60 to avoid racing the idle timeout
+NO_JOBS_POLL_INTERVAL = 180  # seconds — idle probe when the server queue is empty
+REQUEST_RETRY_INTERVAL = 10  # seconds — retry when the server cannot be reached
 
 # Fixed subdirectory under JD_WORKSPACE_PATH (or home): …/jd_data/<expId>/<job_id>/
 _WORKER_JD_DATA_DIRNAME = "jd_data"
-# JWT cache (Hub mode): …/<home>/.cache/<expId>/<worker_id>/.token
+# JWT cache (Hub mode): column worker_token in ~/.cache/<expId>/workers.db
 
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
-
-def _parse_kv(argv: list) -> dict:
-    """Parse key=value positional arguments into a plain dict."""
-    cfg = {}
-    for arg in argv:
-        if '=' in arg:
-            k, v = arg.split('=', 1)
-            cfg[k.strip()] = v.strip()
-        else:
-            cfg[arg.strip()] = 'true'
-    return cfg
-
 
 def _normalize_server_base_url(server_raw: str, port_raw: str) -> str:
     """
@@ -165,6 +197,7 @@ def _resolve(cfg: dict) -> dict:
         'process_id':       get('process_id',   None,              '0'),
         'num_workers':      int(get('num_workers', 'JD_NUM_WORKERS', '1')),
         'once':             get('once',         'JD_ONCE',         'false').lower() == 'true',
+        'foreground':       get('foreground',   'JD_FOREGROUND',   'false').lower() == 'true',
         # Hub authentication — defaults to the public hub; override with hub= or JD_HUB_URL
         'hub_url':          (cfg.get('hub') or get('hub_url', 'JD_HUB_URL',
                              'https://hub.jobdistributor.net')).strip().rstrip('/'),
@@ -174,23 +207,24 @@ def _resolve(cfg: dict) -> dict:
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-def _setup_logger(log_dir: str, runner_id: str) -> logging.Logger:
+def _setup_logger(log_dir: str, worker_id: str, *, to_stdout: bool = True) -> logging.Logger:
     os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, f"jd_worker_{runner_id}.log")
+    log_path = os.path.join(log_dir, f"jd_worker_{worker_id}.log")
 
-    logger = logging.getLogger(f'jd_worker_cli.{runner_id}')
+    logger = logging.getLogger(f'jd_worker_cli.{worker_id}')
     logger.setLevel(logging.INFO)
+    logger.handlers.clear()
 
     fmt = logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s")
     fh  = logging.FileHandler(log_path, encoding='utf-8')
     fh.setFormatter(fmt)
-    sh  = logging.StreamHandler(sys.stdout)
-    sh.setFormatter(fmt)
-
     logger.addHandler(fh)
-    logger.addHandler(sh)
+    if to_stdout:
+        sh  = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt)
+        logger.addHandler(sh)
     logger.propagate = False
-    return logger
+    return logger, log_path
 
 
 # ── System metrics ────────────────────────────────────────────────────────────
@@ -270,13 +304,13 @@ def _collect_metrics(machine_type: str, logger: logging.Logger) -> dict:
 
 # ── Server communication ──────────────────────────────────────────────────────
 
-def _request_job(url: str, runner_id: str, metrics: dict,
+def _request_job(url: str, worker_id: str, metrics: dict,
                  logger: logging.Logger,
                  token_mgr: Optional[WorkerTokenManager] = None):
     """Returns (job_dict, None) on success, (None, reason) on failure."""
     try:
         headers = token_mgr.auth_headers() if token_mgr else {}
-        r = requests.post(url, json={"requested_by": runner_id,
+        r = requests.post(url, json={"requested_by": worker_id,
                                      "system_metrics": metrics},
                           headers=headers,
                           timeout=30)
@@ -287,6 +321,115 @@ def _request_job(url: str, runner_id: str, metrics: dict,
         return None, f"HTTP {r.status_code}: {r.text[:200]}"
     except Exception as exc:
         return None, str(exc)
+
+
+def _worker_poll(
+    url: str,
+    worker_id: str,
+    host: str,
+    machine_type: str,
+    reported_status: str,
+    current_job_id: Optional[int],
+    applied_version: int,
+    metrics: dict,
+    logger: logging.Logger,
+    token_mgr: Optional[WorkerTokenManager] = None,
+):
+    """POST /worker/poll — heartbeat, control channel, optional job assignment."""
+    try:
+        headers = token_mgr.auth_headers() if token_mgr else {}
+        payload = {
+            "worker_id": worker_id,
+            "host": host,
+            "machine_type": machine_type,
+            "reported_status": reported_status,
+            "current_job_id": current_job_id,
+            "applied_version": applied_version,
+            "system_metrics": metrics,
+            "jd_worker_version": __version__,
+        }
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        if r.status_code == 404:
+            return None, "legacy"
+        if r.status_code == 200:
+            return r.json(), None
+        return None, f"HTTP {r.status_code}: {r.text[:200]}"
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _apply_server_control(
+    poll_resp: dict,
+    applied_version: int,
+    registry: Optional[WorkerRegistry],
+    logger: logging.Logger,
+) -> tuple[int, bool, bool]:
+    """Apply desired_state from poll response.
+
+    Returns (new_applied_version, exit_immediately, stop_after_current_job).
+    """
+    desired_state = poll_resp.get("desired_state", "run")
+    desired_version = int(poll_resp.get("desired_version") or 0)
+    if desired_version <= applied_version:
+        return applied_version, False, False
+
+    if desired_state == "run":
+        if registry:
+            registry.set_drained(False)
+        logger.info(f"Server control: resume (v{desired_version})")
+        return desired_version, False, False
+
+    if desired_state == "drain":
+        if registry:
+            registry.set_drained(True)
+        logger.info(f"Server control: drain — finish current job, no new jobs (v{desired_version})")
+        return desired_version, False, False
+
+    if desired_state == "stop":
+        if registry:
+            registry.set_drained(True)
+        logger.info(f"Server control: stop (v{desired_version})")
+        return desired_version, True, True
+
+    return desired_version, False, False
+
+
+def _poll_control_loop(
+    url: str,
+    worker_id: str,
+    host: str,
+    machine_type: str,
+    job_id: int,
+    stop_event: threading.Event,
+    control: dict,
+    logger: logging.Logger,
+    token_mgr: Optional[WorkerTokenManager] = None,
+    registry: Optional[WorkerRegistry] = None,
+) -> None:
+    """Background poll while a job runs — picks up drain/stop from the dashboard."""
+    while not stop_event.wait(NO_JOBS_POLL_INTERVAL):
+        try:
+            if token_mgr:
+                token_mgr.ensure_fresh()
+            metrics = _collect_metrics(machine_type, logger)
+            resp, err = _worker_poll(
+                url, worker_id, host, machine_type, "busy", job_id,
+                control["applied_version"], metrics, logger, token_mgr=token_mgr,
+            )
+            if resp is None:
+                if err != "legacy":
+                    logger.warning(f"Control poll failed: {err}")
+                continue
+            av, exit_now, stop_after = _apply_server_control(
+                resp, control["applied_version"], registry, logger,
+            )
+            control["applied_version"] = av
+            if stop_after:
+                control["stop_after_job"] = True
+            if exit_now:
+                control["stop_after_job"] = True
+        except Exception as exc:
+            logger.warning(f"Control poll error (job {job_id}): {exc}")
 
 
 def _update_status(url: str, job_id: int, status: str,
@@ -307,11 +450,17 @@ def _update_status(url: str, job_id: int, status: str,
         logger.error(f"Status update error: {exc}")
 
 
+def _cfg_for_storage(cfg: dict) -> str:
+    return json.dumps({k: v for k, v in cfg.items() if not str(k).startswith('_')})
+
+
 def _ping_loop(url: str, job_id: int,
                stop_event: threading.Event,
                logger: logging.Logger,
                machine_type: str,
-               token_mgr: Optional[WorkerTokenManager] = None) -> None:
+               token_mgr: Optional[WorkerTokenManager] = None,
+               registry: Optional[WorkerRegistry] = None,
+               worker_id: Optional[str] = None) -> None:
     """Background thread: ping the server every PING_INTERVAL seconds."""
     while not stop_event.wait(PING_INTERVAL):
         try:
@@ -329,6 +478,8 @@ def _ping_loop(url: str, job_id: int,
             )
             if r.status_code == 200:
                 logger.info(f"Ping OK (job {job_id})")
+                if registry and worker_id:
+                    registry.touch_ping(worker_id)
             else:
                 logger.warning(f"Ping HTTP {r.status_code} (job {job_id})")
         except Exception as exc:
@@ -338,28 +489,38 @@ def _ping_loop(url: str, job_id: int,
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def _run_worker(cfg: dict) -> None:
-    """Run a single worker loop.  Called directly for num_workers=1, or
-    launched in a subprocess (via _worker_subprocess_entry) for N > 1."""
+    """Run a single worker loop.  Called directly for foreground mode, or
+    launched as a background/internal subprocess."""
 
-    # Build a unique runner ID visible in the dashboard
-    username  = os.getenv('USER') or os.getenv('USERNAME') or 'user'
-    random.seed(int(time.time() * 1000))
-    suffix    = random.randint(10000, 99999)
-    runner_id = (f"{username}@{socket.gethostname()}"
-                 f"({cfg['machine_type']})_{cfg['process_id']}_{suffix}")
-    worker_id = new_worker_id()
+    worker_id = (cfg.get('worker_id') or '').strip()
+    if not worker_id:
+        worker_id = new_registry_worker_id(slot=0)
 
+    daemon_mode = cfg.get('_daemon', False)
     if cfg['log_dir_override'] is not None:
         log_dir = os.path.join(cfg['log_dir_override'], cfg['exp_id'])
     else:
         log_dir = os.path.join(cfg['workspace_path'], cfg['exp_id'], 'jd_worker_logs')
-    logger  = _setup_logger(log_dir, runner_id)
+    logger, log_path = _setup_logger(log_dir, worker_id, to_stdout=not daemon_mode)
+
+    registry: Optional[WorkerRegistry] = None
+    config_json = _cfg_for_storage(cfg)
+    if cfg.get('_register'):
+        registry = WorkerRegistry(cfg['exp_id'], cfg['workspace_parent'])
+        registry.register(
+            worker_id=worker_id,
+            pid=os.getpid(),
+            process_id=int(cfg.get('process_id', 0)),
+            runner_id=worker_id,
+            entry_script=cfg['entry_script'],
+            machine_type=cfg['machine_type'],
+            log_path=log_path,
+            config_json=config_json,
+        )
 
     # ── Hub authentication (optional) ────────────────────────────────────────
-    # WorkerTokenManager proactively refreshes the JWT before expiry and writes
-    # it to a per-worker token file so entry scripts always read a current token.
+    # WorkerTokenManager refreshes the JWT and persists it in workers.db (worker_token).
     token_mgr: Optional[WorkerTokenManager] = None
-    token_file: Optional[str] = None
     if cfg['hub_url'] and cfg['api_key']:
         logger.info(f"Hub mode: authenticating via {cfg['hub_url']}")
         token_mgr = WorkerTokenManager(
@@ -377,10 +538,8 @@ def _run_worker(cfg: dict) -> None:
         if token_mgr.last_server_url:
             cfg['base_url'] = token_mgr.last_server_url
             logger.info(f"Server URL from Hub: {token_mgr.last_server_url}")
-        token_file = worker_token_file_path(
-            cfg['workspace_parent'], cfg['exp_id'], worker_id,
-        )
-        token_mgr.set_token_file(token_file)
+        if registry:
+            token_mgr.set_token_registry(registry, worker_id)
     elif cfg['hub_url'] or cfg['api_key']:
         logger.warning(
             "Both hub_url (JD_HUB_URL) and api_key (JD_API_KEY) must be set "
@@ -389,13 +548,16 @@ def _run_worker(cfg: dict) -> None:
 
     urls = {
         'request': f"{cfg['base_url']}/request_job",
+        'poll':    f"{cfg['base_url']}/worker/poll",
         'update':  f"{cfg['base_url']}/update_job_status",
         'ping':    f"{cfg['base_url']}/ping",
     }
 
-    logger.info(f"jd_worker_cli v{__version__}  |  runner: {runner_id}")
-    if token_mgr:
-        logger.info(f"Worker ID:       {worker_id}")
+    host = host_from_worker_id(worker_id)
+    applied_version = 0
+    use_poll = True
+
+    logger.info(f"jd_worker_cli v{__version__}  |  worker_id: {worker_id}")
     logger.info(f"Server:        {cfg['base_url']}")
     logger.info(f"Entry script:   {cfg['entry_script']}")
     logger.info(f"Hub mode:       {'enabled' if token_mgr else 'disabled'}")
@@ -404,6 +566,10 @@ def _run_worker(cfg: dict) -> None:
     logger.info(f"Ping interval: {PING_INTERVAL}s")
     if cfg['once']:
         logger.info("Mode: single job (once=true)")
+    else:
+        logger.info(
+            f"Poll interval: {NO_JOBS_POLL_INTERVAL}s (heartbeat + job request + dashboard control)"
+        )
 
     # Track the current child process so SIGINT/SIGTERM can clean it up
     _proc: list = [None]
@@ -420,7 +586,9 @@ def _run_worker(cfg: dict) -> None:
             except Exception:
                 pass
         if token_mgr:
-            token_mgr.clear_token_file()
+            token_mgr.clear_token_store()
+        if registry:
+            registry.unregister(worker_id)
         logger.info("jd_worker_cli shut down.")
         sys.exit(0)
 
@@ -429,28 +597,92 @@ def _run_worker(cfg: dict) -> None:
 
     # ── Main job loop ────────────────────────────────────────────────────────
     while True:
+        if registry and registry.is_drained():
+            logger.info("Experiment is draining — exiting worker.")
+            break
+
         job_id = None
         stop_ping = threading.Event()
+        stop_poll = threading.Event()
         pinger = None
+        poller = None
+        control = {"applied_version": applied_version, "stop_after_job": False}
         try:
             if token_mgr:
                 token_mgr.ensure_fresh()
 
-            metrics      = _collect_metrics(cfg['machine_type'], logger)
-            job, reason  = _request_job(urls['request'], runner_id, metrics, logger,
-                                        token_mgr=token_mgr)
+            metrics = _collect_metrics(cfg['machine_type'], logger)
+            job = None
+            poll_interval = NO_JOBS_POLL_INTERVAL
+
+            if use_poll:
+                poll_resp, reason = _worker_poll(
+                    urls['poll'], worker_id, host, cfg['machine_type'],
+                    "idle", None, applied_version, metrics, logger,
+                    token_mgr=token_mgr,
+                )
+                if poll_resp is None and reason == "legacy":
+                    logger.info("Server has no /worker/poll — using legacy /request_job.")
+                    use_poll = False
+                    job, reason = _request_job(
+                        urls['request'], worker_id, metrics, logger,
+                        token_mgr=token_mgr,
+                    )
+                elif poll_resp is None:
+                    logger.error(
+                        f"Worker poll failed: {reason}. "
+                        f"Retrying in {REQUEST_RETRY_INTERVAL}s…"
+                    )
+                    time.sleep(REQUEST_RETRY_INTERVAL)
+                    continue
+                else:
+                    poll_interval = int(poll_resp.get("poll_interval") or NO_JOBS_POLL_INTERVAL)
+                    applied_version, exit_now, _ = _apply_server_control(
+                        poll_resp, applied_version, registry, logger,
+                    )
+                    control["applied_version"] = applied_version
+                    if exit_now:
+                        logger.info("Stop command applied — exiting.")
+                        break
+                    if poll_resp.get("job"):
+                        job = poll_resp["job"]
+                    else:
+                        reason = "no_jobs"
+            else:
+                job, reason = _request_job(
+                    urls['request'], worker_id, metrics, logger,
+                    token_mgr=token_mgr,
+                )
 
             if job is None:
                 if reason == 'no_jobs':
-                    logger.info("No more jobs available. Exiting.")
-                    break
-                logger.error(f"Job request failed: {reason}. Retrying in 10 s…")
-                time.sleep(10)
+                    if cfg['once']:
+                        logger.info("No jobs available (once=true). Exiting.")
+                        break
+                    logger.info(
+                        f"No jobs available. Polling again in {poll_interval}s…"
+                    )
+                    time.sleep(poll_interval)
+                    continue
+                if not use_poll:
+                    logger.error(
+                        f"Job request failed: {reason}. "
+                        f"Retrying in {REQUEST_RETRY_INTERVAL}s…"
+                    )
+                    time.sleep(REQUEST_RETRY_INTERVAL)
+                    continue
+                logger.error(
+                    f"Worker poll returned no job unexpectedly. "
+                    f"Retrying in {REQUEST_RETRY_INTERVAL}s…"
+                )
+                time.sleep(REQUEST_RETRY_INTERVAL)
                 continue
 
             job_id = job['job_id']
             params = job['parameters']
             logger.info(f"Job {job_id} received  |  params: {params}")
+            if registry:
+                registry.set_job(worker_id, job_id)
 
             # Local sandbox for this job — keep worker-side I/O under this directory
             job_root = os.path.abspath(os.path.join(
@@ -469,10 +701,21 @@ def _run_worker(cfg: dict) -> None:
             pinger = threading.Thread(
                 target=_ping_loop,
                 args=(urls['ping'], job_id, stop_ping, logger,
-                      cfg['machine_type'], token_mgr),
+                      cfg['machine_type'], token_mgr, registry, worker_id),
                 daemon=True,
             )
             pinger.start()
+
+            if use_poll:
+                poller = threading.Thread(
+                    target=_poll_control_loop,
+                    args=(
+                        urls['poll'], worker_id, host, cfg['machine_type'],
+                        job_id, stop_poll, control, logger, token_mgr, registry,
+                    ),
+                    daemon=True,
+                )
+                poller.start()
 
             # Build child environment: inherit everything + inject JD_ context
             # so jd_upload / jd_update_checkpoint / jd_get_last_checkpoint work
@@ -483,9 +726,9 @@ def _run_worker(cfg: dict) -> None:
             child_env["JD_EXP_ID"]                  = cfg["exp_id"]
             child_env["JD_WORKER_JOB_DIR"]          = job_root
             child_env["JD_WORKER_WORKSPACE_ROOT"]   = cfg["workspace_path"]
-            if token_mgr and token_file:
+            child_env["JD_WORKSPACE_PATH"]        = cfg["workspace_parent"]
+            if token_mgr:
                 child_env["JD_WORKER_ID"]         = worker_id
-                child_env["JD_WORKER_TOKEN_FILE"] = token_file
                 child_env["JD_WORKER_TOKEN"]      = token_mgr.get_token()
 
             # Launch the entry script
@@ -511,7 +754,7 @@ def _run_worker(cfg: dict) -> None:
                 logger.info(f"Job {job_id} finished successfully.")
                 _update_status(
                     urls['update'], job_id, 'DONE',
-                    f"Completed successfully on {runner_id}.",
+                    f"Completed successfully on {worker_id}.",
                     logger, token_mgr=token_mgr,
                 )
             else:
@@ -520,7 +763,7 @@ def _run_worker(cfg: dict) -> None:
                     logger.error(f"STDERR (last 1000 chars):\n{stderr.strip()[-1000:]}")
 
                 abort_msg = (
-                    f"Job failed on {runner_id}. "
+                    f"Job failed on {worker_id}. "
                     f"Exit code {rc}."
                 )
                 snippet = (stderr.strip() or stdout.strip())[-500:]
@@ -537,20 +780,30 @@ def _run_worker(cfg: dict) -> None:
                                token_mgr=token_mgr)
 
             _proc[0] = None
+            if registry:
+                registry.set_job(worker_id, None)
+
+            applied_version = control["applied_version"]
+            if control["stop_after_job"]:
+                logger.info("Stop/drain command received during job — exiting.")
+                break
 
         except Exception as exc:
             logger.exception(f"Unexpected error: {exc}")
             if job_id is not None:
                 _update_status(
                     urls['update'], job_id, 'ABORTED',
-                    f"Unexpected exception on {runner_id}: {exc}",
+                    f"Unexpected exception on {worker_id}: {exc}",
                     logger, token_mgr=token_mgr,
                 )
             break
         finally:
             stop_ping.set()
+            stop_poll.set()
             if pinger is not None:
                 pinger.join(timeout=5)
+            if poller is not None:
+                poller.join(timeout=5)
 
         if cfg['once']:
             logger.info("once=true — exiting after one job.")
@@ -559,108 +812,99 @@ def _run_worker(cfg: dict) -> None:
         time.sleep(3)   # brief pause before requesting the next job
 
     if token_mgr:
-        token_mgr.clear_token_file()
+        token_mgr.clear_token_store()
+    if registry:
+        registry.unregister(worker_id)
 
 
-def _worker_subprocess_entry() -> None:
-    """Entry point used by each child process when num_workers > 1.
+def _spawn_background_worker(cfg: dict, worker_id: str, process_id: int) -> int:
+    """Start one detached worker process; return its PID."""
+    child_cfg = dict(cfg)
+    child_cfg['worker_id'] = worker_id
+    child_cfg['process_id'] = str(process_id)
+    child_cfg['num_workers'] = 1
+    child_cfg['_daemon'] = True
+    child_cfg['_register'] = True
+    child_cfg.pop('_launch_slot', None)
 
-    The parent serialises the resolved config via the JD_WORKER_CFG_JSON
-    environment variable so the child skips re-parsing argv and re-running
-    Hub authentication (the parent already obtained the token).
-    """
-    import json as _json
-    raw = os.environ.get("JD_WORKER_CFG_JSON", "")
-    if not raw:
-        sys.exit("JD_WORKER_CFG_JSON not set — internal error")
-    cfg = _json.loads(raw)
-    _run_worker(cfg)
+    env = os.environ.copy()
+    env['JD_WORKER_CFG_JSON'] = json.dumps(child_cfg)
+    env['JD_WORKER_INTERNAL'] = '1'
+
+    popen_kw = dict(
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if IS_WINDOWS:
+        popen_kw['creationflags'] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+    else:
+        popen_kw['start_new_session'] = True
+
+    proc = subprocess.Popen(
+        [sys.executable, "-c",
+         "from jd.worker import _internal_worker_entry; _internal_worker_entry()"],
+        **popen_kw,
+    )
+    return proc.pid
 
 
-def main() -> None:
-    argv = sys.argv[1:]
-
-    # Show help
-    if not argv or any(a in argv for a in ('help', '-h', '--help')):
-        print(__doc__)
-        sys.exit(0)
-
-    kv  = _parse_kv(argv)
-    cfg = _resolve(kv)
-
-    # ── Validate num_workers ─────────────────────────────────────────────────
+def _launch_workers(cfg: dict, kv: dict) -> None:
+    """Start one or more workers (background by default)."""
     num_workers = cfg.get('num_workers', 1)
-    if not isinstance(num_workers, int) or num_workers < 1:
-        print("Error: num_workers must be a positive integer.")
-        sys.exit(1)
+    foreground = cfg.get('foreground', False)
 
-    # If the user explicitly set process_id alongside num_workers, warn them.
     if num_workers > 1 and kv.get('process_id') is not None:
         print("Warning: process_id is ignored when num_workers > 1. "
               "IDs are assigned automatically (0 … N-1).")
 
-    # ── Validate required arguments ──────────────────────────────────────────
-    errors = []
-    if not cfg['exp_id']:
-        errors.append("expId is required")
-    if not cfg['entry_script']:
-        errors.append("entry_script is required")
-    elif not os.path.isfile(cfg['entry_script']):
-        errors.append(f"entry_script '{cfg['entry_script']}' not found")
-    if errors:
-        for e in errors:
-            print(f"Error: {e}")
-        print("Run `jd_worker_cli help` for usage.")
-        sys.exit(1)
-
-    if num_workers == 1:
-        # ── Single worker — run directly in this process ─────────────────────
-        _run_worker(cfg)
-    else:
-        # ── Multiple workers — spawn N child processes ────────────────────────
-        import json as _json
-
-        # Hub authentication once in the parent so all children share the same
-        # token.  Children inherit it via JD_WORKER_CFG_JSON.
-        if cfg['hub_url'] and cfg['api_key']:
-            dummy_logger = logging.getLogger("jd_worker_cli.launcher")
-            dummy_logger.addHandler(logging.StreamHandler())
-            dummy_logger.setLevel(logging.INFO)
+    # Hub authentication once before spawning so children inherit the token.
+    if cfg['hub_url'] and cfg['api_key']:
+        dummy_logger = logging.getLogger("jd_worker_cli.launcher")
+        dummy_logger.handlers.clear()
+        dummy_logger.addHandler(logging.StreamHandler())
+        dummy_logger.setLevel(logging.INFO)
+        if num_workers > 1 or not foreground:
             dummy_logger.info(
-                f"Hub mode: authenticating once for {num_workers} workers …"
+                f"Hub mode: authenticating once for {num_workers} worker(s) …"
             )
-            launcher_mgr = WorkerTokenManager(
-                cfg['hub_url'], cfg['api_key'], cfg['exp_id'], dummy_logger,
-            )
-            if not launcher_mgr.refresh_now():
-                dummy_logger.error("Failed to obtain worker token from Hub. Exiting.")
-                sys.exit(1)
-            cfg['_worker_token'] = launcher_mgr.get_token()
-            if launcher_mgr.last_server_url:
-                cfg['base_url'] = launcher_mgr.last_server_url
-            dummy_logger.info(
-                f"Spawning {num_workers} workers (process IDs 0–{num_workers-1}) …"
-            )
+        launcher_mgr = WorkerTokenManager(
+            cfg['hub_url'], cfg['api_key'], cfg['exp_id'], dummy_logger,
+        )
+        if not launcher_mgr.refresh_now():
+            print("Error: failed to obtain worker token from Hub.")
+            sys.exit(1)
+        cfg['_worker_token'] = launcher_mgr.get_token()
+        if launcher_mgr.last_server_url:
+            cfg['base_url'] = launcher_mgr.last_server_url
+
+    if foreground:
+        if num_workers == 1:
+            cfg['_register'] = True
+            cfg['worker_id'] = cfg.get('worker_id') or new_registry_worker_id(slot=0)
+            _run_worker(cfg)
+            return
 
         procs = []
         for i in range(num_workers):
             child_cfg = dict(cfg)
-            child_cfg['process_id']  = str(i)
-            child_cfg['num_workers'] = 1   # children run as single workers
-
+            child_cfg['process_id'] = str(i)
+            child_cfg['num_workers'] = 1
+            child_cfg['worker_id'] = new_registry_worker_id(slot=i)
+            child_cfg['_register'] = True
             env = os.environ.copy()
-            env["JD_WORKER_CFG_JSON"] = _json.dumps(child_cfg)
-
-            # Re-invoke the same Python executable with the internal entry point
+            env['JD_WORKER_CFG_JSON'] = json.dumps(child_cfg)
+            env['JD_WORKER_INTERNAL'] = '1'
             p = subprocess.Popen(
                 [sys.executable, "-c",
-                 "from jd.worker import _worker_subprocess_entry; "
-                 "_worker_subprocess_entry()"],
+                 "from jd.worker import _internal_worker_entry; _internal_worker_entry()"],
                 env=env,
             )
             procs.append(p)
 
-        # Wait for all children; propagate Ctrl+C cleanly
         def _kill_all(signum=None, frame=None):
             for p in procs:
                 try:
@@ -669,11 +913,67 @@ def main() -> None:
                     pass
             sys.exit(0)
 
-        signal.signal(signal.SIGINT,  _kill_all)
+        signal.signal(signal.SIGINT, _kill_all)
         signal.signal(signal.SIGTERM, _kill_all)
-
         for p in procs:
             p.wait()
+        return
+
+    # Default: detach all workers and exit the launcher immediately.
+    started = []
+    base_process_id = int(cfg.get('process_id', 0))
+    for i in range(num_workers):
+        process_id = i if num_workers > 1 else base_process_id
+        wid = new_registry_worker_id(slot=i if num_workers > 1 else 0)
+        pid = _spawn_background_worker(cfg, wid, process_id)
+        started.append((wid, pid))
+
+    print(f"Started {len(started)} background worker(s) for experiment '{cfg['exp_id']}':")
+    for wid, pid in started:
+        print(f"  worker_id={wid}  pid={pid}")
+    print(f"Logs: …/jd_data/{cfg['exp_id']}/jd_worker_logs/")
+    print(f"List: jd_worker_cli expId={cfg['exp_id']} worker-list")
+    print(f"All:  jd_worker_cli exp-list")
+    print(f"Stop: jd_worker_cli expId={cfg['exp_id']} stop all")
+
+
+def _internal_worker_entry() -> None:
+    """Entry point for background / multi-worker child processes."""
+    raw = os.environ.get("JD_WORKER_CFG_JSON", "")
+    if not raw:
+        sys.exit("JD_WORKER_CFG_JSON not set — internal error")
+    cfg = json.loads(raw)
+    _run_worker(cfg)
+
+
+def _worker_subprocess_entry() -> None:
+    """Legacy entry — delegates to _internal_worker_entry."""
+    _internal_worker_entry()
+
+
+def main() -> None:
+    if os.environ.get('JD_WORKER_INTERNAL') == '1':
+        _internal_worker_entry()
+        return
+
+    argv = sys.argv[1:]
+
+    if not argv:
+        from jd.worker_repl import run_repl
+        run_repl()
+        return
+
+    if argv[0] in ('interactive', '-i', '--interactive'):
+        from jd.worker_repl import run_repl
+        run_repl(argv[1:])
+        return
+
+    if any(a in argv for a in ('help', '-h', '--help')):
+        print(__doc__)
+        sys.exit(0)
+
+    from jd.worker_commands import dispatch
+    dispatch(argv)
 
 
 if __name__ == '__main__':

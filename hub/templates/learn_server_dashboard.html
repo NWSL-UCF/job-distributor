@@ -22,6 +22,7 @@
     <a class="sub" href="#jobs-edit">Editing a pending job</a>
     <a class="sub" href="#jobs-delete">Deleting jobs</a>
     <a href="#results">Results &amp; File Downloads</a>
+    <a href="#workers">Worker Management</a>
     <a href="#settings">Settings</a>
     <a class="sub" href="#settings-pin">Change PIN</a>
   </nav>
@@ -49,6 +50,7 @@
       <ul>
         <li>How many jobs are pending, running, done, or failed</li>
         <li>Which workers are currently connected and what they are doing</li>
+        <li>Remote drain, stop, and resume for workers without SSH</li>
         <li>Individual job parameters, status, and output files</li>
         <li>Tools to create, edit, and manage the job queue</li>
         <li>Configuration such as the dashboard PIN</li>
@@ -166,6 +168,13 @@
       <p>
         The statistics bar refreshes automatically every few seconds. You can
         use the Done / Total ratio to estimate progress at a glance.
+      </p>
+
+      <p>
+        Below job status, the sidebar also shows <strong>Workers</strong>
+        (idle / busy counts) for processes that have polled the server recently.
+        This is separate from the <strong>Running</strong> job count — see
+        <a href="#workers">Worker Management</a>.
       </p>
     </section>
 
@@ -370,9 +379,125 @@
       </div>
     </section>
 
+    {# ── Worker Management ────────────────────────────────────────────── #}
+    <section class="tut-section" id="workers">
+      <h2><span class="step-badge">5</span> Worker Management</h2>
+
+      <p>
+        Use the top navigation bar to switch between <strong>Jobs</strong> (the
+        job list and charts) and <strong>Workers Management</strong>. The sidebar
+        on the Jobs view still shows live <strong>Idle</strong> and
+        <strong>Busy</strong> counts for workers that polled within the last
+        ~10 minutes.
+      </p>
+
+      <div class="feat-card">
+        <div class="feat-card__title">🖥️ Workers Management tab</div>
+        <div class="feat-card__body">
+          <p>
+            Open the <strong>Workers Management</strong> nav tab. Two sub-tabs:
+          </p>
+          <ul>
+            <li><strong>Active Workers</strong> — currently polling; drain, stop, and resume are available.</li>
+            <li><strong>Disabled / Stopped</strong> — workers that stopped polling (shutdown, crash, or network loss). Read-only: view details and history only.</li>
+          </ul>
+          <p>
+            Filter the table with three dropdowns at the top:
+            <strong>Host</strong>, <strong>Instance</strong>, and
+            <strong>Slot</strong> (parsed from each
+            <code>worker_id</code> like <code>gpunode_A3f9X2_0</code>).
+            Select a host to browse all workers on that machine; add instance
+            and slot to narrow further.
+          </p>
+          <p>Click <strong>Details</strong> on any row to open:</p>
+          <ul>
+            <li><strong>Info</strong> — host, instance, slot, job, poll times</li>
+            <li><strong>History</strong> — audit trail (newest first): registration, jobs, dashboard commands, disable events</li>
+            <li><strong>Metrics</strong> — latest system metrics (same view as jobs), plus snapshots from history when captured</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card__title">🛑 Disabled workers (machine shutdown)</div>
+        <div class="feat-card__body">
+          <p>
+            When a worker stops polling for ~10 minutes (machine powered off,
+            process killed, network loss), the server moves it to
+            <strong>Disabled / Stopped</strong>. A history entry records why.
+            Disabled workers cannot receive dashboard commands; use
+            <strong>Details</strong> to review their full audit trail and last
+            known metrics. Restart workers on a live machine with
+            <code>jd_worker_cli</code> — they register as new active workers.
+          </p>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card__title">⏸️ Resume, Drain, and Stop (active tab only)</div>
+        <div class="feat-card__body">
+          <p>
+            Commands are <strong>queued on the server</strong> and delivered on
+            each worker’s next poll (about every 3 minutes, or right after the
+            current job finishes). They do not kill processes instantly from the
+            browser.
+          </p>
+          <table>
+            <thead><tr><th>Action</th><th>Effect</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Resume</strong></td>
+                <td>Clear drain/stop — worker accepts new jobs again on next poll.</td>
+              </tr>
+              <tr>
+                <td><strong>Drain</strong></td>
+                <td>Finish the current job, then exit — no new jobs assigned.</td>
+              </tr>
+              <tr>
+                <td><strong>Stop</strong></td>
+                <td>Same as drain when busy; exit immediately when idle.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            Use toolbar buttons for <strong>all workers</strong>, or per-worker
+            buttons in the table. Precedence is
+            <strong>stop &gt; drain &gt; run</strong>.
+          </p>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card__title">↩️ Cancel pending commands</div>
+        <div class="feat-card__body">
+          <p>
+            After you queue drain or stop, the status badge shows
+            <strong>queued …</strong> until the worker polls. If you clicked the
+            wrong button, use <strong>Cancel</strong> (per worker, per host, or
+            “Cancel all pending”) to revert before the command is applied.
+          </p>
+          <p>
+            Once applied, the worker must be started again from the cluster
+            (<code>jd_worker_cli</code>) — the dashboard cannot restart processes
+            on remote machines.
+          </p>
+        </div>
+      </div>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          For immediate local control on the worker machine, use
+          <code>jd_worker_cli expId=&lt;id&gt; stop …</code> or
+          <code>drain</code>. Dashboard control is best when you cannot SSH to
+          every node.
+        </span>
+      </div>
+    </section>
+
     {# ── Settings ─────────────────────────────────────────────────────── #}
     <section class="tut-section" id="settings">
-      <h2><span class="step-badge">5</span> Settings</h2>
+      <h2><span class="step-badge">6</span> Settings</h2>
 
       <p>
         The <strong>Settings</strong> page is accessible from the navigation

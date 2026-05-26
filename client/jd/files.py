@@ -27,10 +27,9 @@ Environment variables (set automatically by jd_worker)
     JD_WORKER_JOB_DIR           — absolute …/<parent>/jd_data/<expId>/<job_id>/
                                   (same as ``--base_path``); prefer ``jd_job_dir()``
     JD_WORKER_WORKSPACE_ROOT    — absolute ``<parent>/jd_data`` (same as ``jd_worker_workspace()``)
-    JD_WORKER_TOKEN_FILE        — …/<home>/.cache/<expId>/<worker_id>/.token
-                                  (auto-refreshed by jd_worker_cli)
-    JD_WORKER_ID                — short random id for this worker process (Hub mode)
-    JD_WORKER_TOKEN               — initial JWT at job start (fallback if file unreadable)
+    JD_WORKSPACE_PATH           — parent of jd_data (used with registry paths)
+    JD_WORKER_ID                — worker id; entry scripts read JWT from workers.db
+    JD_WORKER_TOKEN             — initial JWT at job start (fallback if registry unreadable)
     JD_UPLOAD_MAX_RETRIES         — total jd_upload attempts (default 5)
 
 You can override server/job_id via the upload/checkpoint function keyword arguments.

@@ -110,8 +110,35 @@ jd_worker_cli expId=my-experiment entry_script=train.py
 | `port=<N>` | `JD_PORT` | `5000` | Port (standalone mode, if not in `server`) |
 | `machine_type=<label>` | `JD_MACHINE_TYPE` | `worker` | Label shown in dashboard |
 | `process_id=<N>` | — | `0` | ID for running multiple workers on same machine |
-| `once=true` | `JD_ONCE` | `false` | Exit after completing exactly one job |
+| `num_workers=<N>` | `JD_NUM_WORKERS` | `1` | Spawn N parallel workers |
+| `foreground=true` | `JD_FOREGROUND` | `false` | Run attached to terminal (default: background) |
+| `once=true` | `JD_ONCE` | `false` | Exit after one job (or when no job is available). Default: keep running and probe every 3 min when the queue is empty |
 | `log_dir=<path>` | `JD_LOG_DIR` | auto | Override log directory |
+
+### Background workers (no tmux)
+
+Workers run **in the background by default**. Registry: `~/.cache/<expId>/workers.db`.
+
+```bash
+jd_worker_cli expId=my-experiment entry_script=train.py num_workers=4
+jd_worker_cli expId=my-experiment worker-list
+jd_worker_cli exp-list
+jd_worker_cli expId=my-experiment stop all
+jd_worker_cli expId=my-experiment stop 0_45231
+```
+
+Additional management commands: `worker-status`, `worker-logs`, `exp-status`, `server-info`, `where`, `show-config`, `restart`, `scale`, `drain`, `health`, `version`, `prune`, `stop job=<id>`, `confirm-stop`, and `stop all-experiments`. See [docs/jd-worker.md](../docs/jd-worker.md#management-commands).
+
+Use `foreground=true` for debugging in the current terminal.
+
+### Interactive shell
+
+```bash
+jd_worker_cli                    # REPL (mysql-style jd> prompt)
+jd_worker_cli -i expId=my-experiment
+```
+
+Inside the shell, `use my-experiment` sets the default `expId`; then run `worker-list`, `exp-status`, `entry_script=train.py num_workers=4`, etc. Type `help` or `exit`.
 
 ---
 

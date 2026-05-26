@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import secrets
 import sqlite3
 import json
@@ -15,6 +16,17 @@ STATUS_SERVED = "SERVED"
 STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
 STATUS_DELETED = "DELETED"
+
+WORKER_STATE_RUN = "run"
+WORKER_STATE_DRAIN = "drain"
+WORKER_STATE_STOP = "stop"
+WORKER_REPORTED_IDLE = "idle"
+WORKER_REPORTED_BUSY = "busy"
+WORKER_STALE_SECONDS = 600
+WORKER_POLL_INTERVAL = 180
+WORKER_LIFECYCLE_ACTIVE = "active"
+WORKER_LIFECYCLE_DISABLED = "disabled"
+_WORKER_INSTANCE_RE = re.compile(r"^[0-9A-Za-z]{6}$")
 
 
 def _parse_job_message(raw: Any) -> Any:
@@ -132,6 +144,45 @@ class JobDatabase:
             ''')
             cursor.execute(
                 'CREATE INDEX IF NOT EXISTS idx_uploads_job_id ON uploads(job_id)'
+            )
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS workers (
+                    worker_id              TEXT PRIMARY KEY,
+                    host                   TEXT NOT NULL DEFAULT '',
+                    machine_type           TEXT NOT NULL DEFAULT 'worker',
+                    reported_status        TEXT NOT NULL DEFAULT 'idle',
+                    current_job_id         INTEGER,
+                    jd_worker_version      TEXT NOT NULL DEFAULT '',
+                    last_poll_at           REAL NOT NULL DEFAULT 0,
+                    applied_version        INTEGER NOT NULL DEFAULT 0,
+                    desired_state          TEXT NOT NULL DEFAULT 'run',
+                    desired_version        INTEGER NOT NULL DEFAULT 0,
+                    previous_desired_state TEXT NOT NULL DEFAULT 'run',
+                    pending_batch_id       TEXT,
+                    system_metrics         TEXT NOT NULL DEFAULT '{}'
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_workers_host ON workers(host)'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_workers_last_poll ON workers(last_poll_at)'
+            )
+            for col, typedef in (
+                ("lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"),
+                ("instance", "TEXT NOT NULL DEFAULT ''"),
+                ("slot", "INTEGER NOT NULL DEFAULT 0"),
+                ("history", "TEXT NOT NULL DEFAULT '[]'"),
+                ("disabled_at", "REAL NOT NULL DEFAULT 0"),
+                ("first_poll_at", "REAL NOT NULL DEFAULT 0"),
+            ):
+                try:
+                    cursor.execute(f"ALTER TABLE workers ADD COLUMN {col} {typedef}")
+                except sqlite3.OperationalError:
+                    pass
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_workers_lifecycle ON workers(lifecycle_status)'
             )
             
             # Create indexes for optimal query performance
@@ -1177,3 +1228,618 @@ class JobDatabase:
                 jobs.append(job)
             
             return jobs
+
+    # ── Worker registry (poll-based heartbeat + dashboard control) ─────────
+
+    @staticmethod
+    def parse_worker_id_parts(worker_id: str) -> tuple:
+        """Return (host, instance, slot) from ``{host}_{instance}_{slot}``."""
+        parts = (worker_id or "").strip().split("_")
+        if len(parts) == 3 and parts[-1].isdigit() and _WORKER_INSTANCE_RE.fullmatch(parts[1]):
+            return parts[0], parts[1], int(parts[-1])
+        if parts:
+            return parts[0], "", 0
+        return worker_id or "unknown", "", 0
+
+    @staticmethod
+    def _parse_worker_history(raw: Any) -> List[Dict[str, Any]]:
+        if raw is None:
+            return []
+        if isinstance(raw, list):
+            return raw
+        if not isinstance(raw, str):
+            return []
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return [{"reason": text, "timestamp": None, "event": "legacy"}]
+
+    def _append_worker_history(
+        self,
+        conn: sqlite3.Connection,
+        worker_id: str,
+        reason: str,
+        *,
+        event: str = "",
+        metrics: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        cur = conn.cursor()
+        cur.execute("SELECT history FROM workers WHERE worker_id = ?", (worker_id,))
+        row = cur.fetchone()
+        if not row:
+            return
+        entries = self._parse_worker_history(row["history"])
+        entry: Dict[str, Any] = {
+            "reason": reason,
+            "timestamp": time.time(),
+            "event": event or "info",
+        }
+        if metrics:
+            entry["metrics"] = metrics
+        entries.append(entry)
+        cur.execute(
+            "UPDATE workers SET history = ? WHERE worker_id = ?",
+            (json.dumps(entries), worker_id),
+        )
+
+    def _disable_stale_workers(self, conn: sqlite3.Connection) -> None:
+        """Move active workers with no recent poll to disabled lifecycle."""
+        now = time.time()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM workers WHERE lifecycle_status = ?",
+            (WORKER_LIFECYCLE_ACTIVE,),
+        )
+        for row in cur.fetchall():
+            row = dict(row)
+            last_poll = float(row.get("last_poll_at") or 0)
+            if last_poll <= 0 or (now - last_poll) <= WORKER_STALE_SECONDS:
+                continue
+            wid = row["worker_id"]
+            mins = max(1, round((now - last_poll) / 60))
+            self._append_worker_history(
+                conn,
+                wid,
+                f"Worker disabled — no poll for {mins} minutes "
+                f"(machine shutdown, process stopped, or network loss).",
+                event="disabled",
+            )
+            cur.execute(
+                """
+                UPDATE workers SET lifecycle_status = ?, disabled_at = ?
+                WHERE worker_id = ?
+                """,
+                (WORKER_LIFECYCLE_DISABLED, now, wid),
+            )
+
+    def _worker_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
+        d = dict(row)
+        now = time.time()
+        d["stale"] = (now - float(d.get("last_poll_at") or 0)) > WORKER_STALE_SECONDS
+        d["pending"] = int(d.get("desired_version") or 0) > int(d.get("applied_version") or 0)
+        d["lifecycle_status"] = d.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE
+        try:
+            d["system_metrics"] = json.loads(d.get("system_metrics") or "{}")
+        except json.JSONDecodeError:
+            d["system_metrics"] = {}
+        history = self._parse_worker_history(d.get("history"))
+        d["history"] = sorted(
+            history,
+            key=lambda e: float(e.get("timestamp") or 0),
+            reverse=True,
+        )
+        if not d.get("host"):
+            h, inst, slot = self.parse_worker_id_parts(d.get("worker_id", ""))
+            d["host"] = h
+            if not d.get("instance"):
+                d["instance"] = inst
+            if not d.get("slot"):
+                d["slot"] = slot
+        return d
+
+    def _backfill_worker_identity_columns(self, conn: sqlite3.Connection) -> None:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT worker_id, host, instance, slot FROM workers "
+            "WHERE instance = '' OR host = ''"
+        )
+        for row in cur.fetchall():
+            h, inst, slot = self.parse_worker_id_parts(row["worker_id"])
+            cur.execute(
+                "UPDATE workers SET host = ?, instance = ?, slot = ? WHERE worker_id = ?",
+                (h, inst, slot, row["worker_id"]),
+            )
+
+    def _list_worker_rows(
+        self,
+        lifecycle: Optional[str] = None,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        with self.lock:
+            with self.get_connection() as conn:
+                self._backfill_worker_identity_columns(conn)
+                self._disable_stale_workers(conn)
+                conn.commit()
+                cur = conn.execute("SELECT * FROM workers ORDER BY host, instance, slot, worker_id")
+                rows = [self._worker_row_to_dict(r) for r in cur.fetchall()]
+        if lifecycle:
+            rows = [r for r in rows if r.get("lifecycle_status") == lifecycle]
+        if host:
+            rows = [r for r in rows if (r.get("host") or "") == host]
+        if instance:
+            rows = [r for r in rows if (r.get("instance") or "") == instance]
+        if slot is not None:
+            rows = [r for r in rows if int(r.get("slot") or 0) == int(slot)]
+        return rows
+
+    def get_worker_summary(self) -> Dict[str, int]:
+        rows = self._list_worker_rows(lifecycle=WORKER_LIFECYCLE_ACTIVE)
+        pending = sum(1 for r in rows if r["pending"])
+        busy = sum(1 for r in rows if r["reported_status"] == WORKER_REPORTED_BUSY)
+        idle = sum(1 for r in rows if r["reported_status"] == WORKER_REPORTED_IDLE)
+        disabled = len(self._list_worker_rows(lifecycle=WORKER_LIFECYCLE_DISABLED))
+        return {
+            "total": len(rows),
+            "busy": busy,
+            "idle": idle,
+            "pending_commands": pending,
+            "disabled": disabled,
+        }
+
+    def get_worker_filters(self, lifecycle: Optional[str] = None) -> Dict[str, Any]:
+        rows = self._list_worker_rows(lifecycle=lifecycle)
+        hosts = sorted({r.get("host") or "unknown" for r in rows})
+        instances_by_host: Dict[str, List[str]] = {}
+        slots_by_host_instance: Dict[str, List[int]] = {}
+        for r in rows:
+            h = r.get("host") or "unknown"
+            inst = r.get("instance") or ""
+            sl = int(r.get("slot") or 0)
+            if inst:
+                instances_by_host.setdefault(h, set()).add(inst)
+                key = f"{h}|{inst}"
+                slots_by_host_instance.setdefault(key, set()).add(sl)
+        return {
+            "hosts": hosts,
+            "instances_by_host": {k: sorted(v) for k, v in instances_by_host.items()},
+            "slots_by_host_instance": {
+                k: sorted(v) for k, v in slots_by_host_instance.items()
+            },
+        }
+
+    def list_workers(
+        self,
+        lifecycle: Optional[str] = None,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._list_worker_rows(
+            lifecycle=lifecycle, host=host, instance=instance, slot=slot,
+        )
+
+    def get_worker(self, worker_id: str) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            with self.get_connection() as conn:
+                self._backfill_worker_identity_columns(conn)
+                self._disable_stale_workers(conn)
+                conn.commit()
+                cur = conn.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
+                row = cur.fetchone()
+        return self._worker_row_to_dict(row) if row else None
+
+    def list_workers_by_host(self) -> Dict[str, List[Dict[str, Any]]]:
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for row in self.list_workers():
+            host = row.get("host") or "unknown"
+            grouped.setdefault(host, []).append(row)
+        return grouped
+
+    def worker_poll(
+        self,
+        worker_id: str,
+        host: str,
+        machine_type: str,
+        reported_status: str,
+        current_job_id: Optional[int],
+        applied_version: int,
+        system_metrics: Optional[Dict[str, Any]],
+        jd_worker_version: str = "",
+    ) -> Dict[str, Any]:
+        """Register worker heartbeat; return desired state and optional job."""
+        now = time.time()
+        metrics_json = json.dumps(system_metrics or {})
+        status = reported_status if reported_status in (
+            WORKER_REPORTED_IDLE, WORKER_REPORTED_BUSY
+        ) else WORKER_REPORTED_IDLE
+        parsed_host, parsed_inst, parsed_slot = self.parse_worker_id_parts(worker_id)
+        if not host:
+            host = parsed_host
+        instance = parsed_inst
+        slot = parsed_slot
+
+        job_payload = None
+        with self.lock:
+            with self.get_connection() as conn:
+                self._disable_stale_workers(conn)
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
+                row = cur.fetchone()
+                prev = dict(row) if row else None
+                prev_applied = int(prev.get("applied_version") or 0) if prev else 0
+                prev_status = prev.get("reported_status") if prev else None
+                prev_job = prev.get("current_job_id") if prev else None
+                was_disabled = (
+                    prev and (prev.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE)
+                    == WORKER_LIFECYCLE_DISABLED
+                )
+
+                if row:
+                    cur.execute(
+                        """
+                        UPDATE workers SET
+                            host = ?, instance = ?, slot = ?, machine_type = ?,
+                            reported_status = ?, current_job_id = ?,
+                            jd_worker_version = ?, last_poll_at = ?,
+                            applied_version = MAX(applied_version, ?),
+                            system_metrics = ?, lifecycle_status = ?,
+                            disabled_at = 0
+                        WHERE worker_id = ?
+                        """,
+                        (
+                            host, instance, slot, machine_type, status, current_job_id,
+                            jd_worker_version, now, int(applied_version),
+                            metrics_json, WORKER_LIFECYCLE_ACTIVE, worker_id,
+                        ),
+                    )
+                    if was_disabled:
+                        self._append_worker_history(
+                            conn, worker_id,
+                            "Worker reconnected after being disabled.",
+                            event="reconnected",
+                            metrics=system_metrics,
+                        )
+                    elif int(applied_version) > prev_applied:
+                        desired = prev.get("desired_state") or WORKER_STATE_RUN
+                        self._append_worker_history(
+                            conn, worker_id,
+                            f"Worker applied dashboard command: {desired} "
+                            f"(version {applied_version}).",
+                            event="command_applied",
+                            metrics=system_metrics,
+                        )
+                    if prev_status == WORKER_REPORTED_BUSY and status == WORKER_REPORTED_IDLE:
+                        self._append_worker_history(
+                            conn, worker_id,
+                            f"Job #{prev_job or current_job_id or '?'} finished — worker idle.",
+                            event="job_finished",
+                            metrics=system_metrics,
+                        )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO workers
+                        (worker_id, host, instance, slot, machine_type, reported_status,
+                         current_job_id, jd_worker_version, last_poll_at, applied_version,
+                         desired_state, desired_version, previous_desired_state,
+                         system_metrics, lifecycle_status, history, first_poll_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'run', ?, ?, '[]', ?)
+                        """,
+                        (
+                            worker_id, host, instance, slot, machine_type, status,
+                            current_job_id, jd_worker_version, now, int(applied_version),
+                            WORKER_STATE_RUN, metrics_json, WORKER_LIFECYCLE_ACTIVE, now,
+                        ),
+                    )
+                    self._append_worker_history(
+                        conn, worker_id,
+                        f"Worker registered (first poll) — id {worker_id}.",
+                        event="registered",
+                        metrics=system_metrics,
+                    )
+
+                conn.commit()
+                cur.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
+                worker = self._worker_row_to_dict(cur.fetchone())
+
+        job_payload = None
+        if (
+            status == WORKER_REPORTED_IDLE
+            and worker["desired_state"] == WORKER_STATE_RUN
+            and not worker["pending"]
+            and worker["lifecycle_status"] == WORKER_LIFECYCLE_ACTIVE
+        ):
+            job = self.request_job(worker_id, system_metrics or {})
+            if job:
+                job_payload = {
+                    "job_id": job["id"],
+                    "parameters": job.get("parameters", {}),
+                    "status": STATUS_SERVED,
+                }
+                with self.lock:
+                    with self.get_connection() as conn:
+                        conn.execute(
+                            """
+                            UPDATE workers SET reported_status = ?, current_job_id = ?
+                            WHERE worker_id = ?
+                            """,
+                            (WORKER_REPORTED_BUSY, job["id"], worker_id),
+                        )
+                        self._append_worker_history(
+                            conn, worker_id,
+                            f"Job #{job['id']} assigned to worker.",
+                            event="job_assigned",
+                            metrics=system_metrics,
+                        )
+                        conn.commit()
+                        cur = conn.execute(
+                            "SELECT * FROM workers WHERE worker_id = ?", (worker_id,)
+                        )
+                        worker = self._worker_row_to_dict(cur.fetchone())
+
+        return {
+            "desired_state": worker["desired_state"],
+            "desired_version": worker["desired_version"],
+            "applied_version": worker["applied_version"],
+            "pending": worker["pending"],
+            "poll_interval": WORKER_POLL_INTERVAL,
+            "job": job_payload,
+        }
+
+    def _worker_state_rank(self, state: str) -> int:
+        return {WORKER_STATE_RUN: 0, WORKER_STATE_DRAIN: 1, WORKER_STATE_STOP: 2}.get(
+            state, 0
+        )
+
+    def _worker_is_actionable(self, row: Dict[str, Any], now: float) -> bool:
+        if (row.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE) != WORKER_LIFECYCLE_ACTIVE:
+            return False
+        last_poll = float(row.get("last_poll_at") or 0)
+        return last_poll > 0 and (now - last_poll) <= WORKER_STALE_SECONDS
+
+    def set_workers_command(
+        self,
+        action: str,
+        scope: str,
+        target: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Set desired worker state. Precedence: stop > drain > run; narrow scope only."""
+        if action not in (WORKER_STATE_RUN, WORKER_STATE_DRAIN, WORKER_STATE_STOP):
+            raise ValueError(f"Invalid action: {action}")
+        batch_id = secrets.token_hex(8) if scope in ("host", "all") else None
+        affected = 0
+        labels = {"run": "resume", "drain": "drain", "stop": "stop"}
+
+        with self.lock:
+            with self.get_connection() as conn:
+                self._disable_stale_workers(conn)
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM workers")
+                rows = [dict(r) for r in cur.fetchall()]
+                now = time.time()
+                for row in rows:
+                    if not self._worker_is_actionable(row, now):
+                        continue
+                    wid = row["worker_id"]
+                    host = row.get("host") or ""
+                    inst = row.get("instance") or ""
+                    if scope == "worker":
+                        if wid != target:
+                            continue
+                    elif scope == "host":
+                        if host != target:
+                            continue
+                    elif scope == "instance":
+                        parts = (target or "").split("|", 1)
+                        if len(parts) != 2 or host != parts[0] or inst != parts[1]:
+                            continue
+                    elif scope != "all":
+                        continue
+
+                    current = row.get("desired_state") or WORKER_STATE_RUN
+                    applied = int(row.get("applied_version") or 0)
+                    desired_v = int(row.get("desired_version") or 0)
+                    pending = desired_v > applied
+
+                    if action == WORKER_STATE_RUN:
+                        if current == WORKER_STATE_STOP and not pending:
+                            continue
+                        if pending and self._worker_state_rank(current) >= self._worker_state_rank(
+                            action
+                        ):
+                            new_state = WORKER_STATE_RUN
+                        elif not pending and current == WORKER_STATE_STOP:
+                            continue
+                        else:
+                            new_state = WORKER_STATE_RUN
+                    elif self._worker_state_rank(action) >= self._worker_state_rank(current):
+                        new_state = action
+                    else:
+                        continue
+
+                    if new_state == current and not pending:
+                        continue
+
+                    prev = current if pending else row.get("previous_desired_state") or WORKER_STATE_RUN
+                    new_version = desired_v + 1
+                    cur.execute(
+                        """
+                        UPDATE workers SET
+                            previous_desired_state = ?,
+                            desired_state = ?,
+                            desired_version = ?,
+                            pending_batch_id = ?
+                        WHERE worker_id = ?
+                        """,
+                        (prev, new_state, new_version, batch_id, wid),
+                    )
+                    self._append_worker_history(
+                        conn, wid,
+                        f"Dashboard queued {labels.get(action, action)} command "
+                        f"(applies on next poll, ~3 min).",
+                        event="command_queued",
+                    )
+                    affected += 1
+                conn.commit()
+        return {"affected": affected, "batch_id": batch_id}
+
+    def cancel_pending_worker_commands(
+        self,
+        scope: str,
+        target: Optional[str] = None,
+    ) -> int:
+        """Revert queued (not yet applied) commands to previous_desired_state."""
+        reverted = 0
+        with self.lock:
+            with self.get_connection() as conn:
+                self._disable_stale_workers(conn)
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM workers")
+                for row in cur.fetchall():
+                    row = dict(row)
+                    if not self._worker_is_actionable(row, time.time()):
+                        continue
+                    applied = int(row.get("applied_version") or 0)
+                    desired_v = int(row.get("desired_version") or 0)
+                    if desired_v <= applied:
+                        continue
+                    wid = row["worker_id"]
+                    host = row.get("host") or ""
+                    inst = row.get("instance") or ""
+                    if scope == "worker" and wid != target:
+                        continue
+                    if scope == "host" and host != target:
+                        continue
+                    if scope == "instance":
+                        parts = (target or "").split("|", 1)
+                        if len(parts) != 2 or host != parts[0] or inst != parts[1]:
+                            continue
+                    if scope == "all":
+                        pass
+                    elif scope not in ("worker", "host", "instance"):
+                        continue
+                    prev = row.get("previous_desired_state") or WORKER_STATE_RUN
+                    cancelled = row.get("desired_state") or WORKER_STATE_RUN
+                    cur.execute(
+                        """
+                        UPDATE workers SET
+                            desired_state = ?,
+                            desired_version = desired_version + 1,
+                            previous_desired_state = ?
+                        WHERE worker_id = ?
+                        """,
+                        (prev, cancelled, wid),
+                    )
+                    self._append_worker_history(
+                        conn, wid,
+                        f"Dashboard cancelled queued {cancelled} command.",
+                        event="command_cancelled",
+                    )
+                    reverted += 1
+                conn.commit()
+        return reverted
+
+    def handle_cli_worker_stop(
+        self,
+        worker_id: str,
+        source: str = "",
+        action: str = "stop",
+        job_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Record a CLI-initiated worker stop in server history; abort SERVED job if given."""
+        now = time.time()
+        host, instance, slot = self.parse_worker_id_parts(worker_id)
+        source = (source or "unknown").strip()
+        action_label = (action or "stop").replace("_", " ")
+        reason = (
+            f"Worker stopped from CLI (jd_worker_cli {action_label}) "
+            f"on machine '{source}'."
+        )
+        job_aborted = False
+
+        with self.lock:
+            with self.get_connection() as conn:
+                self._backfill_worker_identity_columns(conn)
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
+                row = cur.fetchone()
+                if row:
+                    cur.execute(
+                        """
+                        UPDATE workers SET
+                            host = ?, instance = ?, slot = ?,
+                            lifecycle_status = ?, disabled_at = ?,
+                            reported_status = ?, current_job_id = NULL,
+                            desired_state = ?
+                        WHERE worker_id = ?
+                        """,
+                        (
+                            host, instance, slot,
+                            WORKER_LIFECYCLE_DISABLED, now,
+                            WORKER_REPORTED_IDLE, WORKER_STATE_STOP,
+                            worker_id,
+                        ),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO workers
+                        (worker_id, host, instance, slot, machine_type, reported_status,
+                         last_poll_at, applied_version, desired_state, desired_version,
+                         previous_desired_state, lifecycle_status, disabled_at,
+                         history, first_poll_at)
+                        VALUES (?, ?, ?, ?, 'worker', 'idle', ?, 0, 'stop', 0, 'run', ?, ?, '[]', ?)
+                        """,
+                        (
+                            worker_id, host, instance, slot, now,
+                            WORKER_LIFECYCLE_DISABLED, now, now,
+                        ),
+                    )
+                self._append_worker_history(
+                    conn, worker_id, reason, event="cli_stop",
+                )
+                conn.commit()
+
+        if job_id is not None:
+            abort_msg = (
+                f"Job aborted: worker killed from CLI (jd_worker_cli {action_label}) "
+                f"on '{source}' (worker {worker_id})."
+            )
+            job_aborted = self.update_job_status(int(job_id), STATUS_ABORTED, abort_msg)
+
+        return {
+            "worker_id": worker_id,
+            "recorded": True,
+            "job_aborted": job_aborted,
+        }
+
+    def handle_cli_clear_all(
+        self,
+        workers: List[Dict[str, Any]],
+        source: str = "",
+    ) -> Dict[str, Any]:
+        """Record CLI clear_all for many workers (each gets history + optional job abort)."""
+        source = (source or "unknown").strip()
+        results = []
+        for item in workers:
+            wid = (item.get("worker_id") or "").strip()
+            if not wid:
+                continue
+            job_id = item.get("job_id")
+            if job_id is not None:
+                try:
+                    job_id = int(job_id)
+                except (TypeError, ValueError):
+                    job_id = None
+            results.append(
+                self.handle_cli_worker_stop(
+                    wid, source=source, action="clear_all", job_id=job_id,
+                )
+            )
+        return {"processed": len(results), "workers": results}

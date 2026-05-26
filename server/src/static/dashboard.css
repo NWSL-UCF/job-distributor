@@ -1795,3 +1795,233 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 flex-shrink: 0;
                 vertical-align: middle;
             }
+
+            /* ── Main navigation (Jobs / Workers) ─────────────────────────── */
+            .main-nav-tabs {
+                display: flex;
+                gap: 4px;
+                padding: 0 24px 0;
+                max-width: 1920px;
+                margin: 0 auto 12px;
+                border-bottom: 2px solid #e9ecef;
+            }
+            .main-nav-tab {
+                border: none;
+                background: transparent;
+                padding: 10px 18px;
+                font-size: 0.88rem;
+                font-weight: 600;
+                color: #6c757d;
+                cursor: pointer;
+                border-bottom: 3px solid transparent;
+                margin-bottom: -2px;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .main-nav-tab:hover { color: #343a40; }
+            .main-nav-tab.active {
+                color: #4f6ef7;
+                border-bottom-color: #4f6ef7;
+            }
+            .main-view { display: none; }
+            .main-view.active { display: block; }
+
+            /* ── Workers page ────────────────────────────────────────────── */
+            .workers-page {
+                padding: 0 24px 32px;
+                max-width: 1920px;
+                margin: 0 auto;
+            }
+            .workers-page-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 16px;
+                flex-wrap: wrap;
+                margin-bottom: 16px;
+            }
+            .workers-page-title { margin: 0 0 6px 0; font-size: 1.35rem; }
+            .workers-page-sub { margin: 0; color: #6c757d; font-size: 0.85rem; max-width: 640px; }
+            .workers-summary-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+            .workers-chip {
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 0.78rem;
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+            }
+            .workers-chip--idle { border-color: #b2dfcc; color: #2e7d32; }
+            .workers-chip--busy { border-color: #ffcc80; color: #e65100; }
+            .workers-chip--disabled { border-color: #ced4da; color: #6c757d; }
+            .workers-subtabs {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 16px;
+            }
+            .workers-subtab {
+                border: 1px solid #dee2e6;
+                background: #fff;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 0.82rem;
+                font-weight: 600;
+                cursor: pointer;
+                color: #495057;
+            }
+            .workers-subtab.active {
+                background: #eef2ff;
+                border-color: #4f6ef7;
+                color: #4f6ef7;
+            }
+            .workers-filters {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                align-items: flex-end;
+                margin-bottom: 16px;
+                padding: 14px;
+                background: #f8f9fa;
+                border-radius: 8px;
+                border: 1px solid #e9ecef;
+            }
+            .workers-filter-group {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                min-width: 160px;
+            }
+            .workers-filter-group label {
+                font-size: 0.72rem;
+                font-weight: 700;
+                color: #6c757d;
+                text-transform: uppercase;
+            }
+            .workers-table-wrap {
+                overflow-x: auto;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                background: #fff;
+            }
+            .workers-page-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.82rem;
+            }
+            .workers-page-table th {
+                text-align: left;
+                padding: 10px 12px;
+                background: #f1f3f5;
+                border-bottom: 1px solid #dee2e6;
+                white-space: nowrap;
+            }
+            .workers-page-table td {
+                padding: 8px 12px;
+                border-bottom: 1px solid #f1f3f5;
+                vertical-align: middle;
+            }
+            .workers-page-table tbody tr:hover td { background: #fafbfc; }
+            .worker-badge--disabled { background: #eceff1; color: #546e7a; }
+            .worker-history-metrics-tag {
+                font-size: 0.75rem;
+                color: #4f6ef7;
+                font-weight: 600;
+            }
+
+            /* ── Worker management modal ─────────────────────────────────── */
+            .workers-modal-content { max-width: 960px; width: 95%; }
+            .workers-modal-hint {
+                font-size: 0.85rem;
+                color: #6c757d;
+                margin: 0 0 16px 0;
+                line-height: 1.5;
+            }
+            .workers-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-bottom: 16px;
+            }
+            .workers-btn {
+                border: 1px solid #dee2e6;
+                background: #fff;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 0.8rem;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .workers-btn:hover { opacity: 0.85; }
+            .workers-btn--run { border-color: #b2dfcc; color: #2e7d32; background: #f0fff4; }
+            .workers-btn--drain { border-color: #ffe082; color: #f57f17; background: #fffde7; }
+            .workers-btn--stop { border-color: #f5c6cb; color: #c62828; background: #fff5f5; }
+            .workers-btn--cancel { border-color: #ced4da; color: #495057; }
+            .workers-btn--refresh { margin-left: auto; }
+            .workers-btn-sm {
+                border: 1px solid #dee2e6;
+                background: #fff;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 0.72rem;
+                cursor: pointer;
+                margin-right: 4px;
+            }
+            .workers-list-scroll {
+                max-height: 60vh;
+                overflow-y: auto;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 12px;
+            }
+            .workers-host-block { margin-bottom: 20px; }
+            .workers-host-block:last-child { margin-bottom: 0; }
+            .workers-host-header {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                flex-wrap: wrap;
+                margin-bottom: 8px;
+                padding-bottom: 6px;
+                border-bottom: 1px solid #e9ecef;
+            }
+            .workers-host-meta { font-size: 0.78rem; color: #868e96; }
+            .workers-host-actions { margin-left: auto; }
+            .workers-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.8rem;
+            }
+            .workers-table th {
+                text-align: left;
+                padding: 6px 8px;
+                background: #f8f9fa;
+                border-bottom: 1px solid #dee2e6;
+            }
+            .workers-table td {
+                padding: 6px 8px;
+                border-bottom: 1px solid #f1f3f5;
+                vertical-align: middle;
+            }
+            .workers-row-stale td { opacity: 0.55; }
+            .workers-id { font-size: 0.75rem; word-break: break-all; }
+            .worker-badge {
+                display: inline-block;
+                padding: 2px 8px;
+                border-radius: 10px;
+                font-size: 0.72rem;
+                font-weight: 600;
+                text-transform: uppercase;
+            }
+            .worker-badge--idle { background: #e8f5e9; color: #2e7d32; }
+            .worker-badge--busy { background: #fff3e0; color: #e65100; }
+            .worker-badge--pending { background: #e3f2fd; color: #1565c0; }
+            .worker-badge--applied { background: #fce4ec; color: #c62828; }
+            .worker-badge--stale { background: #eceff1; color: #78909c; }
+            .workers-loading, .workers-empty, .workers-error {
+                font-size: 0.85rem;
+                color: #6c757d;
+                text-align: center;
+                padding: 24px;
+            }

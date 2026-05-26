@@ -12,9 +12,14 @@
     <a href="#overview">Overview</a>
     <a href="#install">Installation</a>
     <a href="#cli">jd_worker_cli</a>
-    <a class="sub" href="#cli-args">All arguments</a>
+    <a class="sub" href="#cli-run">Starting workers</a>
+    <a class="sub" href="#cli-args">Launch arguments</a>
+    <a class="sub" href="#cli-background">Background workers</a>
+    <a class="sub" href="#cli-interactive">Interactive mode</a>
+    <a class="sub" href="#cli-management">Management commands</a>
+    <a class="sub" href="#cli-poll">Poll protocol</a>
+    <a class="sub" href="#cli-dashboard-control">Dashboard control</a>
     <a class="sub" href="#cli-examples">Examples</a>
-    <a class="sub" href="#cli-multi-worker">Multiple workers</a>
     <a href="#path-helpers">Path helpers</a>
     <a class="sub" href="#jd-job-dir">jd_job_dir()</a>
     <a class="sub" href="#jd-exp-dir">jd_exp_dir()</a>
@@ -33,7 +38,8 @@
     <h1>jd-worker — Library Reference</h1>
     <p class="tut-lead">
       Complete reference for the <code>jd-worker</code> Python package.
-      Covers the <code>jd_worker_cli</code> command, all importable helper
+      Covers the <code>jd_worker_cli</code> command (launch, background workers,
+      interactive mode, and management subcommands), all importable helper
       functions, environment variables, and practical usage patterns.
     </p>
 
@@ -47,8 +53,10 @@
       <ol>
         <li>
           <strong>A CLI tool (<code>jd_worker_cli</code>)</strong> — the worker
-          process you run in your terminal. It polls the job server for pending
-          jobs, invokes your script once per job, and reports results.
+          process you run in your terminal. It polls the job server every
+          ~3 minutes via <code>POST /worker/poll</code> (heartbeat, dashboard
+          control, and job assignment when idle), pings every 57 s while a job
+          runs, invokes your script once per job, and reports results.
         </li>
         <li>
           <strong>A Python library (<code>import jd</code>)</strong> — a small
@@ -95,7 +103,8 @@ pip install --upgrade jd-worker</code></pre>
       <p>After installation, verify both the CLI and the library are available:</p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>jd_worker_cli --help
+        <pre><code>jd_worker_cli help
+jd_worker_cli          # interactive shell
 python -c "import jd; print(jd.__version__)"</code></pre>
       </div>
     </section>
@@ -106,26 +115,64 @@ python -c "import jd; print(jd.__version__)"</code></pre>
 
       <p>
         <code>jd_worker_cli</code> is the main executable installed by the
-        package. It runs as a long-lived process that:
+        package. In its default mode it runs as a long-lived background process that:
       </p>
       <ol>
         <li>Connects to the Hub to obtain a short-lived worker token and the
             server URL for your experiment (Hub mode).</li>
-        <li>Registers itself with the server so it appears in the dashboard.</li>
+        <li>Registers itself in a local SQLite registry so you can list, stop,
+            and manage workers without tmux or process hunting.</li>
         <li>Polls the server for the next <em>PENDING</em> job.</li>
         <li>Sets environment variables describing the job and calls your entry
             script as a subprocess.</li>
+        <li>Sends a heartbeat ping every <strong>57 seconds</strong> while the
+            script runs.</li>
         <li>Marks the job <em>DONE</em> or <em>ABORTED</em> depending on the
             exit code, then goes back to step 3.</li>
-        <li>Exits cleanly when the queue is empty (or after one job if
-            <code>once=true</code>).</li>
+        <li>Keeps running when the queue is empty — probing every
+            <strong>3 minutes</strong> for new jobs (or every
+            <strong>10 seconds</strong> on connection errors). Use
+            <code>once=true</code> to exit after one job or when no job is
+            available.</li>
       </ol>
 
-      <h3 id="cli-args">All arguments</h3>
+      <p>
+        Arguments use <code>key=value</code> tokens. Subcommands such as
+        <code>worker-list</code> or <code>exp-status</code> are bare words mixed
+        with the same tokens. Run <code>jd_worker_cli help</code> for the full
+        embedded reference.
+      </p>
+
+      <h3 id="cli-run">Starting workers</h3>
+
+      <p>The run command (no subcommand) starts one or more workers:</p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+jd_worker_cli expId=digits-tune entry_script=train.py</code></pre>
+      </div>
+
+      <p><strong>Required to start:</strong></p>
+      <table>
+        <thead><tr><th>Argument</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>expId=&lt;name&gt;</code></td>
+            <td>Experiment name — must match the server’s <code>--expId</code>.</td>
+          </tr>
+          <tr>
+            <td><code>entry_script=&lt;path&gt;</code></td>
+            <td>Python script executed for each job (same interpreter as <code>jd_worker_cli</code>).</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="cli-args">Launch arguments</h3>
 
       <p>
-        Arguments can be passed as <code>key=value</code> positional arguments
-        or as the corresponding environment variable. Both are equivalent.
+        Arguments can be passed as <code>key=value</code> tokens or via the
+        corresponding environment variable.
       </p>
 
       <table>
@@ -149,46 +196,286 @@ python -c "import jd; print(jd.__version__)"</code></pre>
             <td><code>api_key=&lt;key&gt;</code></td>
             <td><code>JD_API_KEY</code></td>
             <td>—</td>
-            <td>Your Hub API key. The worker contacts the Hub to obtain a signed token and the correct server URL automatically. Set this via the environment variable rather than passing it on the command line.</td>
+            <td>Hub API key. Prefer setting via environment rather than the command line.</td>
           </tr>
           <tr>
             <td><code>hub=&lt;url&gt;</code></td>
             <td><code>JD_HUB_URL</code></td>
             <td><code>https://hub.jobdistributor.net</code></td>
-            <td>Hub base URL. Only change this if you are running a self-hosted Hub.</td>
+            <td>Hub base URL. Only change for a self-hosted Hub.</td>
+          </tr>
+          <tr>
+            <td><code>server=&lt;url&gt;</code></td>
+            <td><code>JD_SERVER</code></td>
+            <td><code>http://localhost</code></td>
+            <td>Job server URL for standalone mode (no Hub). Host-only values get <code>http://</code> prepended.</td>
+          </tr>
+          <tr>
+            <td><code>port=&lt;N&gt;</code></td>
+            <td><code>JD_PORT</code></td>
+            <td><code>5000</code></td>
+            <td>Port when <code>server=</code> has no port (standalone mode).</td>
           </tr>
           <tr>
             <td><code>machine_type=&lt;label&gt;</code></td>
             <td><code>JD_MACHINE_TYPE</code></td>
             <td><code>worker</code></td>
-            <td>Free-form label shown next to the worker in the server dashboard. Use it to distinguish hardware (e.g., <code>gpu-a100</code>, <code>cpu-laptop</code>, <code>slurm-hpc</code>).</td>
+            <td>Label shown in the dashboard (e.g. <code>gpu-a100</code>, <code>slurm-hpc</code>).</td>
           </tr>
           <tr>
             <td><code>process_id=&lt;N&gt;</code></td>
             <td>—</td>
             <td><code>0</code></td>
-            <td>Integer ID for this worker process. Ignored when <code>num_workers &gt; 1</code> (IDs are assigned automatically). Used in log file names and dashboard display.</td>
+            <td>Numeric ID for a single worker. Ignored when <code>num_workers &gt; 1</code>.</td>
           </tr>
           <tr>
             <td><code>num_workers=&lt;N&gt;</code></td>
             <td><code>JD_NUM_WORKERS</code></td>
             <td><code>1</code></td>
-            <td>
-              Spawn <em>N</em> parallel worker processes with a single command.
-              Each process gets an auto-assigned <code>process_id</code> (0 … N-1).
-              The parent process performs Hub authentication once and shares the
-              token with all children, so N workers do not cause N authentication
-              requests. Cannot be combined with a manual <code>process_id=</code>.
-            </td>
+            <td>Spawn <em>N</em> parallel workers. Hub auth runs once in the parent and is shared with children.</td>
+          </tr>
+          <tr>
+            <td><code>foreground=true</code></td>
+            <td><code>JD_FOREGROUND</code></td>
+            <td><code>false</code></td>
+            <td>Run attached to the terminal (logs to stdout). Default is background.</td>
           </tr>
           <tr>
             <td><code>once=true</code></td>
             <td><code>JD_ONCE</code></td>
             <td><code>false</code></td>
-            <td>Exit after completing one job. Useful for smoke-testing a new script or running one-off jobs.</td>
+            <td>Exit after one completed job, or immediately when no job is available.</td>
+          </tr>
+          <tr>
+            <td><code>log_dir=&lt;path&gt;</code></td>
+            <td><code>JD_LOG_DIR</code></td>
+            <td>(derived)</td>
+            <td>Override log directory. Default: <code>&lt;parent&gt;/jd_data/&lt;expId&gt;/jd_worker_logs/</code>.</td>
           </tr>
         </tbody>
       </table>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          Worker job data lives under <code>&lt;parent&gt;/jd_data/&lt;expId&gt;/&lt;job_id&gt;/</code>
+          where <code>parent</code> is <code>JD_WORKSPACE_PATH</code> if set, otherwise
+          <code>~</code>. There is no <code>workspace_path=</code> CLI argument — set
+          <code>JD_WORKSPACE_PATH</code> before launching.
+        </span>
+      </div>
+
+      <h3 id="cli-background">Background workers (default)</h3>
+
+      <p>
+        By default, workers <strong>detach to the background</strong> — no tmux
+        required. The launcher prints each worker’s <code>worker_id</code> and PID,
+        then returns immediately. Process metadata is stored in:
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>path</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>~/.cache/&lt;expId&gt;/workers.db
+# or &lt;JD_WORKSPACE_PATH&gt;/.cache/&lt;expId&gt;/workers.db</code></pre>
+      </div>
+
+      <p>
+        Each worker gets a <code>worker_id</code> like <code>gpunode_A3f9X2_0</code>
+        (<code>{host}_{instance}_{slot}</code>). Standalone launches always use
+        slot <code>0</code>; <code>num_workers=N</code> uses slots
+        <code>0 … N-1</code>. The same id appears in <code>worker-list</code>,
+        on the server as <code>requested_by</code>, and in log filenames.
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code># Start four background workers (returns immediately)
+jd_worker_cli expId=digits-tune entry_script=train.py num_workers=4
+
+# List workers for one experiment
+jd_worker_cli expId=digits-tune worker-list
+
+# List all experiments with worker counts on this machine
+jd_worker_cli exp-list
+
+# Stop one worker or all
+jd_worker_cli expId=digits-tune stop gpunode_A3f9X2_0
+jd_worker_cli expId=digits-tune stop all</code></pre>
+      </div>
+
+      <p>
+        Use <code>foreground=true</code> when debugging — logs stream to the
+        terminal and the process stays attached until you press
+        <kbd>Ctrl+C</kbd>.
+      </p>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          <strong>How many workers?</strong> One per CPU core for CPU-bound jobs,
+          or one per GPU for GPU-bound jobs. Check cores with
+          <code>nproc</code> (Linux) or <code>sysctl -n hw.physicalcpu</code> (macOS).
+        </span>
+      </div>
+
+      <h3 id="cli-interactive">Interactive mode</h3>
+
+      <p>
+        Run <code>jd_worker_cli</code> with no arguments (or
+        <code>interactive</code> / <code>-i</code>) for a mysql-style REPL.
+        This is useful on shared clusters where you manage workers over a long
+        SSH session without retyping <code>expId=</code> every time.
+      </p>
+
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>jd_worker_cli
+jd_worker_cli -i expId=digits-tune</code></pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-block__lang"><span>text</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>jd_worker_cli 1.15.0 — interactive mode
+Type help for commands, exit or Ctrl-D to quit.
+jd> use digits-tune
+Using experiment 'digits-tune'.
+jd[digits-tune]> worker-list
+jd[digits-tune]> exp-status
+jd[digits-tune]> entry_script=train.py num_workers=4
+jd[digits-tune]> stop all
+jd[digits-tune]> exit</code></pre>
+      </div>
+
+      <table>
+        <thead><tr><th>REPL command</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>use &lt;expId&gt;</code></td><td>Set default experiment for the session (also honours <code>JD_EXP_ID</code> on startup).</td></tr>
+          <tr><td><code>use</code></td><td>Show current experiment.</td></tr>
+          <tr><td><code>help</code> / <code>\h</code></td><td>Command reference.</td></tr>
+          <tr><td><code>exit</code> / <code>quit</code> / <code>\q</code></td><td>Leave interactive mode.</td></tr>
+        </tbody>
+      </table>
+
+      <p>
+        Once <code>use</code> is set, omit <code>expId=</code> on later lines.
+        Trailing semicolons are optional. Command history is saved to
+        <code>~/.cache/jd_worker_history</code>.
+      </p>
+
+      <h3 id="cli-management">Management commands</h3>
+
+      <p>
+        These subcommands manage workers already running on the machine, query
+        the server, or perform housekeeping. Most require
+        <code>expId=&lt;name&gt;</code> unless you are in interactive mode with
+        <code>use</code> set.
+      </p>
+
+      <table>
+        <thead><tr><th>Command</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>version</code></td><td>Package version, Python executable, and cache root.</td></tr>
+          <tr><td><code>health [expId=&lt;id&gt;]</code></td><td>Check Hub and job-server connectivity.</td></tr>
+          <tr><td><code>exp-list</code></td><td>All experiments on this machine with worker counts.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; worker-list</code></td><td>List running workers (ID, PID, status, current job).</td></tr>
+          <tr><td><code>expId=&lt;id&gt; worker-status &lt;worker-id&gt;</code></td><td>Detailed status: uptime, current job, last ping, log path.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; worker-logs &lt;worker-id&gt; [lines=N] [follow=true]</code></td><td>Print or tail a worker log file.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; exp-status</code></td><td>Experiment summary: worker count, busy/idle, draining flag.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; server-info</code></td><td>Job counts by status (PENDING, SERVED, DONE, …) from the server.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; where</code></td><td>Show paths: registry DB, jd_data root, logs.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; show-config &lt;worker-id&gt;</code></td><td>Launch configuration stored when the worker registered.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; stop all|&lt;worker-id&gt;</code></td><td>Stop all workers or one worker (SIGTERM, then SIGKILL after 30 s).</td></tr>
+          <tr><td><code>expId=&lt;id&gt; stop job=&lt;job-id&gt;</code></td><td>Stop whichever worker is running that job.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; confirm-stop</code></td><td>Stop all workers after typing the experiment name (shared-cluster guardrail).</td></tr>
+          <tr><td><code>expId=&lt;id&gt; stop all confirm-stop=true</code></td><td>Same confirmation behaviour as <code>confirm-stop</code>.</td></tr>
+          <tr><td><code>stop all-experiments</code></td><td>Stop workers for every experiment on this machine.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; restart all|&lt;worker-id&gt;</code></td><td>Stop and respawn using stored launch config.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; scale num_workers=&lt;N&gt;</code></td><td>Scale up or down to exactly <em>N</em> workers.</td></tr>
+          <tr><td><code>expId=&lt;id&gt; drain</code></td><td>Mark experiment draining — workers finish their current job then exit (no new jobs).</td></tr>
+          <tr><td><code>prune</code></td><td>Remove stale registry rows and orphaned token cache directories.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>jd_worker_cli expId=digits-tune exp-status
+jd_worker_cli expId=digits-tune worker-status gpunode_A3f9X2_0
+jd_worker_cli expId=digits-tune worker-logs gpunode_A3f9X2_0 lines=100 follow=true
+jd_worker_cli expId=digits-tune server-info
+jd_worker_cli expId=digits-tune scale num_workers=8
+jd_worker_cli expId=digits-tune drain
+jd_worker_cli expId=digits-tune stop job=42
+jd_worker_cli prune</code></pre>
+      </div>
+
+      <h3 id="cli-poll">Poll protocol (<code>POST /worker/poll</code>)</h3>
+
+      <p>
+        Workers registered with jd-worker <strong>1.15.0+</strong> use a single
+        poll endpoint instead of idle-only <code>/request_job</code>. Every
+        <strong>180 seconds</strong> (and again immediately after each job
+        finishes), the worker sends:
+      </p>
+
+      <ul>
+        <li><code>worker_id</code>, <code>host</code>, <code>machine_type</code></li>
+        <li><code>reported_status</code> — <code>idle</code> or <code>busy</code></li>
+        <li><code>current_job_id</code> — set while running a job</li>
+        <li><code>applied_version</code> — ack of the last dashboard command applied</li>
+        <li><code>system_metrics</code> — CPU/RAM snapshot (same as job request)</li>
+      </ul>
+
+      <p>The server responds with:</p>
+
+      <ul>
+        <li><code>desired_state</code> — <code>run</code>, <code>drain</code>, or <code>stop</code></li>
+        <li><code>desired_version</code> / <code>applied_version</code> — command versioning</li>
+        <li><code>job</code> — optional job payload when idle and <code>desired_state=run</code></li>
+        <li><code>poll_interval</code> — seconds until the next poll (default 180)</li>
+      </ul>
+
+      <p>
+        While a job runs, a background poll thread keeps checking for dashboard
+        commands. <strong>Stop</strong> and <strong>drain</strong> take effect
+        after the current job completes (or immediately when idle for
+        <strong>stop</strong>). Older servers without <code>/worker/poll</code>
+        fall back to legacy <code>/request_job</code> automatically.
+      </p>
+
+      <h3 id="cli-dashboard-control">Dashboard worker control</h3>
+
+      <p>
+        The server dashboard shows live <strong>idle</strong> and
+        <strong>busy</strong> worker counts in the Jobs sidebar. Open the
+        <strong>Workers Management</strong> nav tab for the full UI: active vs
+        disabled workers, host/instance/slot filters, per-worker history, and
+        metrics. Open <strong>Details</strong> on any row to view history
+        (newest first) and system metrics like the job detail modal.
+      </p>
+
+      <ul>
+        <li>Filter workers by host, instance, and slot</li>
+        <li>Queue <strong>Resume</strong>, <strong>Drain</strong>, or
+            <strong>Stop</strong> on the <strong>Active Workers</strong> sub-tab</li>
+        <li>Review <strong>Disabled / Stopped</strong> workers (read-only) after shutdown or lost poll</li>
+        <li>Cancel a queued command before the worker’s next poll (~3 min)</li>
+      </ul>
+
+      <p>
+        Dashboard commands set <em>desired state</em> on the server — they do not
+        send signals directly to worker processes. Precedence is
+        <code>stop &gt; drain &gt; run</code>. Local CLI commands
+        (<code>stop</code>, <code>drain</code>) still work on the machine where
+        the worker runs; dashboard control is for remote management without SSH.
+      </p>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          Queued commands show as <strong>queued drain</strong> / <strong>queued stop</strong>
+          in the dashboard until the worker polls and applies them. Use
+          <strong>Cancel</strong> to revert to the previous desired state.
+        </span>
+      </div>
 
       <h3 id="cli-examples">Examples</h3>
 
@@ -200,96 +487,40 @@ python -c "import jd; print(jd.__version__)"</code></pre>
 jd_worker_cli expId=digits-tune entry_script=train.py machine_type=cpu</code></pre>
       </div>
 
-      <p><strong>Run one job then exit (debugging):</strong></p>
-      <div class="code-block">
-        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py once=true</code></pre>
-      </div>
-
-      <p>
-        <strong>Four workers on one machine</strong> —
-        use <code>num_workers=N</code> to launch N parallel processes with a
-        single command. Process IDs (0 … N-1) are assigned automatically:
-      </p>
+      <p><strong>Four background workers on one machine:</strong></p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
         <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py \
-              num_workers=4 machine_type=cpu</code></pre>
+              num_workers=4 machine_type=gpu</code></pre>
       </div>
 
-      <p>
-        The command blocks in the foreground and waits for all workers to
-        finish or until the job queue is empty. Press <kbd>Ctrl+C</kbd> to
-        stop all workers gracefully at once. Hub authentication is performed
-        once in the parent process and shared with all children — N workers
-        do not produce N simultaneous authentication requests.
-      </p>
-
-      <h3 id="cli-multi-worker">Running Multiple Workers with One Command</h3>
-
-      <p>
-        By default, each <code>jd_worker_cli</code> invocation starts a single
-        worker process. If your machine has multiple CPU cores or GPU slots,
-        you can use the <code>num_workers=N</code> argument to spawn N workers
-        in parallel with a single command — no shell loops or multiple terminal
-        windows required.
-      </p>
-
-      <table class="ref-table">
-        <thead><tr><th>Argument</th><th>Env var</th><th>Default</th><th>Description</th></tr></thead>
-        <tbody>
-          <tr>
-            <td><code>num_workers=&lt;N&gt;</code></td>
-            <td><code>JD_NUM_WORKERS</code></td>
-            <td><code>1</code></td>
-            <td>
-              Number of parallel worker processes to spawn on this machine.
-              Each process is assigned a unique <code>process_id</code> in the
-              range 0 … N-1 automatically. When N = 1 (the default), the
-              worker runs directly in the current process as usual.
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <p><strong>Example — 4 workers on one machine:</strong></p>
+      <p><strong>Smoke-test one job in the foreground:</strong></p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
         <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py \
-              num_workers=4 machine_type=cpu</code></pre>
+              foreground=true once=true</code></pre>
       </div>
 
-      <p>
-        This starts 4 worker processes. Each process picks up and runs jobs
-        from the queue independently. The dashboard will show them as
-        <code>…_0_…</code>, <code>…_1_…</code>, <code>…_2_…</code>,
-        <code>…_3_…</code> (the suffix of the runner ID reflects the
-        process_id). All four workers share a single Hub authentication
-        token — the parent requests it once and passes it to the children.
-      </p>
-
-      <p><strong>Run inside tmux for persistence (recommended on a remote machine):</strong></p>
+      <p><strong>Standalone server (no Hub):</strong></p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code># Start a named tmux session (so it survives SSH disconnects)
-tmux new -s workers
-
-# Inside the tmux session, run 4 workers:
-jd_worker_cli expId=digits-tune entry_script=train.py \
-              num_workers=4 machine_type=gpu
-
-# Detach from tmux: Ctrl+B, then D
-# Re-attach later: tmux attach -t workers</code></pre>
+        <pre><code>jd_worker_cli expId=digits-tune entry_script=train.py \
+              server=192.168.1.10 port=8000</code></pre>
       </div>
 
-      <div class="tut-note tut-note--tip">
-        <span class="tut-note__icon">💡</span>
+      <p><strong>Custom data root on scratch disk:</strong></p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>export JD_WORKSPACE_PATH=/scratch/$USER
+jd_worker_cli expId=digits-tune entry_script=train.py num_workers=4</code></pre>
+      </div>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
         <span>
-          <strong>How many workers should I run?</strong> A safe starting
-          point is one worker per physical CPU core for CPU-bound jobs, or
-          one worker per GPU for GPU-bound jobs.
-          Check available cores on Linux with <code>nproc</code>, or on
-          macOS with <code>sysctl -n hw.physicalcpu</code>.
+          On a remote machine you can still use tmux or screen so an interactive
+          REPL session survives SSH disconnects — but background workers no
+          longer require it.
         </span>
       </div>
     </section>
@@ -603,7 +834,9 @@ print(f"Running job {job_id} for experiment '{exp_id}'")</code></pre>
           <tr><td><code>JD_MACHINE_TYPE</code></td><td>Machine type label shown in the server dashboard</td></tr>
           <tr><td><code>JD_WORKSPACE_PATH</code></td><td>Redirect the <code>jd_data/</code> root to a custom directory (default: <code>~</code>)</td></tr>
           <tr><td><code>JD_NUM_WORKERS</code></td><td>Number of parallel workers to spawn (default: <code>1</code>)</td></tr>
-          <tr><td><code>JD_ONCE</code></td><td>Set to <code>true</code> to run one job then exit</td></tr>
+          <tr><td><code>JD_FOREGROUND</code></td><td>Set to <code>true</code> to run attached to the terminal (default: background)</td></tr>
+          <tr><td><code>JD_LOG_DIR</code></td><td>Override worker log directory</td></tr>
+          <tr><td><code>JD_ONCE</code></td><td>Set to <code>true</code> to run one job then exit (or exit when queue is empty)</td></tr>
         </tbody>
       </table>
     </section>
@@ -613,31 +846,45 @@ print(f"Running job {job_id} for experiment '{exp_id}'")</code></pre>
       <h2><span class="step-badge">7</span> Worker Logs</h2>
 
       <p>
-        <code>jd_worker_cli</code> writes a log file for each worker process.
-        The log captures the worker's own activity (job fetches, status updates,
-        errors) as well as the combined stdout and stderr from your entry script.
+        Each worker process writes a log file capturing job fetches, status
+        updates, ping activity, and the combined stdout/stderr from your entry
+        script. Background workers log to file only; use
+        <code>foreground=true</code> to mirror logs to the terminal.
       </p>
 
-      <p><strong>Log file location:</strong></p>
+      <p><strong>Default log location:</strong></p>
       <div class="code-block">
         <div class="code-block__lang"><span>path</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>~/jd_data/&lt;exp_id&gt;/jd_worker_logs/jd_worker_&lt;process_id&gt;.log</code></pre>
+        <pre><code>~/jd_data/&lt;exp_id&gt;/jd_worker_logs/jd_worker_&lt;worker_id&gt;.log</code></pre>
       </div>
 
-      <p>For example, with four workers running on experiment <code>digits-tune</code>:</p>
+      <p>
+        <code>worker_id</code> is formatted as
+        <code>{host}_{instance}_{slot}</code> (e.g. <code>gpunode_A3f9X2_0</code>).
+        Override the directory
+        with <code>log_dir=&lt;path&gt;</code> or <code>JD_LOG_DIR</code>.
+      </p>
+
+      <p><strong>View logs via the CLI</strong> (uses the path stored in the worker registry):</p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>~/jd_data/digits-tune/jd_worker_logs/jd_worker_0.log
-~/jd_data/digits-tune/jd_worker_logs/jd_worker_1.log
-~/jd_data/digits-tune/jd_worker_logs/jd_worker_2.log
-~/jd_data/digits-tune/jd_worker_logs/jd_worker_3.log</code></pre>
+        <pre><code># Last 50 lines
+jd_worker_cli expId=digits-tune worker-logs gpunode_A3f9X2_0
+
+# Last 200 lines, then follow live
+jd_worker_cli expId=digits-tune worker-logs gpunode_A3f9X2_0 lines=200 follow=true</code></pre>
       </div>
 
-      <p>Tail a live log while workers are running:</p>
+      <p>Or tail the file directly:</p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>tail -f ~/jd_data/digits-tune/jd_worker_logs/jd_worker_0.log</code></pre>
+        <pre><code>tail -f ~/jd_data/digits-tune/jd_worker_logs/jd_worker_*.log</code></pre>
       </div>
+
+      <p>
+        Use <code>worker-status &lt;worker-id&gt;</code> to see the exact
+        log path for a registered background worker.
+      </p>
     </section>
 
     {# ── Patterns ─────────────────────────────────────────────────────── #}

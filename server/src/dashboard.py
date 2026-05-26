@@ -3,6 +3,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -46,6 +47,35 @@ STATUS_SERVED = "SERVED"
 STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
 STATUS_DELETED = "DELETED"
+
+def worker_machine_label(requested_by: str) -> str:
+    """Derive a machine/host label from job requested_by (worker id)."""
+    if not requested_by or not str(requested_by).strip():
+        return "Unassigned"
+    rb = str(requested_by).strip()
+    # Legacy: user@host(type)_slot_suffix
+    if "@" in rb:
+        return rb.split("_")[0]
+    # Current: {host}_{instance}_{slot}
+    parts = rb.split("_")
+    if len(parts) == 3 and parts[-1].isdigit() and re.fullmatch(
+        r"[0-9A-Za-z]{6}", parts[1]
+    ):
+        return parts[0]
+    if len(parts) == 3 and parts[-1].isdigit() and re.fullmatch(
+        r"[0-9a-fA-F]{4}", parts[1]
+    ):
+        return parts[0]
+    # Legacy hyphen ids: {instance}-{host}-{slot} or {host}-{slot}-{instance}
+    hparts = rb.split("-")
+    if len(hparts) >= 3 and hparts[-1].isdigit() and (
+        re.fullmatch(r"[0-9A-Za-z]{6}", hparts[0])
+        or re.fullmatch(r"[0-9a-fA-F]{4}", hparts[0])
+    ):
+        return hparts[1]
+    if hparts:
+        return hparts[0]
+    return parts[0] if parts else rb
 
 # ── Auth / PIN constants ──────────────────────────────────────────────────
 SESSION_COOKIE = 'jd_session'
@@ -150,7 +180,7 @@ def load_jobs():
             if not job["requested_by"] or job["requested_by"].strip() == "":
                 job["machine"] = "Unassigned"
             else:
-                job["machine"] = job["requested_by"].split("_")[0]
+                job["machine"] = worker_machine_label(job["requested_by"])
 
         return jobs
     except Exception as e:
@@ -185,8 +215,7 @@ def calculate_machine_stats(jobs):
 
     for job in jobs:
         if job["status"] == STATUS_DONE:
-            machine_name = job["requested_by"].split(
-                "_")[0]  # Extract machine prefix
+            machine_name = worker_machine_label(job["requested_by"])
             machine_stats[machine_name]["count"] += 1
             machine_stats[machine_name]["total_time"] += job["required_time"]
             machine_stats[machine_name]["instances"].add(job["requested_by"])
@@ -630,7 +659,7 @@ def get_jobs_paginated():
             if not job["requested_by"] or job["requested_by"].strip() == "":
                 job["machine"] = "Unassigned"
             else:
-                job["machine"] = job["requested_by"].split("_")[0]
+                job["machine"] = worker_machine_label(job["requested_by"])
 
         return jsonify(result)
 
@@ -736,6 +765,106 @@ def job_upload_download():
         return jsonify({"error": str(e)}), 500
 
 
+# ------------------------ WORKER MANAGEMENT ---------------------
+@app.route("/workers/summary", methods=["GET"])
+def workers_summary():
+    """Live idle/busy worker counts for the dashboard sidebar."""
+    db.track_api_request("Worker Summary", "GET")
+    return jsonify(db.get_worker_summary())
+
+
+@app.route("/workers/filters", methods=["GET"])
+def workers_filters():
+    """Host / instance / slot options for worker filter dropdowns."""
+    db.track_api_request("Worker Filters", "GET")
+    lifecycle = request.args.get("lifecycle", "active").strip().lower()
+    if lifecycle not in ("active", "disabled", "all"):
+        lifecycle = "active"
+    lc = None if lifecycle == "all" else lifecycle
+    return jsonify(db.get_worker_filters(lifecycle=lc))
+
+
+@app.route("/workers/list", methods=["GET"])
+def workers_list():
+    """List workers with lifecycle and host/instance/slot filters."""
+    db.track_api_request("Worker List", "GET")
+    lifecycle = request.args.get("lifecycle", "active").strip().lower()
+    if lifecycle not in ("active", "disabled", "all"):
+        lifecycle = "active"
+    host = request.args.get("host", "").strip() or None
+    instance = request.args.get("instance", "").strip() or None
+    slot_raw = request.args.get("slot", "").strip()
+    slot = int(slot_raw) if slot_raw.isdigit() else None
+    lc = None if lifecycle == "all" else lifecycle
+    workers = db.list_workers(lifecycle=lc, host=host, instance=instance, slot=slot)
+    for w in workers:
+        w["last_poll_at_fmt"] = format_timestamp(w.get("last_poll_at"))
+        w["disabled_at_fmt"] = format_timestamp(w.get("disabled_at"))
+        w["first_poll_at_fmt"] = format_timestamp(w.get("first_poll_at"))
+    return jsonify({"workers": workers})
+
+
+@app.route("/workers/detail", methods=["GET"])
+def workers_detail():
+    """Full worker record including history (newest first) and metrics."""
+    db.track_api_request("Worker Detail", "GET")
+    worker_id = (request.args.get("worker_id") or "").strip()
+    if not worker_id:
+        return jsonify({"error": "worker_id is required"}), 400
+    worker = db.get_worker(worker_id)
+    if not worker:
+        return jsonify({"error": "Worker not found"}), 404
+    worker["last_poll_at_fmt"] = format_timestamp(worker.get("last_poll_at"))
+    worker["disabled_at_fmt"] = format_timestamp(worker.get("disabled_at"))
+    worker["first_poll_at_fmt"] = format_timestamp(worker.get("first_poll_at"))
+    return jsonify(worker)
+
+
+@app.route("/workers/command", methods=["POST"])
+def workers_command():
+    """Queue run / drain / stop for active workers (applied on next poll)."""
+    db.track_api_request("Worker Command", "POST")
+    data = request.json or {}
+    action = (data.get("action") or "").strip().lower()
+    scope = (data.get("scope") or "").strip().lower()
+    target = data.get("target")
+    if target is not None:
+        target = str(target).strip()
+
+    if scope not in ("worker", "host", "instance", "all"):
+        return jsonify({"error": "scope must be worker, host, instance, or all"}), 400
+    if scope in ("worker", "host", "instance") and not target:
+        return jsonify({"error": "target is required for worker/host/instance scope"}), 400
+
+    try:
+        result = db.set_workers_command(action, scope, target)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    logging.info(f"Worker command: action={action} scope={scope} target={target} affected={result['affected']}")
+    return jsonify({"success": True, **result})
+
+
+@app.route("/workers/cancel", methods=["POST"])
+def workers_cancel():
+    """Cancel queued (not yet applied) worker commands on active workers."""
+    db.track_api_request("Worker Cancel", "POST")
+    data = request.json or {}
+    scope = (data.get("scope") or "").strip().lower()
+    target = data.get("target")
+    if target is not None:
+        target = str(target).strip()
+
+    if scope not in ("worker", "host", "instance", "all"):
+        return jsonify({"error": "scope must be worker, host, instance, or all"}), 400
+    if scope in ("worker", "host", "instance") and not target:
+        return jsonify({"error": "target is required for worker/host/instance scope"}), 400
+
+    reverted = db.cancel_pending_worker_commands(scope, target)
+    logging.info(f"Worker cancel: scope={scope} target={target} reverted={reverted}")
+    return jsonify({"success": True, "reverted": reverted})
+
+
 # ------------------------ DASHBOARD ROUTE ---------------------
 @app.route("/", methods=["GET"])
 def dashboard():
@@ -755,8 +884,11 @@ def dashboard():
 
     # Get machine names efficiently (only from completed jobs for stats)
     completed_jobs = db.get_jobs_by_status(STATUS_DONE)
-    machine_names = sorted(set(job["requested_by"].split(
-        "_")[0] if job["requested_by"] else "Unassigned" for job in completed_jobs))
+    machine_names = sorted(set(
+        worker_machine_label(job["requested_by"])
+        for job in completed_jobs
+        if job["requested_by"]
+    ))
 
     # Calculate machine stats efficiently
     machine_stats = calculate_machine_stats(completed_jobs)

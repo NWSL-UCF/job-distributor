@@ -5,6 +5,403 @@ function openModal() {
                 document.getElementById("statsModal").style.display = "none";
             }
 
+            // ── Main nav: Jobs vs Workers ─────────────────────────────────────
+            let _workerSubtab = 'active';
+            let _workerFiltersData = null;
+            let _workerDetailCache = null;
+
+            function switchMainView(view) {
+                const jobsView = document.getElementById('view-jobs');
+                const workersView = document.getElementById('view-workers');
+                const tabJobs = document.getElementById('mainTabJobs');
+                const tabWorkers = document.getElementById('mainTabWorkers');
+                if (!jobsView || !workersView) return;
+                if (view === 'workers') {
+                    jobsView.classList.remove('active');
+                    workersView.classList.add('active');
+                    tabJobs.classList.remove('active');
+                    tabWorkers.classList.add('active');
+                    refreshWorkersPage();
+                } else {
+                    workersView.classList.remove('active');
+                    jobsView.classList.add('active');
+                    tabWorkers.classList.remove('active');
+                    tabJobs.classList.add('active');
+                }
+            }
+
+            function switchWorkerSubtab(which) {
+                _workerSubtab = which;
+                document.getElementById('workerSubtabActive').classList.toggle('active', which === 'active');
+                document.getElementById('workerSubtabDisabled').classList.toggle('active', which === 'disabled');
+                const toolbar = document.getElementById('workersActiveToolbar');
+                if (toolbar) toolbar.style.display = which === 'active' ? 'flex' : 'none';
+                loadWorkerFilters().then(() => loadWorkersPageTable());
+            }
+
+            function loadWorkerSummary() {
+                fetch('/workers/summary')
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        if (!data) return;
+                        const map = {
+                            workerIdleCount: data.idle,
+                            workerBusyCount: data.busy,
+                            workerPendingCount: data.pending_commands,
+                            workersPageIdle: data.idle,
+                            workersPageBusy: data.busy,
+                            workersPageDisabled: data.disabled,
+                        };
+                        Object.keys(map).forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) el.textContent = map[id] ?? 0;
+                        });
+                    })
+                    .catch(() => {});
+            }
+
+            function _escHtml(s) {
+                return String(s ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+            }
+
+            function _workerStateBadge(w) {
+                if ((w.lifecycle_status || 'active') === 'disabled') {
+                    return '<span class="worker-badge worker-badge--disabled">disabled</span>';
+                }
+                if (w.pending) {
+                    return `<span class="worker-badge worker-badge--pending">queued ${w.desired_state}</span>`;
+                }
+                const ds = w.desired_state || 'run';
+                if (ds !== 'run') {
+                    return `<span class="worker-badge worker-badge--applied">${ds}</span>`;
+                }
+                const rs = w.reported_status || 'idle';
+                const cls = rs === 'busy' ? 'worker-badge--busy' : 'worker-badge--idle';
+                return `<span class="worker-badge ${cls}">${rs}</span>`;
+            }
+
+            function loadWorkerFilters() {
+                const lifecycle = _workerSubtab === 'disabled' ? 'disabled' : 'active';
+                return fetch('/workers/filters?lifecycle=' + lifecycle)
+                    .then(r => r.json())
+                    .then(data => {
+                        _workerFiltersData = data;
+                        const hostSel = document.getElementById('workerFilterHost');
+                        const instSel = document.getElementById('workerFilterInstance');
+                        const slotSel = document.getElementById('workerFilterSlot');
+                        if (!hostSel) return;
+                        const prevHost = hostSel.value;
+                        const prevInst = instSel.value;
+                        const prevSlot = slotSel.value;
+                        hostSel.innerHTML = '<option value="">All hosts</option>';
+                        (data.hosts || []).forEach(h => {
+                            hostSel.innerHTML += `<option value="${_escHtml(h)}">${_escHtml(h)}</option>`;
+                        });
+                        hostSel.value = (data.hosts || []).includes(prevHost) ? prevHost : '';
+                        _populateWorkerInstanceDropdown();
+                        if ((data.instances_by_host[hostSel.value] || []).includes(prevInst)) {
+                            instSel.value = prevInst;
+                        }
+                        _populateWorkerSlotDropdown();
+                        if (slotSel.querySelector(`option[value="${prevSlot}"]`)) {
+                            slotSel.value = prevSlot;
+                        }
+                    })
+                    .catch(() => {});
+            }
+
+            function _populateWorkerInstanceDropdown() {
+                const hostSel = document.getElementById('workerFilterHost');
+                const instSel = document.getElementById('workerFilterInstance');
+                if (!instSel || !_workerFiltersData) return;
+                const host = hostSel.value;
+                instSel.innerHTML = '<option value="">All instances</option>';
+                instSel.disabled = !host;
+                if (host) {
+                    (_workerFiltersData.instances_by_host[host] || []).forEach(inst => {
+                        instSel.innerHTML += `<option value="${_escHtml(inst)}">${_escHtml(inst)}</option>`;
+                    });
+                }
+            }
+
+            function _populateWorkerSlotDropdown() {
+                const hostSel = document.getElementById('workerFilterHost');
+                const instSel = document.getElementById('workerFilterInstance');
+                const slotSel = document.getElementById('workerFilterSlot');
+                if (!slotSel || !_workerFiltersData) return;
+                const host = hostSel.value;
+                const inst = instSel.value;
+                slotSel.innerHTML = '<option value="">All slots</option>';
+                slotSel.disabled = !(host && inst);
+                if (host && inst) {
+                    const key = host + '|' + inst;
+                    (_workerFiltersData.slots_by_host_instance[key] || []).forEach(sl => {
+                        slotSel.innerHTML += `<option value="${sl}">${sl}</option>`;
+                    });
+                }
+            }
+
+            function onWorkerFilterChange() {
+                const hostSel = document.getElementById('workerFilterHost');
+                const instSel = document.getElementById('workerFilterInstance');
+                if (!hostSel.value) {
+                    instSel.value = '';
+                }
+                _populateWorkerInstanceDropdown();
+                if (!instSel.value) {
+                    document.getElementById('workerFilterSlot').value = '';
+                }
+                _populateWorkerSlotDropdown();
+                loadWorkersPageTable();
+            }
+
+            function _workerFilterParams() {
+                const p = new URLSearchParams();
+                p.set('lifecycle', _workerSubtab === 'disabled' ? 'disabled' : 'active');
+                const host = document.getElementById('workerFilterHost')?.value;
+                const inst = document.getElementById('workerFilterInstance')?.value;
+                const slot = document.getElementById('workerFilterSlot')?.value;
+                if (host) p.set('host', host);
+                if (inst) p.set('instance', inst);
+                if (slot !== '') p.set('slot', slot);
+                return p.toString();
+            }
+
+            function loadWorkersPageTable() {
+                const tbody = document.getElementById('workersPageBody');
+                if (!tbody) return;
+                tbody.innerHTML = '<tr><td colspan="8" class="workers-loading">Loading workers…</td></tr>';
+                fetch('/workers/list?' + _workerFilterParams())
+                    .then(r => r.json())
+                    .then(data => {
+                        const workers = data.workers || [];
+                        if (!workers.length) {
+                            const msg = _workerSubtab === 'disabled'
+                                ? 'No disabled workers.'
+                                : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).';
+                            tbody.innerHTML = `<tr><td colspan="8" class="workers-empty">${msg}</td></tr>`;
+                            return;
+                        }
+                        tbody.innerHTML = workers.map(w => {
+                            const wid = w.worker_id || '';
+                            const jobCell = w.current_job_id ? `#${w.current_job_id}` : '—';
+                            const lastPoll = w.last_poll_at_fmt || '—';
+                            const isActive = _workerSubtab === 'active';
+                            let actions = `<button type="button" class="workers-btn-sm" onclick="openWorkerDetail('${_escHtml(wid)}')">Details</button>`;
+                            if (isActive) {
+                                actions += `
+                                    <button type="button" class="workers-btn-sm workers-btn--drain" onclick="workerCommand('drain','worker','${_escHtml(wid)}')">Drain</button>
+                                    <button type="button" class="workers-btn-sm workers-btn--stop" onclick="workerCommand('stop','worker','${_escHtml(wid)}')">Stop</button>
+                                    <button type="button" class="workers-btn-sm workers-btn--run" onclick="workerCommand('run','worker','${_escHtml(wid)}')">Resume</button>
+                                    ${w.pending ? `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${_escHtml(wid)}')">Cancel</button>` : ''}`;
+                            }
+                            return `<tr>
+                                <td><code class="workers-id">${_escHtml(wid)}</code></td>
+                                <td>${_escHtml(w.host || '—')}</td>
+                                <td><code>${_escHtml(w.instance || '—')}</code></td>
+                                <td>${w.slot != null ? w.slot : '—'}</td>
+                                <td>${_workerStateBadge(w)}</td>
+                                <td>${jobCell}</td>
+                                <td>${_escHtml(lastPoll)}</td>
+                                <td class="workers-row-actions">${actions}</td>
+                            </tr>`;
+                        }).join('');
+                    })
+                    .catch(err => {
+                        tbody.innerHTML = `<tr><td colspan="8" class="workers-error">Failed to load: ${_escHtml(err.message)}</td></tr>`;
+                    });
+            }
+
+            function refreshWorkersPage() {
+                loadWorkerSummary();
+                loadWorkerFilters().then(() => loadWorkersPageTable());
+            }
+
+            function workerCommand(action, scope, target) {
+                const labels = { run: 'resume', drain: 'drain', stop: 'stop' };
+                const label = labels[action] || action;
+                const scopeLabel = scope === 'all' ? 'all active workers'
+                    : scope === 'host' ? `host ${target}`
+                    : scope === 'instance' ? `instance ${target}`
+                    : `worker ${target}`;
+                if (!confirm(`Queue ${label} for ${scopeLabel}? Applies on next worker poll (~3 min).`)) return;
+                fetch('/workers/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, scope, target: target || null }),
+                })
+                    .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+                    .then(({ ok, data }) => {
+                        if (ok && data.success) {
+                            showNotification(`Queued ${label} for ${data.affected} worker(s).`, 'success');
+                            refreshWorkersPage();
+                        } else {
+                            showNotification(data.error || 'Command failed.', 'error');
+                        }
+                    })
+                    .catch(e => showNotification('Network error: ' + e.message, 'error'));
+            }
+
+            function cancelWorkerCommand(scope, target) {
+                const scopeLabel = scope === 'all' ? 'all active workers'
+                    : scope === 'host' ? `host ${target}` : `worker ${target}`;
+                if (!confirm(`Cancel pending commands for ${scopeLabel}?`)) return;
+                fetch('/workers/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scope, target: target || null }),
+                })
+                    .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+                    .then(({ ok, data }) => {
+                        if (ok && data.success) {
+                            showNotification(`Reverted ${data.reverted} pending command(s).`, 'success');
+                            refreshWorkersPage();
+                        } else {
+                            showNotification(data.error || 'Cancel failed.', 'error');
+                        }
+                    })
+                    .catch(e => showNotification('Network error: ' + e.message, 'error'));
+            }
+
+            function switchWorkerModalTab(tab, btn) {
+                ['info', 'history', 'metrics'].forEach(t => {
+                    document.getElementById('modalTab-worker-' + t).classList.toggle('active', t === tab);
+                });
+                document.querySelectorAll('#workerDetailModal .modal-tab-btn').forEach(b => b.classList.remove('active'));
+                if (btn) btn.classList.add('active');
+            }
+
+            function openWorkerDetail(workerId) {
+                fetch('/workers/detail?worker_id=' + encodeURIComponent(workerId))
+                    .then(r => r.json())
+                    .then(w => {
+                        if (w.error) {
+                            showNotification(w.error, 'error');
+                            return;
+                        }
+                        _workerDetailCache = w;
+                        document.getElementById('workerDetailId').textContent = w.worker_id;
+                        const badge = document.getElementById('workerDetailBadge');
+                        const lc = w.lifecycle_status || 'active';
+                        badge.textContent = lc === 'disabled' ? 'DISABLED' : (w.reported_status || 'idle').toUpperCase();
+                        badge.className = 'job-status-badge badge-' + (lc === 'disabled' ? 'DELETED' : 'SERVED');
+
+                        const info = document.getElementById('workerInfoTable');
+                        const rows = [
+                            ['Host', w.host || '—'],
+                            ['Instance', w.instance || '—'],
+                            ['Slot', w.slot != null ? w.slot : '—'],
+                            ['Machine type', w.machine_type || '—'],
+                            ['Status', w.reported_status || '—'],
+                            ['Desired state', w.desired_state || 'run'],
+                            ['Current job', w.current_job_id ? '#' + w.current_job_id : '—'],
+                            ['Worker version', w.jd_worker_version || '—'],
+                            ['First poll', w.first_poll_at_fmt || '—'],
+                            ['Last poll', w.last_poll_at_fmt || '—'],
+                            ['Disabled at', w.disabled_at_fmt || '—'],
+                        ];
+                        info.innerHTML = '<table class="modal-kv-table"><tr><th>Field</th><th>Value</th></tr>' +
+                            rows.map(([k, v]) => `<tr><td><strong>${k}</strong></td><td>${_escHtml(String(v))}</td></tr>`).join('') +
+                            '</table>';
+
+                        const timeline = document.getElementById('workerHistoryTimeline');
+                        renderWorkerHistory(timeline, w.history || []);
+
+                        const metricsEl = document.getElementById('workerMetricsTable');
+                        if (w.system_metrics && Object.keys(w.system_metrics).length) {
+                            renderSystemMetrics(metricsEl, w.system_metrics);
+                        } else {
+                            metricsEl.innerHTML = '<p style="color:#adb5bd;text-align:center;padding:20px 0;">No metrics recorded yet.</p>';
+                        }
+                        _populateWorkerHistoryMetricsSelect(w.history || []);
+
+                        switchWorkerModalTab('info', document.getElementById('tab-btn-worker-info'));
+                        document.getElementById('workerDetailModal').style.display = 'block';
+                    })
+                    .catch(e => showNotification('Could not load worker: ' + e.message, 'error'));
+            }
+
+            function closeWorkerDetailModal() {
+                document.getElementById('workerDetailModal').style.display = 'none';
+            }
+
+            function renderWorkerHistory(timelineEl, entries) {
+                timelineEl.innerHTML = '';
+                const list = Array.isArray(entries) ? entries.slice() : [];
+                list.sort((a, b) => (floatOrZero(b.timestamp) - floatOrZero(a.timestamp)));
+                if (!list.length) {
+                    timelineEl.innerHTML = '<div class="timeline-empty"><i class="fas fa-history"></i>No history yet.</div>';
+                    return;
+                }
+                list.forEach(entry => {
+                    const item = document.createElement('div');
+                    item.className = 'timeline-item ' + getTimelineClass(entry.reason || '');
+                    let tsLabel = 'Time unknown';
+                    if (entry.timestamp != null) {
+                        tsLabel = new Date(entry.timestamp * 1000).toLocaleString('en-US', {
+                            weekday: 'short', year: 'numeric', month: 'short',
+                            day: 'numeric', hour: '2-digit', minute: '2-digit',
+                            second: '2-digit', hour12: true
+                        });
+                    }
+                    let extra = '';
+                    if (entry.metrics && Object.keys(entry.metrics).length) {
+                        extra = ' <span class="worker-history-metrics-tag">(metrics captured)</span>';
+                    }
+                    item.innerHTML =
+                        `<div class="tl-msg">${formatMessageForDisplay(entry.reason)}${extra}</div>` +
+                        `<div class="tl-time">${tsLabel}</div>`;
+                    timelineEl.appendChild(item);
+                });
+            }
+
+            function floatOrZero(v) {
+                const n = parseFloat(v);
+                return Number.isFinite(n) ? n : 0;
+            }
+
+            function _populateWorkerHistoryMetricsSelect(history) {
+                const sel = document.getElementById('workerHistoryMetricsSelect');
+                const section = document.getElementById('workerHistoryMetricsSection');
+                const panel = document.getElementById('workerHistoryMetricsPanel');
+                const withMetrics = (history || []).filter(e => e.metrics && Object.keys(e.metrics).length);
+                if (!withMetrics.length) {
+                    section.style.display = 'none';
+                    panel.innerHTML = '';
+                    return;
+                }
+                section.style.display = 'block';
+                sel.innerHTML = withMetrics.map((e, i) => {
+                    const ts = e.timestamp ? new Date(e.timestamp * 1000).toLocaleString() : 'unknown time';
+                    return `<option value="${i}">${_escHtml((e.event || 'event') + ' — ' + ts)}</option>`;
+                }).join('');
+                onWorkerHistoryMetricsSelect();
+            }
+
+            function onWorkerHistoryMetricsSelect() {
+                const sel = document.getElementById('workerHistoryMetricsSelect');
+                const panel = document.getElementById('workerHistoryMetricsPanel');
+                if (!_workerDetailCache || !sel) return;
+                const withMetrics = (_workerDetailCache.history || []).filter(
+                    e => e.metrics && Object.keys(e.metrics).length
+                );
+                const idx = parseInt(sel.value, 10);
+                if (!withMetrics[idx]) {
+                    panel.innerHTML = '';
+                    return;
+                }
+                renderSystemMetrics(panel, withMetrics[idx].metrics);
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                loadWorkerSummary();
+                setInterval(loadWorkerSummary, 30000);
+            });
+
 // Pagination and Search Variables
             let currentPages = {
                 'SERVED': 1,

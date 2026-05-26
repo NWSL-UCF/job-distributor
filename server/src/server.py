@@ -236,6 +236,125 @@ def request_job():
     }), 200
 
 
+@app.route("/worker/poll", methods=["POST"])
+def worker_poll():
+    """Worker heartbeat + control channel. Idle workers may receive a job."""
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("Worker Poll", "POST")
+
+    data = request.json or {}
+    worker_id = (data.get("worker_id") or data.get("requested_by") or "").strip()
+    if not worker_id:
+        return jsonify({"error": "worker_id is required"}), 400
+
+    host = (data.get("host") or "").strip()
+    machine_type = (data.get("machine_type") or "worker").strip()
+    reported_status = (data.get("reported_status") or "idle").strip()
+    current_job_id = data.get("current_job_id")
+    if current_job_id is not None and not isinstance(current_job_id, int):
+        try:
+            current_job_id = int(current_job_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "current_job_id must be an integer"}), 400
+
+    applied_version = data.get("applied_version", 0)
+    try:
+        applied_version = int(applied_version)
+    except (TypeError, ValueError):
+        return jsonify({"error": "applied_version must be an integer"}), 400
+
+    system_metrics = data.get("system_metrics", {})
+    if not isinstance(system_metrics, dict):
+        return jsonify({"error": "system_metrics must be an object"}), 400
+
+    jd_worker_version = (data.get("jd_worker_version") or "").strip()
+
+    try:
+        result = db.worker_poll(
+            worker_id=worker_id,
+            host=host,
+            machine_type=machine_type,
+            reported_status=reported_status,
+            current_job_id=current_job_id,
+            applied_version=applied_version,
+            system_metrics=system_metrics,
+            jd_worker_version=jd_worker_version,
+        )
+    except Exception as e:
+        logging.error(f"Worker poll error for {worker_id}: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+    if result.get("job"):
+        logging.info(f"Poll assigned job {result['job']['job_id']} to {worker_id}.")
+    return jsonify(result), 200
+
+
+@app.route("/workers/cli/stop", methods=["POST"])
+def workers_cli_stop():
+    """Record worker stop initiated from jd_worker_cli (dashboard history + job abort)."""
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("Worker CLI Stop", "POST")
+
+    data = request.json or {}
+    worker_id = (data.get("worker_id") or "").strip()
+    if not worker_id:
+        return jsonify({"error": "worker_id is required"}), 400
+
+    job_id = data.get("job_id")
+    if job_id is not None and not isinstance(job_id, int):
+        try:
+            job_id = int(job_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "job_id must be an integer"}), 400
+
+    source = (data.get("source") or data.get("host") or "").strip()
+    action = (data.get("action") or "stop").strip().lower()
+
+    try:
+        result = db.handle_cli_worker_stop(
+            worker_id=worker_id,
+            source=source,
+            action=action,
+            job_id=job_id,
+        )
+    except Exception as e:
+        logging.error(f"CLI worker stop error for {worker_id}: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+    logging.info(
+        f"CLI stop recorded for {worker_id} (job_aborted={result.get('job_aborted')})."
+    )
+    return jsonify({"success": True, **result}), 200
+
+
+@app.route("/workers/cli/clear_all", methods=["POST"])
+def workers_cli_clear_all():
+    """Record jd_worker_cli clear_all — batch worker stops and job aborts."""
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("Worker CLI Clear All", "POST")
+
+    data = request.json or {}
+    workers = data.get("workers")
+    if not isinstance(workers, list):
+        return jsonify({"error": "workers must be a list"}), 400
+
+    source = (data.get("source") or data.get("host") or "").strip()
+    try:
+        result = db.handle_cli_clear_all(workers, source=source)
+    except Exception as e:
+        logging.error(f"CLI clear_all error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+    logging.info(f"CLI clear_all recorded for {result.get('processed', 0)} worker(s).")
+    return jsonify({"success": True, **result}), 200
+
+
 @app.route("/update_job_status", methods=["POST"])
 def update_job_status():
     """Update the status of a job (DONE or ABORTED)."""
@@ -303,6 +422,17 @@ def ping_job():
     now = round(time.time())
     logging.info(f"Ping received for job {job_id}. Updated last_ping_timestamp.")
     return jsonify({"message": f"Ping received for job {job_id}", "timestamp": now}), 200
+
+
+@app.route("/job_counts", methods=["GET"])
+def job_counts():
+    """Return job counts grouped by status (worker JWT auth)."""
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("Job Counts", "GET")
+    counts = db.get_job_counts_by_status()
+    return jsonify(counts), 200
 
 
 @app.route("/cleanup/reset_aborted_jobs", methods=["POST"])

@@ -39,9 +39,18 @@
                     </button>
                 </div>
             </div>
+
+            <nav class="main-nav-tabs" role="tablist">
+                <button type="button" class="main-nav-tab active" id="mainTabJobs" onclick="switchMainView('jobs')">
+                    <i class="fas fa-tasks"></i> Jobs
+                </button>
+                <button type="button" class="main-nav-tab" id="mainTabWorkers" onclick="switchMainView('workers')">
+                    <i class="fas fa-server"></i> Workers Management
+                </button>
+            </nav>
             
             <div class="main-content">
-        
+
         <div id="statsModal" class="modal-2">
             <div class="modal-content-2">
                 <span class="close" onclick="closeModal()">&times;</span>
@@ -81,6 +90,8 @@
                 </table>
             </div>
         </div>
+
+                <div id="view-jobs" class="main-view active">
                 <div class="dashboard-grid">
                     <div class="sidebar">
 
@@ -107,6 +118,25 @@
                                     <span class="sb-action-sub">Worker performance breakdown</span>
                                 </div>
                             </button>
+                        </div>
+
+                        <!-- WORKER STATUS (summary — full UI under Workers tab) -->
+                        <div class="sb-section">
+                            <p class="sb-section-title">Workers</p>
+                            <div class="sb-stat-grid">
+                                <div class="sb-stat-tile" style="border-left-color:#2ecc71;">
+                                    <div class="sb-stat-tile-val" id="workerIdleCount" style="color:#2ecc71;">—</div>
+                                    <div class="sb-stat-tile-lbl">Idle</div>
+                                </div>
+                                <div class="sb-stat-tile" style="border-left-color:#e67e22;">
+                                    <div class="sb-stat-tile-val" id="workerBusyCount" style="color:#e67e22;">—</div>
+                                    <div class="sb-stat-tile-lbl">Busy</div>
+                                </div>
+                            </div>
+                            <div class="sb-meta-row" style="margin-top:8px;">
+                                <span class="sb-meta-key">Pending commands</span>
+                                <span class="sb-meta-val" id="workerPendingCount">—</span>
+                            </div>
                         </div>
 
                         <!-- JOB STATUS -->
@@ -330,6 +360,94 @@
 
                     </div>
                 </div>
+                </div><!-- end view-jobs -->
+
+                <div id="view-workers" class="main-view">
+                    <div class="workers-page">
+                        <div class="workers-page-header">
+                            <div>
+                                <h2 class="workers-page-title">Workers Management</h2>
+                                <p class="workers-page-sub">
+                                    Active workers accept dashboard commands on their next poll (~3 min).
+                                    Disabled workers stopped polling and are read-only.
+                                </p>
+                            </div>
+                            <div class="workers-summary-chips">
+                                <span class="workers-chip workers-chip--idle">Idle: <strong id="workersPageIdle">—</strong></span>
+                                <span class="workers-chip workers-chip--busy">Busy: <strong id="workersPageBusy">—</strong></span>
+                                <span class="workers-chip workers-chip--disabled">Disabled: <strong id="workersPageDisabled">—</strong></span>
+                            </div>
+                        </div>
+
+                        <div class="workers-subtabs">
+                            <button type="button" class="workers-subtab active" id="workerSubtabActive" onclick="switchWorkerSubtab('active')">
+                                Active Workers
+                            </button>
+                            <button type="button" class="workers-subtab" id="workerSubtabDisabled" onclick="switchWorkerSubtab('disabled')">
+                                Disabled / Stopped
+                            </button>
+                        </div>
+
+                        <div class="workers-filters">
+                            <div class="workers-filter-group">
+                                <label for="workerFilterHost">Host</label>
+                                <select id="workerFilterHost" class="form-select" onchange="onWorkerFilterChange()">
+                                    <option value="">All hosts</option>
+                                </select>
+                            </div>
+                            <div class="workers-filter-group">
+                                <label for="workerFilterInstance">Instance</label>
+                                <select id="workerFilterInstance" class="form-select" onchange="onWorkerFilterChange()">
+                                    <option value="">All instances</option>
+                                </select>
+                            </div>
+                            <div class="workers-filter-group">
+                                <label for="workerFilterSlot">Slot</label>
+                                <select id="workerFilterSlot" class="form-select" onchange="onWorkerFilterChange()">
+                                    <option value="">All slots</option>
+                                </select>
+                            </div>
+                            <button type="button" class="workers-btn workers-btn--refresh" onclick="refreshWorkersPage()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
+
+                        <div id="workersActiveToolbar" class="workers-toolbar">
+                            <button type="button" class="workers-btn workers-btn--run" onclick="workerCommand('run','all')">
+                                <i class="fas fa-play"></i> Resume all
+                            </button>
+                            <button type="button" class="workers-btn workers-btn--drain" onclick="workerCommand('drain','all')">
+                                <i class="fas fa-hourglass-half"></i> Drain all
+                            </button>
+                            <button type="button" class="workers-btn workers-btn--stop" onclick="workerCommand('stop','all')">
+                                <i class="fas fa-stop"></i> Stop all
+                            </button>
+                            <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
+                                <i class="fas fa-undo"></i> Cancel all pending
+                            </button>
+                        </div>
+
+                        <div class="workers-table-wrap">
+                            <table class="workers-page-table" id="workersPageTable">
+                                <thead>
+                                    <tr>
+                                        <th>Worker ID</th>
+                                        <th>Host</th>
+                                        <th>Instance</th>
+                                        <th>Slot</th>
+                                        <th>Status</th>
+                                        <th>Job</th>
+                                        <th>Last poll</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="workersPageBody">
+                                    <tr><td colspan="8" class="workers-loading">Loading workers…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div><!-- end view-workers -->
         
         <!-- Setup / Add Jobs Overlay -->
         <div id="setupOverlay">
@@ -502,6 +620,38 @@
                         <button onclick="updatePin()" style="padding:9px 22px; background:#495057; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
                             <i class="fas fa-key"></i> Change PIN
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Worker Details Modal -->
+        <div id="workerDetailModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header-row">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <h2 style="margin:0; font-size:1.15rem;">Worker <code id="workerDetailId" style="font-size:0.9rem;"></code></h2>
+                        <span id="workerDetailBadge" class="job-status-badge"></span>
+                    </div>
+                    <button class="close" onclick="closeWorkerDetailModal()" title="Close">&times;</button>
+                </div>
+                <div class="modal-tabs">
+                    <button class="modal-tab-btn active" id="tab-btn-worker-info" onclick="switchWorkerModalTab('info', this)"><i class="fas fa-info-circle"></i> Info</button>
+                    <button class="modal-tab-btn" id="tab-btn-worker-history" onclick="switchWorkerModalTab('history', this)"><i class="fas fa-history"></i> History</button>
+                    <button class="modal-tab-btn" id="tab-btn-worker-metrics" onclick="switchWorkerModalTab('metrics', this)"><i class="fas fa-microchip"></i> Metrics</button>
+                </div>
+                <div id="modalTab-worker-info" class="modal-tab-content active">
+                    <div id="workerInfoTable"></div>
+                </div>
+                <div id="modalTab-worker-history" class="modal-tab-content">
+                    <div class="timeline" id="workerHistoryTimeline"></div>
+                </div>
+                <div id="modalTab-worker-metrics" class="modal-tab-content">
+                    <div id="workerMetricsTable"></div>
+                    <div id="workerHistoryMetricsSection" style="display:none; margin-top:16px;">
+                        <h4 style="margin:0 0 8px 0; font-size:0.9rem;">Metrics from history</h4>
+                        <select id="workerHistoryMetricsSelect" class="form-select" onchange="onWorkerHistoryMetricsSelect()" style="max-width:420px; margin-bottom:12px;"></select>
+                        <div id="workerHistoryMetricsPanel"></div>
                     </div>
                 </div>
             </div>

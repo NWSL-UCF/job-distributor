@@ -2,9 +2,9 @@
 Worker JWT management for Hub mode.
 
 The worker parent process holds a WorkerTokenManager that proactively refreshes
-the JWT before expiry and writes the current token to
-``<home>/.cache/<expId>/<worker_id>/.token`` so entry scripts
-(jd_upload, checkpoints) always read a fresh token.
+the JWT before expiry and writes the current token to the local worker registry
+(``workers.db`` column ``worker_token``) so entry scripts (jd_upload,
+checkpoints) always read a fresh token.
 """
 from __future__ import annotations
 
@@ -16,11 +16,14 @@ import random
 import secrets
 import threading
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import requests
 
-# Filename for the per-worker JWT cache file; parent updates, child reads.
+if TYPE_CHECKING:
+    from jd.worker_registry import WorkerRegistry
+
+# Legacy per-worker token file (pre–1.16); still read/cleaned up for migration.
 TOKEN_FILENAME = ".token"
 CACHE_DIRNAME = ".cache"
 
@@ -33,7 +36,7 @@ def new_worker_id() -> str:
 def worker_token_file_path(
     workspace_parent: str, exp_id: str, worker_id: str,
 ) -> str:
-    """Return …/<home>/.cache/<expId>/<worker_id>/.token"""
+    """Legacy path …/<home>/.cache/<expId>/<worker_id>/.token (deprecated)."""
     return os.path.join(
         os.path.abspath(workspace_parent),
         CACHE_DIRNAME,
@@ -136,7 +139,7 @@ def fetch_worker_token(
 
 
 def write_token_file(path: str, token: str) -> None:
-    """Write the current JWT to a file (mode 600) for the entry script to read."""
+    """Legacy: write JWT to a file (mode 600). Prefer registry storage."""
     directory = os.path.dirname(path)
     if directory:
         os.makedirs(directory, exist_ok=True)
@@ -149,7 +152,7 @@ def write_token_file(path: str, token: str) -> None:
 
 
 def read_token_file(path: str) -> str:
-    """Read JWT from token file; return empty string if missing."""
+    """Legacy: read JWT from token file."""
     try:
         with open(path, encoding="utf-8") as f:
             return f.read().strip()
@@ -157,13 +160,30 @@ def read_token_file(path: str) -> str:
         return ""
 
 
+def _read_token_from_registry() -> str:
+    worker_id = os.environ.get("JD_WORKER_ID", "").strip()
+    exp_id = os.environ.get("JD_EXP_ID", "").strip().lower()
+    if not worker_id or not exp_id:
+        return ""
+    parent = os.environ.get("JD_WORKSPACE_PATH", "").strip() or None
+    try:
+        from jd.worker_registry import WorkerRegistry
+        return WorkerRegistry(exp_id, parent).get_worker_token(worker_id)
+    except Exception:
+        return ""
+
+
 def read_worker_token() -> str:
     """
     Token for entry-script API calls.
 
-    Prefers JD_WORKER_TOKEN_FILE (updated by parent on proactive refresh),
-    falls back to JD_WORKER_TOKEN env (initial value at job start).
+    Prefers the local worker registry (``workers.db``) when ``JD_WORKER_ID`` and
+    ``JD_EXP_ID`` are set — the parent worker refreshes that row on each Hub
+    fetch. Falls back to legacy ``JD_WORKER_TOKEN_FILE``, then ``JD_WORKER_TOKEN``.
     """
+    token = _read_token_from_registry()
+    if token:
+        return token
     path = os.environ.get("JD_WORKER_TOKEN_FILE", "").strip()
     if path:
         token = read_token_file(path)
@@ -182,7 +202,7 @@ def worker_auth_headers() -> dict:
 
 class WorkerTokenManager:
     """
-    Thread-safe worker JWT with proactive refresh and optional token file sync.
+    Thread-safe worker JWT with proactive refresh and registry persistence.
 
     Call ensure_fresh() before server API calls; refresh happens automatically
     when within REFRESH_MARGIN_SECS of expiry.
@@ -203,38 +223,62 @@ class WorkerTokenManager:
         self._lock = threading.Lock()
         self._token = initial_token.strip()
         self._expires_at = jwt_exp_unix(self._token) or 0.0
-        self._token_file: Optional[str] = None
+        self._registry: Optional["WorkerRegistry"] = None
+        self._registry_worker_id: Optional[str] = None
+        self._legacy_token_file: Optional[str] = None
         self.last_server_url = ""
 
     @property
     def enabled(self) -> bool:
         return bool(self.hub_url and self.api_key)
 
-    def set_token_file(self, path: Optional[str]) -> None:
-        """Point at the per-worker token file; write current token immediately."""
+    def set_token_registry(
+        self,
+        registry: Optional["WorkerRegistry"],
+        worker_id: str,
+    ) -> None:
+        """Persist tokens in ``workers.db`` for this worker row."""
         with self._lock:
-            self._token_file = path
-            if path and self._token:
-                write_token_file(path, self._token)
+            self._registry = registry
+            self._registry_worker_id = worker_id.strip() if worker_id else None
+            if registry and self._registry_worker_id and self._token:
+                registry.set_worker_token(self._registry_worker_id, self._token)
+
+    def set_token_file(self, path: Optional[str]) -> None:
+        """Deprecated alias — stores legacy file path for migration cleanup only."""
+        with self._lock:
+            self._legacy_token_file = path
+
+    def clear_token_store(self) -> None:
+        """Clear registry token and remove legacy token file if present."""
+        with self._lock:
+            registry = self._registry
+            wid = self._registry_worker_id
+            legacy = self._legacy_token_file
+            self._registry = None
+            self._registry_worker_id = None
+            self._legacy_token_file = None
+        if registry and wid:
+            registry.clear_worker_token(wid)
+        if legacy and os.path.isfile(legacy):
+            try:
+                os.remove(legacy)
+            except OSError:
+                pass
+            cache_dir = os.path.dirname(legacy)
+            if cache_dir:
+                try:
+                    os.rmdir(cache_dir)
+                except OSError:
+                    pass
 
     def clear_token_file(self) -> None:
-        """Remove the per-worker token file and cache dir when the worker exits."""
-        with self._lock:
-            path = self._token_file
-            self._token_file = None
-        if not path:
-            return
-        cache_dir = os.path.dirname(path)
-        if os.path.isfile(path):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-        if cache_dir:
-            try:
-                os.rmdir(cache_dir)
-            except OSError:
-                pass
+        """Deprecated alias for ``clear_token_store``."""
+        self.clear_token_store()
+
+    def _persist_token(self, token: str) -> None:
+        if self._registry and self._registry_worker_id:
+            self._registry.set_worker_token(self._registry_worker_id, token)
 
     def ensure_fresh(self) -> bool:
         """
@@ -278,8 +322,7 @@ class WorkerTokenManager:
         if data.get("server_url"):
             self.last_server_url = data["server_url"]
 
-        if self._token_file:
-            write_token_file(self._token_file, self._token)
+        self._persist_token(self._token)
 
         remaining_m = max(0, (self._expires_at - time.time()) / 60)
         self.logger.info(

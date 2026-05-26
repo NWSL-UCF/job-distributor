@@ -12,7 +12,7 @@ The same Python package exposes three helpers for use **inside** the entry scrip
 
 - **Python** ≥ 3.8  
 - **Dependencies** (installed with the package): `requests`, `psutil`  
-- A running Job Distributor **job server** (`/request_job`, `/update_job_status`, `/ping`, `/upload`, `/checkpoint`, `/checkpoint/latest`) reachable from the worker machine.
+- A running Job Distributor **job server** (`/worker/poll`, `/request_job`, `/update_job_status`, `/ping`, `/upload`, `/checkpoint`, `/checkpoint/latest`) reachable from the worker machine.
 
 ---
 
@@ -42,7 +42,30 @@ Verify:
 
 ```bash
 jd_worker_cli help
+jd_worker_cli          # interactive shell (mysql-style)
 ```
+
+### Interactive mode
+
+Run with no arguments (or `interactive` / `-i`) for a REPL:
+
+```bash
+jd_worker_cli
+jd_worker_cli interactive expId=my_exp
+```
+
+```
+jd_worker_cli 1.13.0 — interactive mode
+Type help for commands, exit or Ctrl-D to quit.
+jd> use my_exp
+Using experiment 'my_exp'.
+jd[my_exp]> worker-list
+jd[my_exp]> exp-status
+jd[my_exp]> entry_script=train.py num_workers=4
+jd[my_exp]> exit
+```
+
+Session command `use <expId>` sets the default experiment so you can omit `expId=` on later lines. `JD_EXP_ID` is used as the initial default if set.
 
 ---
 
@@ -69,7 +92,73 @@ Arguments are **`key=value`** tokens (and optional bare flags such as `once=true
 | `log_dir=<path>` | (derived) | `JD_LOG_DIR` — if unset, logs use `<jd_data>/<expId>/jd_worker_logs/` |
 | `machine_type=<label>` | `worker` | `JD_MACHINE_TYPE` |
 | `process_id=<N>` | `0` | — |
+| `num_workers=<N>` | `1` | `JD_NUM_WORKERS` |
+| `foreground=true` | off | `JD_FOREGROUND=true` — attach to terminal (default: background) |
 | `once=true` | off | `JD_ONCE=true` |
+
+### Background workers (default)
+
+By default, `jd_worker_cli` **detaches to the background** — no tmux required. Process metadata is stored in **`~/.cache/<expId>/workers.db`** (or `<JD_WORKSPACE_PATH>/.cache/<expId>/workers.db`).
+
+```bash
+# Start (returns immediately with worker id + pid)
+jd_worker_cli expId=my_exp entry_script=train.py num_workers=4
+
+# List running workers for one experiment
+jd_worker_cli expId=my_exp worker-list
+
+# List all experiments with worker counts on this machine
+jd_worker_cli exp-list
+
+# Stop one worker or all
+jd_worker_cli expId=my_exp stop all
+jd_worker_cli expId=my_exp stop 0_45231
+```
+
+Each worker gets a **`worker_id`** like `gpunode_A3f9X2_0` (`{host}_{instance}_{slot}`).
+        Standalone launches always use slot **`0`**; `num_workers=N` uses slots `0 … N-1`.
+        The same id is used locally, on the server (`requested_by`), and in log filenames.
+        Use **`foreground=true`** for attached/debug mode.
+
+### Management commands
+
+| Command | Description |
+|---------|-------------|
+| `exp-list` | All experiments on this machine with worker counts |
+| `expId=<id> worker-list` | List workers for one experiment |
+| `expId=<id> worker-status <worker-id>` | Detailed status for one worker |
+| `expId=<id> worker-logs <worker-id> [lines=N] [follow=true]` | Tail worker log file |
+| `expId=<id> exp-status` | Experiment summary (busy/idle, draining) |
+| `expId=<id> show-config <worker-id>` | Launch config stored at registration |
+| `expId=<id> where` | Paths: registry DB, jd_data, logs |
+| `expId=<id> server-info` | Job counts by status from the server |
+| `health [expId=<id>]` | Hub + server connectivity check |
+| `version` | Package version and Python environment |
+| `expId=<id> stop all\|<worker-id>` | Stop workers (notifies server for dashboard history) |
+| `expId=<id> stop job=<job-id>` | Stop the worker running a specific job (aborts SERVED job on server) |
+| `expId=<id> stop all confirm-stop=true` | Require typing experiment name before stop all |
+| `expId=<id> confirm-stop` | Same as stop all with confirmation |
+| `stop all-experiments` | Stop workers for every experiment on this machine |
+| `clear_all [confirm-clear-all=true]` | Wipe **all** local experiment cache; kills active workers and notifies server |
+| `expId=<id> restart all\|<worker-id>` | Stop and respawn with stored config |
+| `expId=<id> scale num_workers=<N>` | Scale up/down to N workers |
+| `expId=<id> drain` | Finish current jobs then exit (no new work) |
+| `prune` | Remove stale registry rows and orphaned token dirs |
+
+**Stop / clear_all and the server:** When the job server is reachable, `stop`, `restart`, `scale` (scale-down), and `clear_all` call `POST /workers/cli/stop` or `POST /workers/cli/clear_all` so the dashboard **Workers** tab records the action (source machine, CLI command) in worker history. If a stopped worker was running a job, the server marks that job **ABORTED** with a message indicating the worker was killed from the CLI. If the server is down or auth fails, local stop/cache cleanup still proceeds.
+
+```bash
+jd_worker_cli version
+jd_worker_cli health expId=my_exp
+jd_worker_cli expId=my_exp exp-status
+jd_worker_cli expId=my_exp worker-status 0_45231
+jd_worker_cli expId=my_exp worker-logs 0_45231 lines=100 follow=true
+jd_worker_cli expId=my_exp server-info
+jd_worker_cli expId=my_exp scale num_workers=8
+jd_worker_cli expId=my_exp drain
+jd_worker_cli prune
+jd_worker_cli clear_all
+```
 
 ### Local storage (worker)
 
@@ -85,7 +174,7 @@ There is **no** `workspace_path=…` CLI argument.
 
 ### Behaviour
 
-1. **Request job** — `POST /request_job` with runner id and system metrics.  
+1. **Poll / request job** — `POST /worker/poll` every **180** seconds when idle (and in a background thread while busy) with worker id, host, status, applied command version, and system metrics. The response may include a job when idle and `desired_state=run`, plus dashboard control fields (`desired_state`, `desired_version`). Older servers without `/worker/poll` fall back to `POST /request_job`.  
 2. **Run entry script** — For each key/value in the job’s `parameters`, the worker appends `--<key> <value>` (stringified). It always appends `--base_path <dir>` where:
 
    `<dir> = <parent>/jd_data/<expId>/<job_id>` (absolute path on the worker)
@@ -96,7 +185,9 @@ There is **no** `workspace_path=…` CLI argument.
 
 4. **Status** — Exit code `0` → `POST /update_job_status` with `DONE`; non-zero → `ABORTED` with a short message derived from stderr when useful.
 
-5. **Loop** — After each job, waits 3 seconds and requests the next, until the server returns **404** (no jobs). With **`once=true`**, exits after a single job attempt cycle.
+5. **Loop** — After each job, waits 3 seconds and polls again. When no job is available, the worker **keeps running** and polls every **3 minutes** (heartbeat + dashboard control). Server connection errors retry every **10 seconds**. With **`once=true`**, exits when no job is available or after one completed job.
+
+6. **Dashboard control** — The server dashboard can queue **run**, **drain**, or **stop** per worker, host, or all workers. Commands apply on the next poll; cancel reverts queued commands before they are applied.
 
 ### Examples
 
@@ -120,7 +211,7 @@ jd_worker_cli expId=my_exp entry_script=train.py once=true
 
 ### Logs
 
-If **`log_dir`** / **`JD_LOG_DIR`** is set: **`<log_dir>/<expId>/jd_worker_<runner_id>.log`**. Otherwise: **`<parent>/jd_data/<expId>/jd_worker_logs/jd_worker_<runner_id>.log`**. Logs also mirror to stdout.
+If **`log_dir`** / **`JD_LOG_DIR`** is set: **`<log_dir>/<expId>/jd_worker_<worker_id>.log`**. Otherwise: **`<parent>/jd_data/<expId>/jd_worker_logs/jd_worker_<worker_id>.log`**. Foreground mode also mirrors logs to stdout; background workers log to file only.
 
 ---
 
