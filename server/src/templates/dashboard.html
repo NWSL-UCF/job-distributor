@@ -90,9 +90,21 @@
             </div>
         </div>
 
+        <div id="apiStatsModal" class="modal-2">
+            <div class="modal-content-2 modal-content-2--api-stats">
+                <span class="close" onclick="closeApiStatsModal()">&times;</span>
+                <h2>API Requests</h2>
+                <p class="api-stats-modal-hint">Request counts by endpoint since the last job batch or server start.</p>
+                <div id="apiStatsModalBody" class="api-stats api-stats--modal">
+                    <div style="text-align:center; color:#9ba3b8; font-size:0.8rem; padding:16px 0;">Loading…</div>
+                </div>
+            </div>
+        </div>
+
                 <div id="view-jobs" class="main-view active">
                 <div class="dashboard-grid">
-                    <div class="sidebar">
+                    <div class="sidebar sidebar-jobs">
+                        <div class="sidebar-scroll">
 
                         <!-- ACTIONS -->
                         <div class="sb-section">
@@ -223,7 +235,6 @@
                             </div>
                         </div>
 
-                        <!-- API STATS -->
                         <!-- TRAFFIC -->
                         <div class="sb-section">
                             <p class="sb-section-title">HTTP Traffic</p>
@@ -232,33 +243,18 @@
                             </div>
                         </div>
 
-                        <div class="sb-section" style="flex:1;">
-                            <p class="sb-section-title">API Requests</p>
-                            <div class="api-stats">
-                                {% for stat in api_stats %}
-                                <div class="api-stat-item">
-                                    <div>
-                                        <div class="api-endpoint">{{ stat.endpoint }}</div>
-                                        <div class="api-method">{{ stat.method }}</div>
-                                    </div>
-                                    <div class="api-count">{{ stat.request_count }}</div>
+                        </div><!-- .sidebar-scroll -->
+
+                        <div class="sidebar-footer">
+                            <button type="button" class="sb-action-btn" onclick="openApiStatsModal()">
+                                <div class="sb-action-icon" style="background:#e8f4fd; color:#3498db;">
+                                    <i class="fas fa-plug"></i>
                                 </div>
-                                {% endfor %}
-                                {% if not api_stats %}
-                                <div style="text-align:center; color:#9ba3b8; font-size:0.8rem; padding:16px 0;">
-                                    No requests tracked yet
+                                <div>
+                                    <span class="sb-action-label">API Requests</span>
+                                    <span class="sb-action-sub">Endpoint counts &amp; totals</span>
                                 </div>
-                                {% endif %}
-                                {% if api_stats %}
-                                <div class="api-stat-item" style="border-top:2px solid #e2e8f0; margin-top:8px; padding-top:8px;">
-                                    <div>
-                                        <div class="api-endpoint" style="font-weight:bold; color:#1e293b;">Total</div>
-                                        <div class="api-method">All Endpoints</div>
-                                    </div>
-                                    <div class="api-count" style="background:#3b82f6; color:white; font-weight:bold;">{{ total_api_requests }}</div>
-                                </div>
-                                {% endif %}
-                            </div>
+                            </button>
                         </div>
 
                     </div>

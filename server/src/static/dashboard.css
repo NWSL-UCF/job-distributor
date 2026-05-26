@@ -196,6 +196,23 @@
                 display: flex;
                 flex-direction: column;
             }
+            .sidebar-jobs {
+                overflow: hidden;
+            }
+            .sidebar-scroll {
+                flex: 1;
+                min-height: 0;
+                overflow-y: auto;
+            }
+            .sidebar-footer {
+                flex-shrink: 0;
+                padding: 12px 16px 14px;
+                border-top: 1px solid #e3e7f0;
+                background: #f7f8fc;
+            }
+            .sidebar-footer .sb-action-btn {
+                margin-bottom: 0;
+            }
             .sb-section {
                 padding: 14px 16px;
                 border-bottom: 1px solid #e3e7f0;
@@ -562,6 +579,43 @@
             .api-stats {
                 max-height: 300px;
                 overflow-y: auto;
+            }
+            .api-stats--modal {
+                max-height: min(60vh, 520px);
+                margin-top: 8px;
+            }
+            .api-stats-empty {
+                text-align: center;
+                color: #9ba3b8;
+                font-size: 0.85rem;
+                padding: 24px 12px;
+            }
+            .api-stat-item--total {
+                border-top: 2px solid #e2e8f0;
+                margin-top: 8px;
+                padding-top: 12px;
+            }
+            .api-stat-item--total .api-endpoint {
+                font-weight: 700;
+                color: #1e293b;
+            }
+            .api-count--total {
+                background: #3b82f6;
+                font-weight: 700;
+            }
+            .modal-content-2--api-stats {
+                text-align: left;
+                width: min(480px, 92vw);
+            }
+            .modal-content-2--api-stats h2 {
+                text-align: center;
+                margin-bottom: 4px;
+            }
+            .api-stats-modal-hint {
+                text-align: center;
+                font-size: 0.8rem;
+                color: #6c757d;
+                margin: 0 0 12px;
             }
             
             .api-stat-item {

@@ -945,11 +945,6 @@ def dashboard():
 
     # Calculate machine stats efficiently
     machine_stats = calculate_machine_stats(completed_jobs)
-    api_stats = db.get_api_stats()
-
-    # Calculate total API requests
-    total_api_requests = sum(stat['request_count'] for stat in api_stats)
-
     # Calculate average completion time efficiently
     avg_completion_time = ""
     if total_jobs_completed > 0:
@@ -970,8 +965,6 @@ def dashboard():
         format_time=format_time,
         machine_stats=machine_stats,
         machine_names=machine_names,
-        api_stats=api_stats,
-        total_api_requests=total_api_requests
     )
 
 

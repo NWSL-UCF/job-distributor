@@ -5,6 +5,57 @@ function openModal() {
                 document.getElementById("statsModal").style.display = "none";
             }
 
+            function _renderApiStatsList(stats) {
+                const body = document.getElementById('apiStatsModalBody');
+                if (!body) return;
+                if (!stats || !stats.length) {
+                    body.innerHTML = '<div class="api-stats-empty">No requests tracked yet</div>';
+                    return;
+                }
+                let total = 0;
+                let html = '';
+                stats.forEach(stat => {
+                    const count = stat.request_count || 0;
+                    total += count;
+                    const ep = String(stat.endpoint || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+                    const method = String(stat.method || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+                    html += `<div class="api-stat-item">
+                        <div>
+                            <div class="api-endpoint">${ep}</div>
+                            <div class="api-method">${method}</div>
+                        </div>
+                        <div class="api-count">${count}</div>
+                    </div>`;
+                });
+                html += `<div class="api-stat-item api-stat-item--total">
+                    <div>
+                        <div class="api-endpoint">Total</div>
+                        <div class="api-method">All Endpoints</div>
+                    </div>
+                    <div class="api-count api-count--total">${total}</div>
+                </div>`;
+                body.innerHTML = html;
+            }
+
+            function openApiStatsModal() {
+                const modal = document.getElementById('apiStatsModal');
+                const body = document.getElementById('apiStatsModalBody');
+                if (!modal || !body) return;
+                modal.style.display = 'block';
+                body.innerHTML = '<div class="api-stats-empty">Loading…</div>';
+                fetch('/api_stats')
+                    .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+                    .then(data => _renderApiStatsList(data.api_stats || []))
+                    .catch(() => {
+                        body.innerHTML = '<div class="api-stats-empty">Failed to load API statistics.</div>';
+                    });
+            }
+
+            function closeApiStatsModal() {
+                const modal = document.getElementById('apiStatsModal');
+                if (modal) modal.style.display = 'none';
+            }
+
             // ── Main nav: Jobs vs Workers ─────────────────────────────────────
             let _workerSubtab = 'active';
             let _workerPage = 1;
