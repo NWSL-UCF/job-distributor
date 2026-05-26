@@ -831,6 +831,7 @@ jd_worker_cli expId=digits-tune entry_script=train.py \
           <tr><td><code>process_id=&lt;N&gt;</code></td><td>—</td><td><code>0</code></td><td>Unique ID for multiple workers on one machine</td></tr>
           <tr><td><code>num_workers=&lt;N&gt;</code></td><td><code>JD_NUM_WORKERS</code></td><td><code>1</code></td><td>Spawn N parallel workers in one command (process IDs assigned automatically)</td></tr>
           <tr><td><code>once=true</code></td><td><code>JD_ONCE</code></td><td><code>false</code></td><td>Run one job then exit (useful for debugging)</td></tr>
+          <tr><td><code>foreground=true</code></td><td><code>JD_FOREGROUND</code></td><td><code>false</code></td><td>Run in the foreground — <strong>required on Slurm</strong>; optional for local debugging</td></tr>
           <tr><td><code>hub=&lt;url&gt;</code></td><td><code>JD_HUB_URL</code></td><td>hub.jobdistributor.net</td><td>Hub base URL</td></tr>
         </tbody>
       </table>
@@ -855,38 +856,68 @@ jd_worker_cli expId=digits-tune entry_script=train.py \
         share the same queue.
       </p>
 
+      <p>
+        Save the following as <code>submit_jd.slurm</code> next to
+        <code>train.py</code>, then adjust the <code>#SBATCH</code> directives
+        (partition, array size, time limit, mail) for your cluster.
+        Use <code>foreground=true</code> so the worker stays attached to the
+        batch job — without it, the launcher exits and Slurm kills the workers
+        when the script ends.
+      </p>
+
       <div class="code-block">
         <div class="code-block__lang">
           <span>submit_jd.slurm — Slurm batch script</span>
           <button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>
         </div>
         <pre><code>#!/bin/bash
-#SBATCH --job-name=jd-digits-tune
-#SBATCH --array=0-7%8          # 8 worker tasks; max 8 running simultaneously
+#SBATCH --job-name=jd
+#SBATCH --array=0-99              # one worker per array task; adjust range
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
-#SBATCH --time=04:00:00
+#SBATCH --time=48:00:00
+#SBATCH --partition=normal        # replace with your cluster's partition
 #SBATCH --output=logs/slurm-%A_%a.out
-#SBATCH --partition=general    # replace with your cluster's partition name
+#SBATCH --error=logs/slurm-%A_%a.err
+#SBATCH --mail-user=you@example.com
+#SBATCH --mail-type=BEGIN,END,FAIL
 
-# Activate your virtual environment
-source ~/venvs/ml/bin/activate
+set -euxo pipefail
+
+mkdir -p logs
+
+# Activate your virtual environment (create with: python -m venv venv)
+source ./venv/bin/activate
 
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export JD_WORKSPACE_PATH=./jd_data
 
-jd_worker_cli expId=digits-tune \
-              entry_script=train.py \
-              machine_type=slurm_${SLURM_CLUSTER_NAME} \
-              process_id=${SLURM_ARRAY_TASK_ID}</code></pre>
+mkdir -p "${JD_WORKSPACE_PATH}"
+
+python --version
+which jd_worker_cli
+
+jd_worker_cli expId=digits-tune entry_script=train.py \
+              machine_type=stk foreground=true</code></pre>
       </div>
 
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>mkdir -p logs
-sbatch submit_jd.slurm
+        <pre><code>sbatch submit_jd.slurm
 
 # Monitor
 squeue -u $USER</code></pre>
+      </div>
+
+      <div class="tut-note tut-note--warn">
+        <span class="tut-note__icon">⚠️</span>
+        <span>
+          On Slurm, always pass <code>foreground=true</code>. The default
+          background mode detaches workers and returns immediately; the batch
+          script then exits and Slurm terminates those worker processes.
+        </span>
       </div>
 
       <div class="tut-note tut-note--tip">

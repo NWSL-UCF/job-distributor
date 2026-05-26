@@ -1077,7 +1077,10 @@ jd_worker_cli expId=digits-tune entry_script=train.py process_id=3 machine_type=
       <p>
         Save the following as <code>submit_jd.slurm</code> in the same
         directory as <code>train.py</code>, and adjust the Slurm directives
-        to match your cluster configuration:
+        to match your cluster configuration.
+        Use <code>foreground=true</code> so the worker stays attached to the
+        batch job — without it, the launcher exits and Slurm kills the workers
+        when the script ends.
       </p>
 
       <div class="code-block">
@@ -1089,33 +1092,39 @@ jd_worker_cli expId=digits-tune entry_script=train.py process_id=3 machine_type=
           </button>
         </div>
         <pre><code>#!/bin/bash
-#SBATCH --job-name=jd-digits-tune
-#SBATCH --array=0-7%8          # 8 worker tasks; max 8 running at once
-#SBATCH --cpus-per-task=4      # CPUs per worker (adjust to your script's needs)
+#SBATCH --job-name=jd
+#SBATCH --array=0-99              # one worker per array task; adjust range
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
-#SBATCH --time=04:00:00        # 4-hour time limit per task
+#SBATCH --time=48:00:00
+#SBATCH --partition=normal        # replace with your cluster's partition
 #SBATCH --output=logs/slurm-%A_%a.out
-#SBATCH --partition=general    # replace with your cluster's partition name
+#SBATCH --error=logs/slurm-%A_%a.err
+#SBATCH --mail-user=you@example.com
+#SBATCH --mail-type=BEGIN,END,FAIL
 
-# ── Environment setup ─────────────────────────────────────────────────────────
-# Load the Python module appropriate for your cluster, e.g.:
-# module load python/3.11
+set -euxo pipefail
 
-source ~/venvs/ml/bin/activate   # replace with your venv path
+mkdir -p logs
 
-# ── JobDistributor configuration ──────────────────────────────────────────────
+# Activate your virtual environment (create with: python -m venv venv)
+source ./venv/bin/activate
+
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-export JD_HUB_URL=https://hub.jobdistributor.net   # adjust if self-hosted
+export JD_WORKSPACE_PATH=./jd_data
 
-# Use the Slurm array task ID as the worker process_id for unique identification
-# in the dashboard.
-jd_worker_cli expId=digits-tune \
-          entry_script=train.py \
-          machine_type=slurm_${SLURM_CLUSTER_NAME} \
-          process_id=${SLURM_ARRAY_TASK_ID}</code></pre>
+mkdir -p "${JD_WORKSPACE_PATH}"
+
+python --version
+which jd_worker_cli
+
+jd_worker_cli expId=digits-tune entry_script=train.py \
+              machine_type=stk foreground=true</code></pre>
       </div>
 
-      <p>Create the log directory and submit:</p>
+      <p>Submit and monitor:</p>
       <div class="code-block">
         <div class="code-block__lang">
           <span>bash</span>
@@ -1124,20 +1133,17 @@ jd_worker_cli expId=digits-tune \
             Copy
           </button>
         </div>
-        <pre><code>mkdir -p logs
-sbatch submit_jd.slurm</code></pre>
+        <pre><code>sbatch submit_jd.slurm
+squeue -u $USER</code></pre>
       </div>
 
-      <p>Monitor the job status:</p>
-      <div class="code-block">
-        <div class="code-block__lang">
-          <span>bash</span>
-          <button class="code-block__copy" onclick="copyCode(this)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            Copy
-          </button>
-        </div>
-        <pre><code>squeue -u $USER</code></pre>
+      <div class="tut-note tut-note--warn">
+        <span class="tut-note__icon">⚠️</span>
+        <span>
+          On Slurm, always pass <code>foreground=true</code>. The default
+          background mode detaches workers and returns immediately; the batch
+          script then exits and Slurm terminates those worker processes.
+        </span>
       </div>
 
       <div class="tut-note tut-note--tip">
