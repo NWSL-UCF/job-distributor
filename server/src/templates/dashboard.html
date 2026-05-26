@@ -436,12 +436,13 @@
                                         <th>Slot</th>
                                         <th>Status</th>
                                         <th>Job</th>
+                                        <th>Completed jobs</th>
                                         <th>Last poll</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="workersPageBody">
-                                    <tr><td colspan="8" class="workers-loading">Loading workers…</td></tr>
+                                    <tr><td colspan="9" class="workers-loading">Loading workers…</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -659,14 +660,20 @@
                     <div id="workerHistoryMetricsSection" style="display:none; margin-top:16px;">
                         <h4 style="margin:0 0 8px 0; font-size:0.9rem;">Metrics from history</h4>
                         <div id="workerHistoryMetricsEventLabel" class="worker-history-metrics-event-label"></div>
-                        <div id="workerHistoryMetricsPagination" class="pagination-controls worker-history-pagination" style="display:none;">
-                            <button type="button" id="workerHistoryMetricsPrev" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(-1)">
-                                <i class="fas fa-chevron-left"></i> Previous
+                        <div id="workerHistoryMetricsControls" class="worker-history-metrics-controls" style="display:none;">
+                            <button type="button" id="workerHistoryMetricsPlayPause" class="workers-btn worker-history-metrics-play-btn" onclick="toggleWorkerHistoryMetricsPlayback()" aria-label="Play metrics snapshots">
+                                <i class="fas fa-play" id="workerHistoryMetricsPlayPauseIcon"></i>
+                                <span id="workerHistoryMetricsPlayPauseLabel">Play</span>
                             </button>
-                            <span id="workerHistoryMetricsPaginationInfo" class="pagination-info">—</span>
-                            <button type="button" id="workerHistoryMetricsNext" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(1)">
-                                Next <i class="fas fa-chevron-right"></i>
-                            </button>
+                            <div class="worker-history-metrics-nav">
+                                <button type="button" id="workerHistoryMetricsPrev" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(-1)">
+                                    <i class="fas fa-chevron-left"></i> Previous
+                                </button>
+                                <span id="workerHistoryMetricsPaginationInfo" class="worker-history-metrics-status">—</span>
+                                <button type="button" id="workerHistoryMetricsNext" class="pagination-btn" onclick="changeWorkerHistoryMetricsPage(1)">
+                                    Next <i class="fas fa-chevron-right"></i>
+                                </button>
+                            </div>
                         </div>
                         <div id="workerHistoryMetricsPanel"></div>
                     </div>

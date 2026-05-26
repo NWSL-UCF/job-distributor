@@ -797,10 +797,14 @@ def workers_list():
     slot = int(slot_raw) if slot_raw.isdigit() else None
     lc = None if lifecycle == "all" else lifecycle
     workers = db.list_workers(lifecycle=lc, host=host, instance=instance, slot=slot)
+    completed_counts = db.count_completed_jobs_by_workers(
+        [w.get("worker_id") or "" for w in workers],
+    )
     for w in workers:
         w["last_poll_at_fmt"] = format_timestamp(w.get("last_poll_at"))
         w["disabled_at_fmt"] = format_timestamp(w.get("disabled_at"))
         w["first_poll_at_fmt"] = format_timestamp(w.get("first_poll_at"))
+        w["completed_jobs"] = completed_counts.get(w.get("worker_id") or "", 0)
     return jsonify({"workers": workers})
 
 
@@ -817,6 +821,8 @@ def workers_detail():
     worker["last_poll_at_fmt"] = format_timestamp(worker.get("last_poll_at"))
     worker["disabled_at_fmt"] = format_timestamp(worker.get("disabled_at"))
     worker["first_poll_at_fmt"] = format_timestamp(worker.get("first_poll_at"))
+    completed_counts = db.count_completed_jobs_by_workers([worker_id])
+    worker["completed_jobs"] = completed_counts.get(worker_id, 0)
     return jsonify(worker)
 
 

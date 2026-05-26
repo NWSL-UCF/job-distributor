@@ -1982,6 +1982,29 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 border: 1px solid #e9ecef;
                 word-break: break-word;
             }
+            .worker-history-metrics-controls {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                flex-wrap: wrap;
+                margin-bottom: 12px;
+            }
+            .worker-history-metrics-play-btn {
+                min-width: 100px;
+            }
+            .worker-history-metrics-nav {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                flex: 1 1 auto;
+            }
+            .worker-history-metrics-status {
+                font-size: 0.85rem;
+                color: #6c757d;
+                min-width: 12rem;
+                text-align: center;
+            }
 
             /* ── Worker management modal ─────────────────────────────────── */
             .workers-modal-content { max-width: 960px; width: 95%; }

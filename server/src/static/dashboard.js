@@ -11,7 +11,9 @@ function openModal() {
             let _workerDetailCache = null;
             let _workerHistoryPage = 0;
             let _workerMetricsHistoryIndex = 0;
+            let _workerMetricsPlayTimer = null;
             const WORKER_HISTORY_PAGE_SIZE = 10;
+            const WORKER_METRICS_PLAY_INTERVAL_MS = 500;
 
             function switchMainView(view) {
                 const jobsView = document.getElementById('view-jobs');
@@ -204,7 +206,7 @@ function openModal() {
             function loadWorkersPageTable() {
                 const tbody = document.getElementById('workersPageBody');
                 if (!tbody) return;
-                tbody.innerHTML = '<tr><td colspan="8" class="workers-loading">Loading workers…</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="workers-loading">Loading workers…</td></tr>';
                 fetch('/workers/list?' + _workerFilterParams())
                     .then(r => r.json())
                     .then(data => {
@@ -213,12 +215,15 @@ function openModal() {
                             const msg = _workerSubtab === 'disabled'
                                 ? 'No disabled workers.'
                                 : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).';
-                            tbody.innerHTML = `<tr><td colspan="8" class="workers-empty">${msg}</td></tr>`;
+                            tbody.innerHTML = `<tr><td colspan="9" class="workers-empty">${msg}</td></tr>`;
                             return;
                         }
                         tbody.innerHTML = workers.map(w => {
                             const wid = w.worker_id || '';
                             const jobCell = w.current_job_id ? `#${w.current_job_id}` : '—';
+                            const completedJobs = Number.isFinite(w.completed_jobs)
+                                ? w.completed_jobs
+                                : (parseInt(w.completed_jobs, 10) || 0);
                             const lastPoll = w.last_poll_at_fmt || '—';
                             const isActive = _workerSubtab === 'active';
                             let actions = `<button type="button" class="workers-btn-sm" onclick="openWorkerDetail('${_escHtml(wid)}')">Details</button>`;
@@ -236,13 +241,14 @@ function openModal() {
                                 <td>${w.slot != null ? w.slot : '—'}</td>
                                 <td>${_workerStateBadge(w)}</td>
                                 <td>${jobCell}</td>
+                                <td>${completedJobs}</td>
                                 <td>${_escHtml(lastPoll)}</td>
                                 <td class="workers-row-actions">${actions}</td>
                             </tr>`;
                         }).join('');
                     })
                     .catch(err => {
-                        tbody.innerHTML = `<tr><td colspan="8" class="workers-error">Failed to load: ${_escHtml(err.message)}</td></tr>`;
+                        tbody.innerHTML = `<tr><td colspan="9" class="workers-error">Failed to load: ${_escHtml(err.message)}</td></tr>`;
                     });
             }
 
@@ -298,11 +304,17 @@ function openModal() {
             }
 
             function switchWorkerModalTab(tab, btn) {
+                if (tab !== 'metrics') {
+                    stopWorkerHistoryMetricsPlayback();
+                }
                 ['info', 'history', 'metrics'].forEach(t => {
                     document.getElementById('modalTab-worker-' + t).classList.toggle('active', t === tab);
                 });
                 document.querySelectorAll('#workerDetailModal .modal-tab-btn').forEach(b => b.classList.remove('active'));
                 if (btn) btn.classList.add('active');
+                if (tab === 'metrics') {
+                    renderWorkerHistoryMetrics();
+                }
             }
 
             function openWorkerDetail(workerId) {
@@ -316,6 +328,7 @@ function openModal() {
                         _workerDetailCache = w;
                         _workerHistoryPage = 0;
                         _workerMetricsHistoryIndex = 0;
+                        stopWorkerHistoryMetricsPlayback();
                         document.getElementById('workerDetailId').textContent = w.worker_id;
                         const badge = document.getElementById('workerDetailBadge');
                         const lc = w.lifecycle_status || 'active';
@@ -331,6 +344,11 @@ function openModal() {
                             ['Status', w.reported_status || '—'],
                             ['Desired state', w.desired_state || 'run'],
                             ['Current job', w.current_job_id ? '#' + w.current_job_id : '—'],
+                            ['Completed jobs', String(
+                                Number.isFinite(w.completed_jobs)
+                                    ? w.completed_jobs
+                                    : (parseInt(w.completed_jobs, 10) || 0),
+                            )],
                             ['Worker version', w.jd_worker_version || '—'],
                             ['First poll', w.first_poll_at_fmt || '—'],
                             ['Last poll', w.last_poll_at_fmt || '—'],
@@ -358,6 +376,7 @@ function openModal() {
             }
 
             function closeWorkerDetailModal() {
+                stopWorkerHistoryMetricsPlayback();
                 document.getElementById('workerDetailModal').style.display = 'none';
             }
 
@@ -456,13 +475,65 @@ function openModal() {
                     : `${event} — ${ts}`;
             }
 
+            function _getWorkerHistoryMetricsCount() {
+                if (!_workerDetailCache) return 0;
+                return _getWorkerHistoryWithMetrics(_workerDetailCache.history || []).length;
+            }
+
+            function stopWorkerHistoryMetricsPlayback() {
+                if (_workerMetricsPlayTimer) {
+                    clearInterval(_workerMetricsPlayTimer);
+                    _workerMetricsPlayTimer = null;
+                }
+                const icon = document.getElementById('workerHistoryMetricsPlayPauseIcon');
+                const label = document.getElementById('workerHistoryMetricsPlayPauseLabel');
+                const btn = document.getElementById('workerHistoryMetricsPlayPause');
+                if (icon) icon.className = 'fas fa-play';
+                if (label) label.textContent = 'Play';
+                if (btn) btn.setAttribute('aria-pressed', 'false');
+            }
+
+            function _advanceWorkerHistoryMetricsSnapshot() {
+                const total = _getWorkerHistoryMetricsCount();
+                if (total <= 1) return;
+                _workerMetricsHistoryIndex += 1;
+                if (_workerMetricsHistoryIndex >= total) {
+                    _workerMetricsHistoryIndex = 0;
+                }
+                renderWorkerHistoryMetrics();
+            }
+
+            function toggleWorkerHistoryMetricsPlayback() {
+                if (_workerMetricsPlayTimer) {
+                    stopWorkerHistoryMetricsPlayback();
+                    renderWorkerHistoryMetrics();
+                    return;
+                }
+                const total = _getWorkerHistoryMetricsCount();
+                if (total <= 1) return;
+
+                _workerMetricsHistoryIndex = 0;
+                renderWorkerHistoryMetrics();
+
+                const icon = document.getElementById('workerHistoryMetricsPlayPauseIcon');
+                const label = document.getElementById('workerHistoryMetricsPlayPauseLabel');
+                const btn = document.getElementById('workerHistoryMetricsPlayPause');
+                if (icon) icon.className = 'fas fa-pause';
+                if (label) label.textContent = 'Pause';
+                if (btn) btn.setAttribute('aria-pressed', 'true');
+
+                _workerMetricsPlayTimer = setInterval(
+                    _advanceWorkerHistoryMetricsSnapshot,
+                    WORKER_METRICS_PLAY_INTERVAL_MS,
+                );
+            }
+
             function renderWorkerHistoryMetrics() {
                 const section = document.getElementById('workerHistoryMetricsSection');
                 const labelEl = document.getElementById('workerHistoryMetricsEventLabel');
-                const pagEl = document.getElementById('workerHistoryMetricsPagination');
+                const controlsEl = document.getElementById('workerHistoryMetricsControls');
                 const infoEl = document.getElementById('workerHistoryMetricsPaginationInfo');
-                const prevBtn = document.getElementById('workerHistoryMetricsPrev');
-                const nextBtn = document.getElementById('workerHistoryMetricsNext');
+                const playBtn = document.getElementById('workerHistoryMetricsPlayPause');
                 const panel = document.getElementById('workerHistoryMetricsPanel');
                 if (!section || !panel) return;
 
@@ -470,10 +541,11 @@ function openModal() {
                     _workerDetailCache ? _workerDetailCache.history : [],
                 );
                 if (!withMetrics.length) {
+                    stopWorkerHistoryMetricsPlayback();
                     section.style.display = 'none';
                     panel.innerHTML = '';
                     if (labelEl) labelEl.textContent = '';
-                    if (pagEl) pagEl.style.display = 'none';
+                    if (controlsEl) controlsEl.style.display = 'none';
                     return;
                 }
 
@@ -491,23 +563,32 @@ function openModal() {
 
                 const total = withMetrics.length;
                 const pos = _workerMetricsHistoryIndex + 1;
-                if (pagEl) {
-                    pagEl.style.display = total > 1 ? 'flex' : 'none';
+                if (controlsEl) {
+                    controlsEl.style.display = total > 1 ? 'flex' : 'none';
                 }
                 if (infoEl) {
-                    infoEl.textContent = `Snapshot ${pos} of ${total} (newest first)`;
+                    const playing = Boolean(_workerMetricsPlayTimer);
+                    infoEl.textContent = playing
+                        ? `Playing snapshot ${pos} of ${total} (newest first)`
+                        : `Snapshot ${pos} of ${total} (newest first)`;
                 }
+                if (playBtn) {
+                    playBtn.disabled = total <= 1;
+                }
+                const prevBtn = document.getElementById('workerHistoryMetricsPrev');
+                const nextBtn = document.getElementById('workerHistoryMetricsNext');
                 if (prevBtn) prevBtn.disabled = _workerMetricsHistoryIndex <= 0;
                 if (nextBtn) nextBtn.disabled = _workerMetricsHistoryIndex >= total - 1;
             }
 
-            function _populateWorkerHistoryMetricsSelect(history) {
+            function changeWorkerHistoryMetricsPage(direction) {
+                if (!_workerDetailCache) return;
+                stopWorkerHistoryMetricsPlayback();
+                _workerMetricsHistoryIndex += direction;
                 renderWorkerHistoryMetrics();
             }
 
-            function changeWorkerHistoryMetricsPage(direction) {
-                if (!_workerDetailCache) return;
-                _workerMetricsHistoryIndex += direction;
+            function _populateWorkerHistoryMetricsSelect(history) {
                 renderWorkerHistoryMetrics();
             }
 

@@ -1474,6 +1474,38 @@ class JobDatabase:
             lifecycle=lifecycle, host=host, instance=instance, slot=slot,
         )
 
+    def count_completed_jobs_by_workers(
+        self, worker_ids: Optional[List[str]] = None,
+    ) -> Dict[str, int]:
+        """Count DONE jobs per worker (``requested_by`` = worker id)."""
+        with self.lock:
+            with self.get_connection() as conn:
+                if worker_ids:
+                    ids = [w for w in worker_ids if w]
+                    if not ids:
+                        return {}
+                    placeholders = ",".join("?" * len(ids))
+                    cur = conn.execute(
+                        f"""
+                        SELECT requested_by, COUNT(*) AS n
+                        FROM jobs
+                        WHERE status = ? AND requested_by IN ({placeholders})
+                        GROUP BY requested_by
+                        """,
+                        [STATUS_DONE, *ids],
+                    )
+                else:
+                    cur = conn.execute(
+                        """
+                        SELECT requested_by, COUNT(*) AS n
+                        FROM jobs
+                        WHERE status = ? AND requested_by != ''
+                        GROUP BY requested_by
+                        """,
+                        (STATUS_DONE,),
+                    )
+                return {row[0]: int(row[1]) for row in cur.fetchall()}
+
     def get_worker(self, worker_id: str) -> Optional[Dict[str, Any]]:
         with self.lock:
             with self.get_connection() as conn:
