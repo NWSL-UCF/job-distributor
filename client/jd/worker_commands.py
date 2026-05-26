@@ -692,7 +692,9 @@ def cmd_restart(kv: dict, targets: List[str]) -> None:
         slot = slot_from_worker_id(wid)
         new_cfg = dict(cfg)
         new_cfg["exp_id"] = exp_id
-        new_cfg["worker_id"] = new_worker_id(slot=slot)
+        new_cfg["worker_id"] = new_worker_id(
+            slot=slot, exp_id=exp_id, parent=_cache_parent(),
+        )
         new_cfg["process_id"] = str(process_id)
         new_cfg["num_workers"] = 1
         new_pid = _spawn_from_config(new_cfg, new_cfg["worker_id"], process_id)
@@ -730,7 +732,7 @@ def cmd_scale(kv: dict) -> None:
                 next_id += 1
             cfg = dict(sample)
             cfg["exp_id"] = exp_id
-            wid = new_worker_id(slot=next_id)
+            wid = new_worker_id(slot=next_id, exp_id=exp_id, parent=_cache_parent())
             pid = _spawn_from_config(cfg, wid, next_id)
             used_ids.add(next_id)
             print(f"Scaled up: worker_id={wid} pid={pid}")

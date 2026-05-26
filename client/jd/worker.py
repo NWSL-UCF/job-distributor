@@ -457,7 +457,9 @@ def _run_worker(cfg: dict) -> None:
 
     worker_id = (cfg.get('worker_id') or '').strip()
     if not worker_id:
-        worker_id = new_registry_worker_id(slot=0)
+        worker_id = new_registry_worker_id(
+            slot=0, exp_id=cfg['exp_id'], parent=cfg.get('cache_parent'),
+        )
 
     daemon_mode = cfg.get('_daemon', False)
     if cfg['log_dir_override'] is not None:
@@ -815,7 +817,9 @@ def _launch_workers(cfg: dict, kv: dict) -> None:
     if foreground:
         if num_workers == 1:
             cfg['_register'] = True
-            cfg['worker_id'] = cfg.get('worker_id') or new_registry_worker_id(slot=0)
+            cfg['worker_id'] = cfg.get('worker_id') or new_registry_worker_id(
+                slot=0, exp_id=cfg['exp_id'], parent=cfg.get('cache_parent'),
+            )
             _run_worker(cfg)
             return
 
@@ -824,7 +828,9 @@ def _launch_workers(cfg: dict, kv: dict) -> None:
             child_cfg = dict(cfg)
             child_cfg['process_id'] = str(i)
             child_cfg['num_workers'] = 1
-            child_cfg['worker_id'] = new_registry_worker_id(slot=i)
+            child_cfg['worker_id'] = new_registry_worker_id(
+                slot=i, exp_id=cfg['exp_id'], parent=cfg.get('cache_parent'),
+            )
             child_cfg['_register'] = True
             env = os.environ.copy()
             env['JD_WORKER_CFG_JSON'] = json.dumps(child_cfg)
@@ -855,7 +861,11 @@ def _launch_workers(cfg: dict, kv: dict) -> None:
     base_process_id = int(cfg.get('process_id', 0))
     for i in range(num_workers):
         process_id = i if num_workers > 1 else base_process_id
-        wid = new_registry_worker_id(slot=i if num_workers > 1 else 0)
+        wid = new_registry_worker_id(
+            slot=i if num_workers > 1 else 0,
+            exp_id=cfg['exp_id'],
+            parent=cfg.get('cache_parent'),
+        )
         pid = _spawn_background_worker(cfg, wid, process_id)
         started.append((wid, pid))
 

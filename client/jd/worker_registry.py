@@ -14,6 +14,13 @@ import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
+from jd.instance_names import (
+    DEFAULT_INSTANCE_NAMES,
+    INSTANCE_NAME_RE,
+    is_valid_instance_name,
+    normalize_instance_name,
+)
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS workers (
     worker_id       TEXT PRIMARY KEY,
@@ -36,6 +43,11 @@ CREATE INDEX IF NOT EXISTS idx_workers_job ON workers(current_job_id);
 CREATE TABLE IF NOT EXISTS experiment_meta (
     exp_id   TEXT PRIMARY KEY,
     drained  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS possible_instances_name (
+    name  TEXT PRIMARY KEY,
+    taken INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -83,10 +95,11 @@ def exp_cache_dir(exp_id: str, parent: Optional[str] = None) -> str:
 
 _INSTANCE_LEN = 6
 _INSTANCE_ALPHABET = string.ascii_letters + string.digits
-_INSTANCE_RE = re.compile(r"^[0-9A-Za-z]{6}$")
+# Word names (1–6 letters) or legacy 6-char alphanumeric tokens.
+_INSTANCE_RE = re.compile(r"^(?:[a-z]{1,6}|[0-9A-Za-z]{6})$")
 
 
-def _random_instance() -> str:
+def _legacy_random_instance() -> str:
     return "".join(secrets.choice(_INSTANCE_ALPHABET) for _ in range(_INSTANCE_LEN))
 
 
@@ -98,6 +111,11 @@ def _parse_host_instance_slot(worker_id: str) -> Optional[tuple[str, str, int]]:
     return None
 
 
+def _instance_from_worker_id(worker_id: str) -> Optional[str]:
+    parsed = _parse_host_instance_slot(worker_id)
+    return parsed[1] if parsed else None
+
+
 def host_slug(max_len: int = 12) -> str:
     """Short filesystem-safe hostname prefix for worker IDs."""
     host = socket.gethostname().lower()
@@ -105,17 +123,17 @@ def host_slug(max_len: int = 12) -> str:
     return (slug[:max_len] if slug else "host")
 
 
-def new_worker_id(*, slot: int = 0) -> str:
-    """Create a unique worker id for one running process under an experiment.
+def new_worker_id(
+    *,
+    slot: int = 0,
+    exp_id: str,
+    parent: Optional[str] = None,
+) -> str:
+    """Create a unique worker id using the experiment registry name pool.
 
-    Format: ``{host}_{instance}_{slot}``  e.g. ``gpunode_A3f9X2_0``
-
-    ``instance`` is a fresh 6-character alphanumeric token (A-Z, a-z, 0-9).
-    ``slot`` is 0 for standalone launches, or 0 … N-1 for ``num_workers=N``.
+    Format: ``{host}_{instance}_{slot}``  e.g. ``gpunode_egg_0``
     """
-    inst = _random_instance()
-    host = host_slug()
-    return f"{host}_{inst}_{slot}"
+    return WorkerRegistry(exp_id.strip().lower(), parent).new_worker_id(slot=slot)
 
 
 def slot_from_worker_id(worker_id: str) -> int:
@@ -197,7 +215,69 @@ class WorkerRegistry:
                     conn.execute(f"ALTER TABLE workers ADD COLUMN {col} {typedef}")
                 except sqlite3.OperationalError:
                     pass
+            self._seed_instance_names(conn)
             conn.commit()
+
+    def _seed_instance_names(self, conn: sqlite3.Connection) -> None:
+        cur = conn.execute("SELECT COUNT(*) AS n FROM possible_instances_name")
+        if int(cur.fetchone()[0]) > 0:
+            return
+        rows = [
+            (n, 0) for n in DEFAULT_INSTANCE_NAMES if is_valid_instance_name(n)
+        ]
+        conn.executemany(
+            "INSERT OR IGNORE INTO possible_instances_name (name, taken) VALUES (?, ?)",
+            rows,
+        )
+
+    def allocate_instance_name(self) -> str:
+        """Pick a random unused name from ``possible_instances_name`` and mark it taken."""
+        with self._lock:
+            with self._connect() as conn:
+                for _ in range(64):
+                    row = conn.execute(
+                        """
+                        SELECT name FROM possible_instances_name
+                        WHERE taken = 0
+                        ORDER BY RANDOM()
+                        LIMIT 1
+                        """,
+                    ).fetchone()
+                    if not row:
+                        break
+                    name = normalize_instance_name(row["name"])
+                    updated = conn.execute(
+                        """
+                        UPDATE possible_instances_name SET taken = 1
+                        WHERE name = ? AND taken = 0
+                        """,
+                        (name,),
+                    )
+                    if updated.rowcount == 1:
+                        conn.commit()
+                        return name
+                    conn.rollback()
+                raise RuntimeError(
+                    "No instance names available in the local registry pool. "
+                    "Stop workers to release names, or clear the experiment cache."
+                )
+
+    def release_instance_name(self, instance: str) -> None:
+        name = normalize_instance_name(instance)
+        if not is_valid_instance_name(name):
+            return
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE possible_instances_name SET taken = 0 WHERE name = ?",
+                    (name,),
+                )
+                conn.commit()
+
+    def new_worker_id(self, *, slot: int = 0) -> str:
+        inst = self.allocate_instance_name()
+        host = host_slug()
+        return f"{host}_{inst}_{slot}"
 
     @contextmanager
     def _connect(self):
@@ -287,9 +367,15 @@ class WorkerRegistry:
                 conn.commit()
 
     def unregister(self, worker_id: str) -> None:
+        inst = _instance_from_worker_id(worker_id)
         with self._lock:
             with self._connect() as conn:
                 conn.execute("DELETE FROM workers WHERE worker_id = ?", (worker_id,))
+                if inst:
+                    conn.execute(
+                        "UPDATE possible_instances_name SET taken = 0 WHERE name = ?",
+                        (normalize_instance_name(inst),),
+                    )
                 conn.commit()
 
     def mark_stopping(self, worker_id: str) -> None:
@@ -329,10 +415,16 @@ class WorkerRegistry:
                 with self._lock:
                     with self._connect() as conn:
                         for row in dead:
+                            inst = _instance_from_worker_id(row["worker_id"])
                             conn.execute(
                                 "DELETE FROM workers WHERE worker_id = ?",
                                 (row["worker_id"],),
                             )
+                            if inst and is_valid_instance_name(inst):
+                                conn.execute(
+                                    "UPDATE possible_instances_name SET taken = 0 WHERE name = ?",
+                                    (normalize_instance_name(inst),),
+                                )
                         conn.commit()
                 rows = [r for r in rows if _pid_alive(r["pid"])]
         return rows

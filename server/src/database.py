@@ -30,7 +30,7 @@ WORKER_POLL_INTERVAL = WORKER_POLL_INTERVAL_IDLE  # backward-compatible alias
 WORKER_LIFECYCLE_ACTIVE = "active"
 WORKER_LIFECYCLE_DISABLED = "disabled"
 WORKER_LIST_PENDING = "pending"  # dashboard list filter (queued commands)
-_WORKER_INSTANCE_RE = re.compile(r"^[0-9A-Za-z]{6}$")
+_WORKER_INSTANCE_RE = re.compile(r"^(?:[a-z]{1,6}|[0-9A-Za-z]{6})$")
 
 
 def _parse_job_message(raw: Any) -> Any:
