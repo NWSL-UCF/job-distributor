@@ -369,7 +369,7 @@
                                 <p class="workers-sidebar-hint">
                                     Active workers accept dashboard commands on their next poll (~3 min).
                                     Pending lists workers with a queued command until it is applied.
-                                    Disabled workers stopped polling and are read-only.
+                                    Stopped workers no longer poll and are read-only.
                                 </p>
                             </div>
 
@@ -386,7 +386,7 @@
                                     </div>
                                     <div class="sb-stat-tile" style="border-left-color:#95a5a6; grid-column: span 2;">
                                         <div class="sb-stat-tile-val" id="workersPageDisabled" style="color:#6c757d;">—</div>
-                                        <div class="sb-stat-tile-lbl">Disabled</div>
+                                        <div class="sb-stat-tile-lbl">Stopped</div>
                                     </div>
                                 </div>
                             </div>
@@ -419,27 +419,17 @@
 
                         <div class="workers-main">
                             <div class="tabs workers-view-tabs">
-                                <button type="button" class="tab-button active" id="workerSubtabActive" onclick="switchWorkerSubtab('active')">
-                                    <i class="fas fa-server"></i>
-                                    Active Workers
-                                </button>
+                                <button type="button" class="tab-button active" id="workerSubtabActive" onclick="switchWorkerSubtab('active')">Active</button>
                                 <button type="button" class="tab-button" id="workerSubtabPending" onclick="switchWorkerSubtab('pending')">
-                                    <i class="fas fa-clock"></i>
                                     Pending
                                     <span class="tab-count" id="workerTabPendingCount">0</span>
                                 </button>
-                                <button type="button" class="tab-button" id="workerSubtabDisabled" onclick="switchWorkerSubtab('disabled')">
-                                    <i class="fas fa-power-off"></i>
-                                    Disabled / Stopped
-                                </button>
+                                <button type="button" class="tab-button" id="workerSubtabDisabled" onclick="switchWorkerSubtab('disabled')">Stopped</button>
                             </div>
 
                             <div class="table-container workers-table-container">
-                                <div class="table-header">
-                                    <div class="table-title">
-                                        <h3 id="workersTableTitle">Active Workers</h3>
-                                        <span id="workersPaginationInfo" class="pagination-info">Loading…</span>
-                                    </div>
+                                <div class="table-header workers-table-header">
+                                    <span id="workersPaginationInfo" class="pagination-info">Loading…</span>
                                 </div>
 
                                 <div id="workersActiveToolbar" class="workers-toolbar">
@@ -850,26 +840,26 @@
 
 
             </div> <!-- End main-content -->
-        </div> <!-- End container -->
 
-        <footer class="jd-server-footer">
-          <div class="jd-server-footer__inner">
-            <img src="/static/nwsl-logo.png" alt="NWSL"
-                 width="22" height="22" class="jd-server-footer__logo"
-                 onerror="this.style.display='none'">
-            <span>
-              University of Central Florida &mdash;
-              Networking and Wireless Systems Lab (NWSL)
-              &nbsp;&middot;&nbsp;
-              &copy; 2026 University of Central Florida. All rights reserved.
-              &nbsp;&middot;&nbsp;
-              <a href="https://github.com/NWSL-UCF/job-distributor/blob/main/LICENSE"
-                 target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">
-                PolyForm Noncommercial License
-              </a>
-            </span>
-          </div>
-        </footer>
+            <footer class="jd-server-footer">
+              <div class="jd-server-footer__inner">
+                <img src="/static/nwsl-logo.png" alt="NWSL"
+                     width="22" height="22" class="jd-server-footer__logo"
+                     onerror="this.style.display='none'">
+                <span>
+                  University of Central Florida &mdash;
+                  Networking and Wireless Systems Lab (NWSL)
+                  &nbsp;&middot;&nbsp;
+                  &copy; 2026 University of Central Florida. All rights reserved.
+                  &nbsp;&middot;&nbsp;
+                  <a href="https://github.com/NWSL-UCF/job-distributor/blob/main/LICENSE"
+                     target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">
+                    PolyForm Noncommercial License
+                  </a>
+                </span>
+              </div>
+            </footer>
+        </div> <!-- End container -->
 
         <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
     </body>

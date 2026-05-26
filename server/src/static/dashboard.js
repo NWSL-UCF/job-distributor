@@ -57,14 +57,6 @@ function openModal() {
                 const pendingToolbar = document.getElementById('workersPendingToolbar');
                 if (activeToolbar) activeToolbar.style.display = which === 'active' ? 'flex' : 'none';
                 if (pendingToolbar) pendingToolbar.style.display = which === 'pending' ? 'flex' : 'none';
-                const titleEl = document.getElementById('workersTableTitle');
-                if (titleEl) {
-                    titleEl.textContent = which === 'disabled'
-                        ? 'Disabled / Stopped Workers'
-                        : which === 'pending'
-                            ? 'Pending Commands'
-                            : 'Active Workers';
-                }
                 loadWorkerSummary();
                 loadWorkerFilters().then(() => loadWorkersPageTable());
             }
@@ -334,7 +326,7 @@ function openModal() {
                         const workers = data.workers || [];
                         if (!workers.length) {
                             const msg = _workerSubtab === 'disabled'
-                                ? 'No disabled workers.'
+                                ? 'No stopped workers.'
                                 : _workerSubtab === 'pending'
                                     ? 'No pending commands. Workers appear here after you queue pause, drain, or stop until their next poll (~3 min).'
                                     : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).';
