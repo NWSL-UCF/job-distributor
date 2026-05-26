@@ -810,12 +810,12 @@ def workers_list():
 
 @app.route("/workers/detail", methods=["GET"])
 def workers_detail():
-    """Full worker record including history (newest first) and metrics."""
+    """Worker record without full history (use /workers/history for pages)."""
     db.track_api_request("Worker Detail", "GET")
     worker_id = (request.args.get("worker_id") or "").strip()
     if not worker_id:
         return jsonify({"error": "worker_id is required"}), 400
-    worker = db.get_worker(worker_id)
+    worker = db.get_worker(worker_id, include_history=False)
     if not worker:
         return jsonify({"error": "Worker not found"}), 404
     worker["last_poll_at_fmt"] = format_timestamp(worker.get("last_poll_at"))
@@ -824,6 +824,37 @@ def workers_detail():
     completed_counts = db.count_completed_jobs_by_workers([worker_id])
     worker["completed_jobs"] = completed_counts.get(worker_id, 0)
     return jsonify(worker)
+
+
+@app.route("/workers/history", methods=["GET"])
+def workers_history():
+    """Paginated worker history (newest first)."""
+    db.track_api_request("Worker History", "GET")
+    worker_id = (request.args.get("worker_id") or "").strip()
+    if not worker_id:
+        return jsonify({"error": "worker_id is required"}), 400
+    page_raw = (request.args.get("page") or "0").strip()
+    page_size_raw = (request.args.get("page_size") or "10").strip()
+    metrics_only = (request.args.get("metrics_only") or "").strip().lower() in (
+        "1", "true", "yes",
+    )
+    try:
+        page = max(0, int(page_raw))
+    except ValueError:
+        page = 0
+    try:
+        page_size = max(1, min(100, int(page_size_raw)))
+    except ValueError:
+        page_size = 10
+    result = db.get_worker_history_page(
+        worker_id,
+        page=page,
+        page_size=page_size,
+        metrics_only=metrics_only,
+    )
+    if result is None:
+        return jsonify({"error": "Worker not found"}), 404
+    return jsonify(result)
 
 
 @app.route("/workers/command", methods=["POST"])

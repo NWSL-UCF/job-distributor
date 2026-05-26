@@ -362,89 +362,108 @@
                 </div><!-- end view-jobs -->
 
                 <div id="view-workers" class="main-view">
-                    <div class="workers-page">
-                        <div class="workers-page-header">
-                            <div>
-                                <h2 class="workers-page-title">Workers Management</h2>
-                                <p class="workers-page-sub">
+                    <div class="dashboard-grid">
+                        <div class="sidebar workers-sidebar">
+                            <div class="sb-section">
+                                <p class="sb-section-title">Workers Management</p>
+                                <p class="workers-sidebar-hint">
                                     Active workers accept dashboard commands on their next poll (~3 min).
                                     Disabled workers stopped polling and are read-only.
                                 </p>
                             </div>
-                            <div class="workers-summary-chips">
-                                <span class="workers-chip workers-chip--idle">Idle: <strong id="workersPageIdle">—</strong></span>
-                                <span class="workers-chip workers-chip--busy">Busy: <strong id="workersPageBusy">—</strong></span>
-                                <span class="workers-chip workers-chip--disabled">Disabled: <strong id="workersPageDisabled">—</strong></span>
+
+                            <div class="sb-section">
+                                <p class="sb-section-title">Fleet status</p>
+                                <div class="sb-stat-grid">
+                                    <div class="sb-stat-tile" style="border-left-color:#2ecc71;">
+                                        <div class="sb-stat-tile-val" id="workersPageIdle" style="color:#2ecc71;">—</div>
+                                        <div class="sb-stat-tile-lbl">Idle</div>
+                                    </div>
+                                    <div class="sb-stat-tile" style="border-left-color:#e67e22;">
+                                        <div class="sb-stat-tile-val" id="workersPageBusy" style="color:#e67e22;">—</div>
+                                        <div class="sb-stat-tile-lbl">Busy</div>
+                                    </div>
+                                    <div class="sb-stat-tile" style="border-left-color:#95a5a6; grid-column: span 2;">
+                                        <div class="sb-stat-tile-val" id="workersPageDisabled" style="color:#6c757d;">—</div>
+                                        <div class="sb-stat-tile-lbl">Disabled</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="sb-section">
+                                <p class="sb-section-title">View</p>
+                                <div class="workers-subtabs workers-subtabs--sidebar">
+                                    <button type="button" class="workers-subtab active" id="workerSubtabActive" onclick="switchWorkerSubtab('active')">
+                                        Active Workers
+                                    </button>
+                                    <button type="button" class="workers-subtab" id="workerSubtabDisabled" onclick="switchWorkerSubtab('disabled')">
+                                        Disabled / Stopped
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="sb-section workers-sidebar-filters">
+                                <p class="sb-section-title">Filters</p>
+                                <div class="workers-filter-group">
+                                    <label for="workerFilterHost">Host</label>
+                                    <select id="workerFilterHost" class="form-select workers-filter-select" onchange="onWorkerHostFilterChange()">
+                                        <option value="">All hosts</option>
+                                    </select>
+                                </div>
+                                <div class="workers-filter-group">
+                                    <label for="workerFilterInstance">Instance</label>
+                                    <select id="workerFilterInstance" class="form-select workers-filter-select" disabled onchange="onWorkerInstanceFilterChange()">
+                                        <option value="">All instances</option>
+                                    </select>
+                                </div>
+                                <div class="workers-filter-group">
+                                    <label for="workerFilterSlot">Slot</label>
+                                    <select id="workerFilterSlot" class="form-select workers-filter-select" disabled onchange="onWorkerSlotFilterChange()">
+                                        <option value="">All slots</option>
+                                    </select>
+                                </div>
+                                <button type="button" class="workers-btn workers-btn--refresh workers-sidebar-refresh" onclick="refreshWorkersPage()">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
                             </div>
                         </div>
 
-                        <div class="workers-subtabs">
-                            <button type="button" class="workers-subtab active" id="workerSubtabActive" onclick="switchWorkerSubtab('active')">
-                                Active Workers
-                            </button>
-                            <button type="button" class="workers-subtab" id="workerSubtabDisabled" onclick="switchWorkerSubtab('disabled')">
-                                Disabled / Stopped
-                            </button>
-                        </div>
-
-                        <div class="workers-filters">
-                            <div class="workers-filter-group">
-                                <label for="workerFilterHost">Host</label>
-                                <select id="workerFilterHost" class="form-select workers-filter-select" onchange="onWorkerHostFilterChange()">
-                                    <option value="">All hosts</option>
-                                </select>
+                        <div class="workers-main">
+                            <div id="workersActiveToolbar" class="workers-toolbar">
+                                <button type="button" class="workers-btn workers-btn--run" onclick="workerCommand('run','all')">
+                                    <i class="fas fa-play"></i> Resume all
+                                </button>
+                                <button type="button" class="workers-btn workers-btn--drain" onclick="workerCommand('drain','all')">
+                                    <i class="fas fa-hourglass-half"></i> Drain all
+                                </button>
+                                <button type="button" class="workers-btn workers-btn--stop" onclick="workerCommand('stop','all')">
+                                    <i class="fas fa-stop"></i> Stop all
+                                </button>
+                                <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
+                                    <i class="fas fa-undo"></i> Cancel all pending
+                                </button>
                             </div>
-                            <div class="workers-filter-group">
-                                <label for="workerFilterInstance">Instance</label>
-                                <select id="workerFilterInstance" class="form-select workers-filter-select" disabled onchange="onWorkerInstanceFilterChange()">
-                                    <option value="">All instances</option>
-                                </select>
-                            </div>
-                            <div class="workers-filter-group">
-                                <label for="workerFilterSlot">Slot</label>
-                                <select id="workerFilterSlot" class="form-select workers-filter-select" disabled onchange="onWorkerSlotFilterChange()">
-                                    <option value="">All slots</option>
-                                </select>
-                            </div>
-                            <button type="button" class="workers-btn workers-btn--refresh" onclick="refreshWorkersPage()">
-                                <i class="fas fa-sync-alt"></i> Refresh
-                            </button>
-                        </div>
 
-                        <div id="workersActiveToolbar" class="workers-toolbar">
-                            <button type="button" class="workers-btn workers-btn--run" onclick="workerCommand('run','all')">
-                                <i class="fas fa-play"></i> Resume all
-                            </button>
-                            <button type="button" class="workers-btn workers-btn--drain" onclick="workerCommand('drain','all')">
-                                <i class="fas fa-hourglass-half"></i> Drain all
-                            </button>
-                            <button type="button" class="workers-btn workers-btn--stop" onclick="workerCommand('stop','all')">
-                                <i class="fas fa-stop"></i> Stop all
-                            </button>
-                            <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
-                                <i class="fas fa-undo"></i> Cancel all pending
-                            </button>
-                        </div>
-
-                        <div class="workers-table-wrap">
-                            <table class="workers-page-table" id="workersPageTable">
-                                <thead>
-                                    <tr>
-                                        <th>Worker ID</th>
-                                        <th>Host</th>
-                                        <th>Instance</th>
-                                        <th>Slot</th>
-                                        <th>Status</th>
-                                        <th>Job</th>
-                                        <th>Completed jobs</th>
-                                        <th>Last poll</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="workersPageBody">
-                                    <tr><td colspan="9" class="workers-loading">Loading workers…</td></tr>
-                                </tbody>
-                            </table>
+                            <div class="workers-table-wrap">
+                                <table class="workers-page-table" id="workersPageTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Worker ID</th>
+                                            <th>Host</th>
+                                            <th>Instance</th>
+                                            <th>Slot</th>
+                                            <th>Status</th>
+                                            <th>Job</th>
+                                            <th>Completed jobs</th>
+                                            <th>Last poll</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="workersPageBody">
+                                        <tr><td colspan="9" class="workers-loading">Loading workers…</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div><!-- end view-workers -->

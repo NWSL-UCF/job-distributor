@@ -10,7 +10,12 @@ function openModal() {
             let _workerFiltersData = null;
             let _workerDetailCache = null;
             let _workerHistoryPage = 0;
+            let _workerHistoryTotal = 0;
+            let _workerHistoryLoading = false;
             let _workerMetricsHistoryIndex = 0;
+            let _workerMetricsHistoryTotal = 0;
+            let _workerMetricsHistoryEntry = null;
+            let _workerMetricsHistoryLoading = false;
             let _workerMetricsPlayTimer = null;
             const WORKER_HISTORY_PAGE_SIZE = 10;
             const WORKER_METRICS_PLAY_INTERVAL_MS = 500;
@@ -312,8 +317,11 @@ function openModal() {
                 });
                 document.querySelectorAll('#workerDetailModal .modal-tab-btn').forEach(b => b.classList.remove('active'));
                 if (btn) btn.classList.add('active');
+                if (tab === 'history') {
+                    loadWorkerHistoryPage(_workerHistoryPage);
+                }
                 if (tab === 'metrics') {
-                    renderWorkerHistoryMetrics();
+                    loadWorkerMetricsHistoryIndex(_workerMetricsHistoryIndex);
                 }
             }
 
@@ -327,7 +335,10 @@ function openModal() {
                         }
                         _workerDetailCache = w;
                         _workerHistoryPage = 0;
+                        _workerHistoryTotal = w.history_total || 0;
                         _workerMetricsHistoryIndex = 0;
+                        _workerMetricsHistoryTotal = 0;
+                        _workerMetricsHistoryEntry = null;
                         stopWorkerHistoryMetricsPlayback();
                         document.getElementById('workerDetailId').textContent = w.worker_id;
                         const badge = document.getElementById('workerDetailBadge');
@@ -359,7 +370,10 @@ function openModal() {
                             '</table>';
 
                         const timeline = document.getElementById('workerHistoryTimeline');
-                        renderWorkerHistory(timeline, w.history || []);
+                        timeline.innerHTML =
+                            '<div class="timeline-empty"><i class="fas fa-history"></i>Open the History tab to load events.</div>';
+                        const histPag = document.getElementById('workerHistoryPagination');
+                        if (histPag) histPag.style.display = 'none';
 
                         const metricsEl = document.getElementById('workerMetricsTable');
                         if (w.system_metrics && Object.keys(w.system_metrics).length) {
@@ -367,7 +381,8 @@ function openModal() {
                         } else {
                             metricsEl.innerHTML = '<p style="color:#adb5bd;text-align:center;padding:20px 0;">No metrics recorded yet.</p>';
                         }
-                        _populateWorkerHistoryMetricsSelect(w.history || []);
+                        const metricsSection = document.getElementById('workerHistoryMetricsSection');
+                        if (metricsSection) metricsSection.style.display = 'none';
 
                         switchWorkerModalTab('info', document.getElementById('tab-btn-worker-info'));
                         document.getElementById('workerDetailModal').style.display = 'block';
@@ -380,83 +395,96 @@ function openModal() {
                 document.getElementById('workerDetailModal').style.display = 'none';
             }
 
-            function renderWorkerHistory(timelineEl, entries) {
-                timelineEl.innerHTML = '';
-                const list = Array.isArray(entries) ? entries.slice() : [];
-                list.sort((a, b) => (floatOrZero(b.timestamp) - floatOrZero(a.timestamp)));
+            function _workerHistoryQuery(page, pageSize, metricsOnly) {
+                const wid = _workerDetailCache?.worker_id;
+                if (!wid) return Promise.reject(new Error('No worker selected'));
+                const p = new URLSearchParams();
+                p.set('worker_id', wid);
+                p.set('page', String(page));
+                p.set('page_size', String(pageSize));
+                if (metricsOnly) p.set('metrics_only', '1');
+                return fetch('/workers/history?' + p.toString()).then(r => {
+                    if (!r.ok) {
+                        return r.json().then(d => {
+                            throw new Error(d.error || r.statusText);
+                        });
+                    }
+                    return r.json();
+                });
+            }
 
+            function loadWorkerHistoryPage(page) {
+                const timelineEl = document.getElementById('workerHistoryTimeline');
                 const pagEl = document.getElementById('workerHistoryPagination');
                 const infoEl = document.getElementById('workerHistoryPaginationInfo');
                 const prevBtn = document.getElementById('workerHistoryPrev');
                 const nextBtn = document.getElementById('workerHistoryNext');
+                if (!timelineEl || !_workerDetailCache || _workerHistoryLoading) return;
 
-                if (!list.length) {
-                    timelineEl.innerHTML = '<div class="timeline-empty"><i class="fas fa-history"></i>No history yet.</div>';
-                    if (pagEl) pagEl.style.display = 'none';
-                    return;
-                }
+                _workerHistoryLoading = true;
+                timelineEl.innerHTML =
+                    '<div class="timeline-empty"><i class="fas fa-spinner fa-spin"></i> Loading history…</div>';
+                if (pagEl) pagEl.style.display = 'none';
 
-                const total = list.length;
-                const totalPages = Math.max(1, Math.ceil(total / WORKER_HISTORY_PAGE_SIZE));
-                if (_workerHistoryPage >= totalPages) _workerHistoryPage = totalPages - 1;
-                if (_workerHistoryPage < 0) _workerHistoryPage = 0;
-
-                const start = _workerHistoryPage * WORKER_HISTORY_PAGE_SIZE;
-                const end = Math.min(start + WORKER_HISTORY_PAGE_SIZE, total);
-                const pageItems = list.slice(start, end);
-
-                pageItems.forEach(entry => {
-                    const item = document.createElement('div');
-                    item.className = 'timeline-item ' + getTimelineClass(entry.reason || '');
-                    let tsLabel = 'Time unknown';
-                    if (entry.timestamp != null) {
-                        tsLabel = new Date(entry.timestamp * 1000).toLocaleString('en-US', {
-                            weekday: 'short', year: 'numeric', month: 'short',
-                            day: 'numeric', hour: '2-digit', minute: '2-digit',
-                            second: '2-digit', hour12: true
+                _workerHistoryQuery(page, WORKER_HISTORY_PAGE_SIZE, false)
+                    .then(data => {
+                        _workerHistoryPage = data.page ?? page;
+                        _workerHistoryTotal = data.total ?? 0;
+                        const entries = data.entries || [];
+                        timelineEl.innerHTML = '';
+                        if (!entries.length) {
+                            timelineEl.innerHTML =
+                                '<div class="timeline-empty"><i class="fas fa-history"></i>No history yet.</div>';
+                            if (pagEl) pagEl.style.display = 'none';
+                            return;
+                        }
+                        entries.forEach(entry => {
+                            const item = document.createElement('div');
+                            item.className = 'timeline-item ' + getTimelineClass(entry.reason || '');
+                            let tsLabel = 'Time unknown';
+                            if (entry.timestamp != null) {
+                                tsLabel = new Date(entry.timestamp * 1000).toLocaleString('en-US', {
+                                    weekday: 'short', year: 'numeric', month: 'short',
+                                    day: 'numeric', hour: '2-digit', minute: '2-digit',
+                                    second: '2-digit', hour12: true,
+                                });
+                            }
+                            item.innerHTML =
+                                `<div class="tl-msg">${formatMessageForDisplay(entry.reason)}</div>` +
+                                `<div class="tl-time">${tsLabel}</div>`;
+                            timelineEl.appendChild(item);
                         });
-                    }
-                    let extra = '';
-                    if (entry.metrics && Object.keys(entry.metrics).length) {
-                        extra = ' <span class="worker-history-metrics-tag">(metrics captured)</span>';
-                    }
-                    item.innerHTML =
-                        `<div class="tl-msg">${formatMessageForDisplay(entry.reason)}${extra}</div>` +
-                        `<div class="tl-time">${tsLabel}</div>`;
-                    timelineEl.appendChild(item);
-                });
-
-                if (pagEl) {
-                    pagEl.style.display = total > WORKER_HISTORY_PAGE_SIZE ? 'flex' : 'none';
-                }
-                if (infoEl) {
-                    infoEl.textContent =
-                        `Showing ${start + 1}–${end} of ${total} (newest first)`;
-                }
-                if (prevBtn) prevBtn.disabled = _workerHistoryPage <= 0;
-                if (nextBtn) nextBtn.disabled = _workerHistoryPage >= totalPages - 1;
+                        const total = _workerHistoryTotal;
+                        const pageSize = data.page_size || WORKER_HISTORY_PAGE_SIZE;
+                        const start = _workerHistoryPage * pageSize + 1;
+                        const end = Math.min(start + entries.length - 1, total);
+                        const totalPages = data.total_pages
+                            || Math.max(1, Math.ceil(total / pageSize));
+                        if (pagEl) {
+                            pagEl.style.display = total > pageSize ? 'flex' : 'none';
+                        }
+                        if (infoEl) {
+                            infoEl.textContent =
+                                `Showing ${start}–${end} of ${total} (newest first)`;
+                        }
+                        if (prevBtn) prevBtn.disabled = _workerHistoryPage <= 0;
+                        if (nextBtn) nextBtn.disabled = _workerHistoryPage >= totalPages - 1;
+                    })
+                    .catch(err => {
+                        timelineEl.innerHTML =
+                            `<div class="timeline-empty"><i class="fas fa-exclamation-triangle"></i>${_escHtml(err.message)}</div>`;
+                    })
+                    .finally(() => { _workerHistoryLoading = false; });
             }
 
             function changeWorkerHistoryPage(direction) {
                 if (!_workerDetailCache) return;
-                _workerHistoryPage += direction;
-                renderWorkerHistory(
-                    document.getElementById('workerHistoryTimeline'),
-                    _workerDetailCache.history || [],
-                );
+                loadWorkerHistoryPage(_workerHistoryPage + direction);
             }
 
             function floatOrZero(v) {
                 const n = parseFloat(v);
                 return Number.isFinite(n) ? n : 0;
-            }
-
-            function _getWorkerHistoryWithMetrics(history) {
-                const list = (history || []).filter(
-                    e => e.metrics && Object.keys(e.metrics).length,
-                );
-                list.sort((a, b) => floatOrZero(b.timestamp) - floatOrZero(a.timestamp));
-                return list;
             }
 
             function _formatWorkerHistoryEventLabel(entry) {
@@ -476,8 +504,38 @@ function openModal() {
             }
 
             function _getWorkerHistoryMetricsCount() {
-                if (!_workerDetailCache) return 0;
-                return _getWorkerHistoryWithMetrics(_workerDetailCache.history || []).length;
+                return _workerMetricsHistoryTotal;
+            }
+
+            function loadWorkerMetricsHistoryIndex(index) {
+                const section = document.getElementById('workerHistoryMetricsSection');
+                const panel = document.getElementById('workerHistoryMetricsPanel');
+                if (!_workerDetailCache || !section || !panel || _workerMetricsHistoryLoading) {
+                    return Promise.resolve();
+                }
+
+                _workerMetricsHistoryLoading = true;
+                section.style.display = 'block';
+                panel.innerHTML =
+                    '<p style="color:#adb5bd;text-align:center;padding:20px 0;">Loading metrics snapshot…</p>';
+
+                return _workerHistoryQuery(index, 1, true)
+                    .then(data => {
+                        _workerMetricsHistoryIndex = data.page ?? index;
+                        _workerMetricsHistoryTotal = data.total ?? 0;
+                        _workerMetricsHistoryEntry = (data.entries || [])[0] || null;
+                        renderWorkerHistoryMetrics();
+                    })
+                    .catch(err => {
+                        stopWorkerHistoryMetricsPlayback();
+                        _workerMetricsHistoryEntry = null;
+                        _workerMetricsHistoryTotal = 0;
+                        panel.innerHTML =
+                            `<p style="color:#dc3545;text-align:center;padding:20px 0;">${_escHtml(err.message)}</p>`;
+                        const controlsEl = document.getElementById('workerHistoryMetricsControls');
+                        if (controlsEl) controlsEl.style.display = 'none';
+                    })
+                    .finally(() => { _workerMetricsHistoryLoading = false; });
             }
 
             function stopWorkerHistoryMetricsPlayback() {
@@ -496,11 +554,9 @@ function openModal() {
             function _advanceWorkerHistoryMetricsSnapshot() {
                 const total = _getWorkerHistoryMetricsCount();
                 if (total <= 1) return;
-                _workerMetricsHistoryIndex += 1;
-                if (_workerMetricsHistoryIndex >= total) {
-                    _workerMetricsHistoryIndex = 0;
-                }
-                renderWorkerHistoryMetrics();
+                let next = _workerMetricsHistoryIndex + 1;
+                if (next >= total) next = 0;
+                loadWorkerMetricsHistoryIndex(next);
             }
 
             function toggleWorkerHistoryMetricsPlayback() {
@@ -509,23 +565,20 @@ function openModal() {
                     renderWorkerHistoryMetrics();
                     return;
                 }
-                const total = _getWorkerHistoryMetricsCount();
-                if (total <= 1) return;
-
-                _workerMetricsHistoryIndex = 0;
-                renderWorkerHistoryMetrics();
-
-                const icon = document.getElementById('workerHistoryMetricsPlayPauseIcon');
-                const label = document.getElementById('workerHistoryMetricsPlayPauseLabel');
-                const btn = document.getElementById('workerHistoryMetricsPlayPause');
-                if (icon) icon.className = 'fas fa-pause';
-                if (label) label.textContent = 'Pause';
-                if (btn) btn.setAttribute('aria-pressed', 'true');
-
-                _workerMetricsPlayTimer = setInterval(
-                    _advanceWorkerHistoryMetricsSnapshot,
-                    WORKER_METRICS_PLAY_INTERVAL_MS,
-                );
+                const startTimer = () => {
+                    if (_workerMetricsHistoryTotal <= 1) return;
+                    const icon = document.getElementById('workerHistoryMetricsPlayPauseIcon');
+                    const label = document.getElementById('workerHistoryMetricsPlayPauseLabel');
+                    const btn = document.getElementById('workerHistoryMetricsPlayPause');
+                    if (icon) icon.className = 'fas fa-pause';
+                    if (label) label.textContent = 'Pause';
+                    if (btn) btn.setAttribute('aria-pressed', 'true');
+                    _workerMetricsPlayTimer = setInterval(
+                        _advanceWorkerHistoryMetricsSnapshot,
+                        WORKER_METRICS_PLAY_INTERVAL_MS,
+                    );
+                };
+                loadWorkerMetricsHistoryIndex(0).then(startTimer);
             }
 
             function renderWorkerHistoryMetrics() {
@@ -537,31 +590,25 @@ function openModal() {
                 const panel = document.getElementById('workerHistoryMetricsPanel');
                 if (!section || !panel) return;
 
-                const withMetrics = _getWorkerHistoryWithMetrics(
-                    _workerDetailCache ? _workerDetailCache.history : [],
-                );
-                if (!withMetrics.length) {
+                const entry = _workerMetricsHistoryEntry;
+                const total = _workerMetricsHistoryTotal;
+                if (!entry || !entry.metrics || !Object.keys(entry.metrics).length) {
                     stopWorkerHistoryMetricsPlayback();
-                    section.style.display = 'none';
-                    panel.innerHTML = '';
-                    if (labelEl) labelEl.textContent = '';
-                    if (controlsEl) controlsEl.style.display = 'none';
+                    if (total === 0 && !_workerMetricsHistoryLoading) {
+                        section.style.display = 'none';
+                        panel.innerHTML = '';
+                        if (labelEl) labelEl.textContent = '';
+                        if (controlsEl) controlsEl.style.display = 'none';
+                    }
                     return;
                 }
 
                 section.style.display = 'block';
-                if (_workerMetricsHistoryIndex >= withMetrics.length) {
-                    _workerMetricsHistoryIndex = withMetrics.length - 1;
-                }
-                if (_workerMetricsHistoryIndex < 0) _workerMetricsHistoryIndex = 0;
-
-                const entry = withMetrics[_workerMetricsHistoryIndex];
                 if (labelEl) {
                     labelEl.textContent = _formatWorkerHistoryEventLabel(entry);
                 }
                 renderSystemMetrics(panel, entry.metrics);
 
-                const total = withMetrics.length;
                 const pos = _workerMetricsHistoryIndex + 1;
                 if (controlsEl) {
                     controlsEl.style.display = total > 1 ? 'flex' : 'none';
@@ -584,12 +631,9 @@ function openModal() {
             function changeWorkerHistoryMetricsPage(direction) {
                 if (!_workerDetailCache) return;
                 stopWorkerHistoryMetricsPlayback();
-                _workerMetricsHistoryIndex += direction;
-                renderWorkerHistoryMetrics();
-            }
-
-            function _populateWorkerHistoryMetricsSelect(history) {
-                renderWorkerHistoryMetrics();
+                const next = _workerMetricsHistoryIndex + direction;
+                if (next < 0 || next >= _workerMetricsHistoryTotal) return;
+                loadWorkerMetricsHistoryIndex(next);
             }
 
             document.addEventListener('DOMContentLoaded', function() {

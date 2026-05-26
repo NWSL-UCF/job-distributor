@@ -1366,7 +1366,26 @@ class JobDatabase:
                 (WORKER_LIFECYCLE_DISABLED, now, wid),
             )
 
-    def _worker_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
+    @staticmethod
+    def _history_entry_for_list(entry: Dict[str, Any]) -> Dict[str, Any]:
+        """History row for the dashboard timeline (omit large metrics blobs)."""
+        return {
+            "reason": entry.get("reason"),
+            "timestamp": entry.get("timestamp"),
+            "event": entry.get("event"),
+        }
+
+    def _sorted_worker_history(self, raw: Any) -> List[Dict[str, Any]]:
+        history = self._parse_worker_history(raw)
+        return sorted(
+            history,
+            key=lambda e: float(e.get("timestamp") or 0),
+            reverse=True,
+        )
+
+    def _worker_row_to_dict(
+        self, row: sqlite3.Row, *, include_history: bool = True,
+    ) -> Dict[str, Any]:
         d = dict(row)
         now = time.time()
         d["stale"] = (now - float(d.get("last_poll_at") or 0)) > WORKER_STALE_SECONDS
@@ -1376,12 +1395,10 @@ class JobDatabase:
             d["system_metrics"] = json.loads(d.get("system_metrics") or "{}")
         except json.JSONDecodeError:
             d["system_metrics"] = {}
-        history = self._parse_worker_history(d.get("history"))
-        d["history"] = sorted(
-            history,
-            key=lambda e: float(e.get("timestamp") or 0),
-            reverse=True,
-        )
+        sorted_history = self._sorted_worker_history(d.get("history"))
+        d["history_total"] = len(sorted_history)
+        if include_history:
+            d["history"] = sorted_history
         h, inst, slot = self.parse_worker_id_parts(d.get("worker_id", ""))
         if not d.get("host"):
             d["host"] = h
@@ -1417,7 +1434,10 @@ class JobDatabase:
                 self._disable_stale_workers(conn)
                 conn.commit()
                 cur = conn.execute("SELECT * FROM workers ORDER BY host, instance, slot, worker_id")
-                rows = [self._worker_row_to_dict(r) for r in cur.fetchall()]
+                rows = [
+                    self._worker_row_to_dict(r, include_history=False)
+                    for r in cur.fetchall()
+                ]
         if lifecycle:
             rows = [r for r in rows if r.get("lifecycle_status") == lifecycle]
         if host:
@@ -1506,7 +1526,9 @@ class JobDatabase:
                     )
                 return {row[0]: int(row[1]) for row in cur.fetchall()}
 
-    def get_worker(self, worker_id: str) -> Optional[Dict[str, Any]]:
+    def get_worker(
+        self, worker_id: str, *, include_history: bool = True,
+    ) -> Optional[Dict[str, Any]]:
         with self.lock:
             with self.get_connection() as conn:
                 self._backfill_worker_identity_columns(conn)
@@ -1514,7 +1536,50 @@ class JobDatabase:
                 conn.commit()
                 cur = conn.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
                 row = cur.fetchone()
-        return self._worker_row_to_dict(row) if row else None
+        if not row:
+            return None
+        return self._worker_row_to_dict(row, include_history=include_history)
+
+    def get_worker_history_page(
+        self,
+        worker_id: str,
+        page: int = 0,
+        page_size: int = 10,
+        metrics_only: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Paginated worker history (newest first)."""
+        with self.lock:
+            with self.get_connection() as conn:
+                cur = conn.execute(
+                    "SELECT history FROM workers WHERE worker_id = ?",
+                    (worker_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        entries = self._sorted_worker_history(row["history"])
+        if metrics_only:
+            entries = [
+                e for e in entries
+                if isinstance(e.get("metrics"), dict) and e["metrics"]
+            ]
+        total = len(entries)
+        page = max(0, page)
+        page_size = max(1, min(int(page_size), 100))
+        start = page * page_size
+        slice_entries = entries[start:start + page_size]
+        if metrics_only:
+            out_entries = slice_entries
+        else:
+            out_entries = [self._history_entry_for_list(e) for e in slice_entries]
+        total_pages = max(1, (total + page_size - 1) // page_size) if total else 0
+        return {
+            "entries": out_entries,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
 
     def list_workers_by_host(self) -> Dict[str, List[Dict[str, Any]]]:
         grouped: Dict[str, List[Dict[str, Any]]] = {}
