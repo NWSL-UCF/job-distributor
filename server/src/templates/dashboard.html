@@ -71,8 +71,9 @@
                 </div>
                 <table class="stats-table">
                     <tr style="position:sticky; top:-17px; z-index:2;">
-                        <th>Name</th>
+                        <th>Host</th>
                         <th>Instances</th>
+                        <th>Workers</th>
                         <th>Jobs Done</th>
                         <th>Avg Completion Time</th>
                         <th>Percentage of Share</th>
@@ -81,6 +82,7 @@
                     <tr>
                         <td>{{ machine }}</td>
                         <td>{{ data.instance_count }}</td>
+                        <td>{{ data.worker_count }}</td>
                         <td>{{ data.count }}</td>
                         <td>{{ data.average_time }}</td>
                         <td>{{ data.percentage }}%</td>
@@ -321,7 +323,7 @@
                                             <thead>
                                                 <tr>
                                                     <th>ID <span class="sort-icon" onclick="sortTable(this, 0, 'number')">↕</span></th>
-                                                    <th>Machine <span class="sort-icon" onclick="sortTable(this, 1, 'string')">↕</span></th>
+                                                    <th>Worker Id <span class="sort-icon" onclick="sortTable(this, 1, 'string')">↕</span></th>
                                                     <th>Requested At <span class="sort-icon" onclick="sortTable(this, 2, 'number')">↕</span></th>
                                                     <th>Completed At <span class="sort-icon" onclick="sortTable(this, 3, 'number')">↕</span></th>
                                                     <th>Duration <span class="sort-icon" onclick="sortTable(this, 4, 'number')">↕</span></th>

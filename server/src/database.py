@@ -33,6 +33,17 @@ WORKER_LIST_PENDING = "pending"  # dashboard list filter (queued commands)
 _WORKER_INSTANCE_RE = re.compile(r"^(?:[a-z]{1,6}|[0-9A-Za-z]{6})$")
 
 
+def job_worker_id(job: Dict[str, Any]) -> str:
+    """Canonical worker assignee: ``worker_id`` column, else legacy ``requested_by``."""
+    return (job.get("worker_id") or job.get("requested_by") or "").strip()
+
+
+def enrich_job_record(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Expose a single ``worker_id`` field on job dicts returned from the DB."""
+    job["worker_id"] = job_worker_id(job)
+    return job
+
+
 def _parse_job_message(raw: Any) -> Any:
     """Parse job message JSON; keep raw text when the column is not valid JSON."""
     if raw is None:
@@ -94,6 +105,18 @@ class JobDatabase:
             except sqlite3.OperationalError:
                 # Column already exists, ignore
                 pass
+            try:
+                cursor.execute('ALTER TABLE jobs ADD COLUMN worker_id TEXT DEFAULT ""')
+            except sqlite3.OperationalError:
+                pass
+            cursor.execute(
+                'UPDATE jobs SET worker_id = requested_by '
+                'WHERE COALESCE(worker_id, "") = "" '
+                'AND COALESCE(requested_by, "") != ""'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_jobs_worker_id ON jobs(worker_id)'
+            )
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS api_stats (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,6 +339,7 @@ class JobDatabase:
                     job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
                 except (json.JSONDecodeError, KeyError):
                     job['system_metrics'] = {}
+                enrich_job_record(job)
                 jobs.append(job)
             
             return jobs
@@ -567,7 +591,7 @@ class JobDatabase:
                     job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
                 except (json.JSONDecodeError, KeyError):
                     job['system_metrics'] = {}
-                return job
+                return enrich_job_record(job)
             return None
 
     def get_jobs_paginated(self, page: int = 1, per_page: int = 50, status: str = None, search_job_id: str = None) -> Dict[str, Any]:
@@ -630,6 +654,7 @@ class JobDatabase:
                     job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
                 except (json.JSONDecodeError, KeyError):
                     job['system_metrics'] = {}
+                enrich_job_record(job)
                 jobs.append(job)
             
             return {
@@ -640,14 +665,14 @@ class JobDatabase:
                 'per_page': per_page
             }
     
-    def request_job(self, requested_by: str, system_metrics: Optional[Dict[str, Any]] = None, 
+    def request_job(self, worker_id: str, system_metrics: Optional[Dict[str, Any]] = None, 
                     job_id: Optional[int] = None, predicted_runtime: Optional[float] = None,
                     initialization_timestamp: Optional[float] = None) -> Optional[Dict[str, Any]]:
         """
         Assign a PENDING job to a requester and mark it as SERVED.
         
         Args:
-            requested_by: Identifier of the requester
+            worker_id: Full worker id (``host_instance_slot``)
             system_metrics: System metrics from the worker (optional)
             job_id: Specific job ID to assign (if None, selects based on prediction)
             predicted_runtime: Predicted runtime in seconds (optional)
@@ -686,8 +711,9 @@ class JobDatabase:
                     messages = []
                 
                 # Add new message
+                wid = (worker_id or "").strip()
                 messages.append({
-                    "reason": f"{requested_by} requests this job for execution",
+                    "reason": f"{wid} requests this job for execution",
                     "timestamp": timestamp
                 })
                 
@@ -702,17 +728,18 @@ class JobDatabase:
                 
                 cursor.execute('''
                     UPDATE jobs 
-                    SET requested_by = ?, status = ?, request_timestamp = ?, 
+                    SET worker_id = ?, requested_by = ?, status = ?, request_timestamp = ?, 
                         message = ?, system_metrics = ?, predicted_runtime = ?,
                         initialization_timestamp = ?
                     WHERE id = ?
-                ''', (requested_by, STATUS_SERVED, timestamp, json.dumps(messages), 
+                ''', (wid, wid, STATUS_SERVED, timestamp, json.dumps(messages), 
                       system_metrics_json, predicted_runtime_value, init_timestamp, job['id']))
                 
                 conn.commit()
                 
                 # Return updated job
-                job['requested_by'] = requested_by
+                job['worker_id'] = wid
+                job['requested_by'] = wid
                 job['status'] = STATUS_SERVED
                 job['request_timestamp'] = timestamp
                 job['initialization_timestamp'] = init_timestamp
@@ -789,10 +816,10 @@ class JobDatabase:
                     WHERE id = ?
                 ''', (status, now, required_time, json.dumps(messages), job_id))
 
-                requested_by = (job.get("requested_by") or "").strip()
-                if requested_by:
+                wid = job_worker_id(job)
+                if wid:
                     self._touch_worker_presence_locked(
-                        conn, requested_by,
+                        conn, wid,
                         current_job_id=None,
                         reported_status=WORKER_REPORTED_IDLE,
                     )
@@ -847,7 +874,8 @@ class JobDatabase:
                         UPDATE jobs 
                         SET status = ?, message = ?, request_timestamp = 0, 
                             completion_timestamp = 0, required_time = 0, 
-                            last_ping_timestamp = 0, initialization_timestamp = 0, requested_by = ''
+                            last_ping_timestamp = 0, initialization_timestamp = 0,
+                            worker_id = '', requested_by = ''
                         WHERE id = ?
                     ''', (new_status, json.dumps(messages), job_id))
                 else:
@@ -874,7 +902,7 @@ class JobDatabase:
                 count = 0
                 for row in aborted_jobs:
                     job = dict(row)
-                    prev_requester = job['requested_by']
+                    prev_requester = job_worker_id(job)
                     
                     # Parse existing messages
                     try:
@@ -884,14 +912,15 @@ class JobDatabase:
                     
                     # Add reset message
                     messages.append({
-                        "reason": f"Job Cleaner: Reset job to PENDING status. Previous execution failed on machine '{prev_requester}'. Job is now available for reassignment.",
+                        "reason": f"Job Cleaner: Reset job to PENDING status. Previous worker '{prev_requester}'. Job is now available for reassignment.",
                         "timestamp": current_time
                     })
                     
                     # Reset job
                     cursor.execute('''
                         UPDATE jobs 
-                        SET status = ?, requested_by = '', request_timestamp = 0, 
+                        SET status = ?, worker_id = '', requested_by = '',
+                            request_timestamp = 0, 
                             completion_timestamp = 0, required_time = 0, 
                             last_ping_timestamp = 0, initialization_timestamp = 0, message = ?
                         WHERE id = ?
@@ -920,7 +949,7 @@ class JobDatabase:
                 count = 0
                 for row in stale_jobs:
                     job = dict(row)
-                    prev_requester = job['requested_by']
+                    prev_requester = job_worker_id(job)
                     last_ping = job['last_ping_timestamp']
                     minutes_silent = round((current_time - last_ping) / 60)
                     
@@ -932,14 +961,15 @@ class JobDatabase:
                     
                     # Add reset message
                     messages.append({
-                        "reason": f"Job Cleaner: Reset job to PENDING status. Machine '{prev_requester}' stopped responding ({minutes_silent} minutes of inactivity). Job is now available for reassignment.",
+                        "reason": f"Job Cleaner: Reset job to PENDING status. Worker '{prev_requester}' stopped responding ({minutes_silent} minutes of inactivity). Job is now available for reassignment.",
                         "timestamp": current_time
                     })
                     
                     # Reset job
                     cursor.execute('''
                         UPDATE jobs 
-                        SET status = ?, requested_by = '', request_timestamp = 0, 
+                        SET status = ?, worker_id = '', requested_by = '',
+                            request_timestamp = 0, 
                             completion_timestamp = 0, required_time = 0, 
                             last_ping_timestamp = 0, initialization_timestamp = 0, message = ?
                         WHERE id = ?
@@ -1009,7 +1039,8 @@ class JobDatabase:
 
                 cursor.execute('''
                     UPDATE jobs
-                    SET status = ?, message = ?, requested_by = '', request_timestamp = 0,
+                    SET status = ?, message = ?, worker_id = '', requested_by = '',
+                        request_timestamp = 0,
                         completion_timestamp = 0, required_time = 0,
                         last_ping_timestamp = 0, initialization_timestamp = 0
                     WHERE id = ?
@@ -1201,6 +1232,7 @@ class JobDatabase:
                     job['system_metrics'] = json.loads(job.get('system_metrics', '{}'))
                 except (json.JSONDecodeError, KeyError):
                     job['system_metrics'] = {}
+                enrich_job_record(job)
                 jobs.append(job)
             
             return jobs
@@ -1594,7 +1626,8 @@ class JobDatabase:
     def count_completed_jobs_by_workers(
         self, worker_ids: Optional[List[str]] = None,
     ) -> Dict[str, int]:
-        """Count DONE jobs per worker (``requested_by`` = worker id)."""
+        """Count DONE jobs per worker id (``worker_id``, else legacy ``requested_by``)."""
+        assignee = "COALESCE(NULLIF(worker_id, ''), requested_by)"
         with self.lock:
             with self.get_connection() as conn:
                 if worker_ids:
@@ -1604,20 +1637,20 @@ class JobDatabase:
                     placeholders = ",".join("?" * len(ids))
                     cur = conn.execute(
                         f"""
-                        SELECT requested_by, COUNT(*) AS n
+                        SELECT {assignee} AS wid, COUNT(*) AS n
                         FROM jobs
-                        WHERE status = ? AND requested_by IN ({placeholders})
-                        GROUP BY requested_by
+                        WHERE status = ? AND {assignee} IN ({placeholders})
+                        GROUP BY wid
                         """,
                         [STATUS_DONE, *ids],
                     )
                 else:
                     cur = conn.execute(
-                        """
-                        SELECT requested_by, COUNT(*) AS n
+                        f"""
+                        SELECT {assignee} AS wid, COUNT(*) AS n
                         FROM jobs
-                        WHERE status = ? AND requested_by != ''
-                        GROUP BY requested_by
+                        WHERE status = ? AND {assignee} != ''
+                        GROUP BY wid
                         """,
                         (STATUS_DONE,),
                     )

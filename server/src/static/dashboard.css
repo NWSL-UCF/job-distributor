@@ -1049,7 +1049,7 @@
             
             /* Fixed column widths */
             .myTable th:nth-child(1), .myTable td:nth-child(1) { width: 80px; } /* ID */
-            .myTable th:nth-child(2), .myTable td:nth-child(2) { width: 140px; } /* Machine */
+            .myTable th:nth-child(2), .myTable td:nth-child(2) { width: 200px; } /* Worker Id */
             .myTable th:nth-child(3), .myTable td:nth-child(3) { width: 160px; } /* Requested At */
             .myTable th:nth-child(4), .myTable td:nth-child(4) { width: 160px; } /* Completed At */
             .myTable th:nth-child(5), .myTable td:nth-child(5) { width: 160px; } /* Completed At */
@@ -1606,6 +1606,24 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 background-color: #f2f2f2;
                 color: black;
                 font-weight: bold;
+            }
+            .stats-hint {
+                text-align: left;
+                font-size: 0.85rem;
+                color: #555;
+                line-height: 1.45;
+                margin: 0 0 16px 0;
+                padding: 10px 12px;
+                background: #f8f9fa;
+                border-radius: 6px;
+                border-left: 3px solid #4CAF50;
+            }
+            .stats-hint code {
+                font-size: 0.82rem;
+            }
+            .stats-worker-id {
+                font-size: 0.9rem;
+                font-weight: 600;
             }
             .modal-button {
                 padding: 12px 24px;

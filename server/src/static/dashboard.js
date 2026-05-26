@@ -1193,7 +1193,7 @@ function openModal() {
 
                         let html = '';
                         data.jobs.forEach(job => {
-                            const machine        = job.machine || '';
+                            const workerId       = job.worker_id || 'Unassigned';
                             const reqTs          = job.request_timestamp    || 0;
                             const compTs         = job.completion_timestamp || 0;
                             const reqTime        = reqTs  ? new Date(reqTs  * 1000).toLocaleString() : '';
@@ -1204,7 +1204,7 @@ function openModal() {
                             html += `
                                 <tr>
                                     <td data-value="${job.id}" style="font-weight:bold;">${job.id}</td>
-                                    <td>${machine}</td>
+                                    <td>${workerId}</td>
                                     <td data-value="${reqTs}">${reqTime}</td>
                                     <td data-value="${compTs}">${compTime}</td>
                                     <td data-value="${durationSec}">${durationFmt}</td>

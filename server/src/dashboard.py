@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytz
-from database import JobDatabase
+from database import JobDatabase, job_worker_id
 from flask import Flask, jsonify, make_response, redirect, render_template, request, send_file
 from workspace_layout import ensure_exp_layout, exp_meta_dir, jobs_db_path
 from job_files import (
@@ -48,18 +48,18 @@ STATUS_DONE = "DONE"
 STATUS_ABORTED = "ABORTED"
 STATUS_DELETED = "DELETED"
 
-def worker_machine_label(requested_by: str) -> str:
-    """Derive a machine/host label from job requested_by (worker id)."""
-    if not requested_by or not str(requested_by).strip():
+def worker_machine_label(worker_id: str) -> str:
+    """Derive a host label from a full worker id for charts and machine stats."""
+    if not worker_id or not str(worker_id).strip():
         return "Unassigned"
-    rb = str(requested_by).strip()
+    rb = str(worker_id).strip()
     # Legacy: user@host(type)_slot_suffix
     if "@" in rb:
         return rb.split("_")[0]
     # Current: {host}_{instance}_{slot}
     parts = rb.split("_")
     if len(parts) == 3 and parts[-1].isdigit() and re.fullmatch(
-        r"[0-9A-Za-z]{6}", parts[1]
+        r"(?:[a-z]{1,6}|[0-9A-Za-z]{6})", parts[1]
     ):
         return parts[0]
     if len(parts) == 3 and parts[-1].isdigit() and re.fullmatch(
@@ -175,12 +175,12 @@ def load_jobs():
     try:
         jobs = db.get_all_jobs()
 
-        # Add machine field for compatibility
         for job in jobs:
-            if not job["requested_by"] or job["requested_by"].strip() == "":
+            wid = job_worker_id(job)
+            if not wid:
                 job["machine"] = "Unassigned"
             else:
-                job["machine"] = worker_machine_label(job["requested_by"])
+                job["machine"] = worker_machine_label(wid)
 
         return jobs
     except Exception as e:
@@ -207,28 +207,41 @@ def format_time(seconds):
 
 
 def calculate_machine_stats(jobs):
-    """Calculate statistics for each machine group."""
+    """Per-host stats: instances, workers, jobs done, share of completed work."""
     machine_stats = defaultdict(
-        lambda: {"count": 0, "total_time": 0, "instances": set()})
+        lambda: {
+            "count": 0,
+            "total_time": 0,
+            "instances": set(),
+            "workers": set(),
+        })
     total_completed = len(
         [job for job in jobs if job["status"] == STATUS_DONE])
 
     for job in jobs:
-        if job["status"] == STATUS_DONE:
-            machine_name = worker_machine_label(job["requested_by"])
-            machine_stats[machine_name]["count"] += 1
-            machine_stats[machine_name]["total_time"] += job["required_time"]
-            machine_stats[machine_name]["instances"].add(job["requested_by"])
+        if job["status"] != STATUS_DONE:
+            continue
+        wid = job_worker_id(job)
+        if not wid:
+            continue
+        host = worker_machine_label(wid)
+        machine_stats[host]["count"] += 1
+        machine_stats[host]["total_time"] += job["required_time"]
+        machine_stats[host]["workers"].add(wid)
+        _, inst, _ = JobDatabase.parse_worker_id_parts(wid)
+        if inst:
+            machine_stats[host]["instances"].add(inst)
 
-    for machine, data in machine_stats.items():
+    for host, data in machine_stats.items():
         data["average_time"] = format_time(
             (data["total_time"] / data["count"]) if data["count"] else 0)
         data["percentage"] = (
             data["count"] / total_completed * 100) if total_completed else 0
         data["percentage"] = round(data["percentage"], 2)
         data["instance_count"] = len(data["instances"])
+        data["worker_count"] = len(data["workers"])
 
-    return machine_stats
+    return dict(sorted(machine_stats.items(), key=lambda kv: kv[0]))
 
 # ------------------------- JOB STATISTICS ---------------------
 
@@ -654,12 +667,12 @@ def get_jobs_paginated():
         result = db.get_jobs_paginated(
             page=page, per_page=per_page, status=status, search_job_id=search_job_id)
 
-        # Add machine field for compatibility
         for job in result['jobs']:
-            if not job["requested_by"] or job["requested_by"].strip() == "":
-                job["machine"] = "Unassigned"
-            else:
-                job["machine"] = worker_machine_label(job["requested_by"])
+            wid = job_worker_id(job)
+            job["worker_id"] = wid if wid else "Unassigned"
+            job["machine"] = (
+                worker_machine_label(wid) if wid else "Unassigned"
+            )
 
         return jsonify(result)
 
@@ -938,9 +951,9 @@ def dashboard():
     # Get machine names efficiently (only from completed jobs for stats)
     completed_jobs = db.get_jobs_by_status(STATUS_DONE)
     machine_names = sorted(set(
-        worker_machine_label(job["requested_by"])
+        worker_machine_label(job_worker_id(job))
         for job in completed_jobs
-        if job["requested_by"]
+        if job_worker_id(job)
     ))
 
     # Calculate machine stats efficiently

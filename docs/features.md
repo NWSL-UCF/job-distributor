@@ -57,7 +57,8 @@ SQLite-backed data layer. All write methods hold a `threading.Lock()`, making th
 | `id` | INTEGER PK | Sequential job index |
 | `status` | TEXT | `PENDING`, `SERVED`, `DONE`, `ABORTED` |
 | `parameters` | TEXT (JSON) | Parameter key-value dict for this job |
-| `requested_by` | TEXT | `runner_id` of the worker that claimed it |
+| `worker_id` | TEXT | Full worker id (`host_instance_slot`) that claimed the job |
+| `requested_by` | TEXT | Legacy mirror of `worker_id` (kept in sync on assign/clear) |
 | `request_timestamp` | REAL | Unix time when job was claimed |
 | `initialization_timestamp` | REAL | Unix time when the job request arrived at the server |
 | `completion_timestamp` | REAL | Unix time when job finished |

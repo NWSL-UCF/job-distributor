@@ -118,7 +118,7 @@ jd_worker_cli expId=my_exp stop 0_45231
 Each worker gets a **`worker_id`** like `gpunode_egg_0` (`{host}_{instance}_{slot}`).
         The **instance** segment is a short random object name (e.g. `egg`, `table`, `moon`) from a local pool in `workers.db`, max 6 letters. Legacy workers may still use 6-character alphanumeric tokens.
         Standalone launches always use slot **`0`**; `num_workers=N` uses slots `0 … N-1`.
-        The same id is used locally, on the server (`requested_by`), and in log filenames.
+        The same id is used locally, on the server (`worker_id` on the job row), and in log filenames.
         Use **`foreground=true`** for attached/debug mode.
 
 ### Management commands
