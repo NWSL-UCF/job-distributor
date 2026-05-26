@@ -91,8 +91,8 @@ Other optional arguments
 
     Worker registry (SQLite) lives under ``<cache>/.cache/<expId>/workers.db``.
     ``cache`` is ``JD_CACHE_PATH`` if set, otherwise the same as ``parent``.
-    On HPC, set ``JD_CACHE_PATH`` to node-local scratch and keep
-    ``JD_WORKSPACE_PATH`` on shared storage for large job I/O.
+    On HPC, set ``JD_CACHE_PATH`` to node-local scratch (e.g. ``/tmp/.jd_cache``)
+    and keep ``JD_WORKSPACE_PATH`` on shared storage for large job I/O.
 
 Install
 -------

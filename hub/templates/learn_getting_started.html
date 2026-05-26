@@ -834,7 +834,7 @@ jd_worker_cli expId=digits-tune entry_script=train.py \
           <tr><td><code>foreground=true</code></td><td><code>JD_FOREGROUND</code></td><td><code>false</code></td><td>Run in the foreground — <strong>required on Slurm</strong>; optional for local debugging</td></tr>
           <tr><td><code>hub=&lt;url&gt;</code></td><td><code>JD_HUB_URL</code></td><td>hub.jobdistributor.net</td><td>Hub base URL</td></tr>
           <tr><td>—</td><td><code>JD_WORKSPACE_PATH</code></td><td><code>~</code></td><td>Parent directory for <code>jd_data/&lt;exp&gt;/&lt;job_id&gt;/</code> (job files, default logs)</td></tr>
-          <tr><td>—</td><td><code>JD_CACHE_PATH</code></td><td>same as workspace</td><td>Parent directory for <code>.cache/&lt;exp&gt;/workers.db</code> (registry). On HPC, set to <strong>node-local</strong> scratch — see Step 6</td></tr>
+          <tr><td>—</td><td><code>JD_CACHE_PATH</code></td><td>same as workspace</td><td>Parent directory for <code>.cache/&lt;exp&gt;/workers.db</code> (registry). On HPC, e.g. <code>/tmp/.jd_cache</code> — see Step 6</td></tr>
         </tbody>
       </table>
 
@@ -875,9 +875,11 @@ jd_worker_cli expId=digits-tune entry_script=train.py \
         uploads persist.
         <code>JD_CACHE_PATH</code> is where the worker keeps its SQLite registry
         (<code>…/.cache/&lt;expId&gt;/workers.db</code>) — use
-        <strong>node-local</strong> scratch (<code>$TMPDIR</code>) so many array
-        tasks do not hammer the same database on a network filesystem (which
-        can cause <code>disk I/O error</code> in worker logs).
+        <strong>node-local</strong> scratch (e.g. <code>/tmp/.jd_cache</code>)
+        so registry I/O stays off Lustre/NFS (which can cause
+        <code>disk I/O error</code> in worker logs). One
+        <code>.jd_cache</code> per allocated node is enough; experiments still
+        get separate <code>.cache/&lt;expId&gt;/</code> subdirs.
         On a laptop you typically omit <code>JD_CACHE_PATH</code>; both paths
         default to your home directory.
       </p>
@@ -912,8 +914,8 @@ export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # Shared — job dirs, checkpoints, worker logs (adjust for Lustre/home)
 export JD_WORKSPACE_PATH="${SLURM_SUBMIT_DIR}/jd_data"
-# Node-local — registry only (one cache dir per Slurm job)
-export JD_CACHE_PATH="${TMPDIR:-/tmp}/jd_cache_${USER}_${SLURM_JOB_ID:-$$}"
+# Node-local — registry only (one .jd_cache per compute node)
+export JD_CACHE_PATH="${TMPDIR:-/tmp}/.jd_cache"
 
 mkdir -p "${JD_WORKSPACE_PATH}" "${JD_CACHE_PATH}"
 

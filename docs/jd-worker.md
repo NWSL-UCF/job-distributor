@@ -188,8 +188,8 @@ SQLite on shared filesystems often causes `disk I/O error` when many workers upd
 # Shared — checkpoints, uploads, job dirs
 export JD_WORKSPACE_PATH=/lustre/fs1/home/you/jd_client/jd_data
 
-# Node-local — workers.db only (per job or per node)
-export JD_CACHE_PATH="${TMPDIR:-/tmp}/jd_cache_${USER}_${SLURM_JOB_ID:-$$}"
+# Node-local — workers.db only (one dir per compute node)
+export JD_CACHE_PATH="${TMPDIR:-/tmp}/.jd_cache"
 mkdir -p "$JD_CACHE_PATH"
 
 jd_worker_cli expId=my_exp entry_script=train.py ...
