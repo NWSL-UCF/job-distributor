@@ -109,61 +109,84 @@ function openModal() {
                             hostSel.innerHTML += `<option value="${_escHtml(h)}">${_escHtml(h)}</option>`;
                         });
                         hostSel.value = (data.hosts || []).includes(prevHost) ? prevHost : '';
-                        _populateWorkerInstanceDropdown();
+                        _populateWorkerInstanceDropdown(true);
                         if ((data.instances_by_host[hostSel.value] || []).includes(prevInst)) {
                             instSel.value = prevInst;
                         }
-                        _populateWorkerSlotDropdown();
-                        if (slotSel.querySelector(`option[value="${prevSlot}"]`)) {
+                        _populateWorkerSlotDropdown(true);
+                        if (prevSlot !== '' && slotSel.querySelector(`option[value="${prevSlot}"]`)) {
                             slotSel.value = prevSlot;
                         }
                     })
                     .catch(() => {});
             }
 
-            function _populateWorkerInstanceDropdown() {
+            function _populateWorkerInstanceDropdown(preserveSelection) {
                 const hostSel = document.getElementById('workerFilterHost');
                 const instSel = document.getElementById('workerFilterInstance');
                 if (!instSel || !_workerFiltersData) return;
-                const host = hostSel.value;
+                const host = hostSel?.value || '';
+                const prevInst = preserveSelection ? instSel.value : '';
                 instSel.innerHTML = '<option value="">All instances</option>';
-                instSel.disabled = !host;
                 if (host) {
                     (_workerFiltersData.instances_by_host[host] || []).forEach(inst => {
                         instSel.innerHTML += `<option value="${_escHtml(inst)}">${_escHtml(inst)}</option>`;
                     });
+                    instSel.removeAttribute('disabled');
+                } else {
+                    instSel.setAttribute('disabled', 'disabled');
+                }
+                if (prevInst && instSel.querySelector(`option[value="${CSS.escape(prevInst)}"]`)) {
+                    instSel.value = prevInst;
                 }
             }
 
-            function _populateWorkerSlotDropdown() {
+            function _populateWorkerSlotDropdown(preserveSelection) {
                 const hostSel = document.getElementById('workerFilterHost');
                 const instSel = document.getElementById('workerFilterInstance');
                 const slotSel = document.getElementById('workerFilterSlot');
                 if (!slotSel || !_workerFiltersData) return;
-                const host = hostSel.value;
-                const inst = instSel.value;
+                const host = hostSel?.value || '';
+                const inst = instSel?.value || '';
+                const prevSlot = preserveSelection ? slotSel.value : '';
                 slotSel.innerHTML = '<option value="">All slots</option>';
-                slotSel.disabled = !(host && inst);
                 if (host && inst) {
                     const key = host + '|' + inst;
                     (_workerFiltersData.slots_by_host_instance[key] || []).forEach(sl => {
                         slotSel.innerHTML += `<option value="${sl}">${sl}</option>`;
                     });
+                    slotSel.removeAttribute('disabled');
+                } else {
+                    slotSel.setAttribute('disabled', 'disabled');
+                }
+                if (prevSlot !== '' && slotSel.querySelector(`option[value="${CSS.escape(prevSlot)}"]`)) {
+                    slotSel.value = prevSlot;
                 }
             }
 
-            function onWorkerFilterChange() {
-                const hostSel = document.getElementById('workerFilterHost');
+            function onWorkerHostFilterChange() {
                 const instSel = document.getElementById('workerFilterInstance');
-                if (!hostSel.value) {
-                    instSel.value = '';
-                }
-                _populateWorkerInstanceDropdown();
-                if (!instSel.value) {
-                    document.getElementById('workerFilterSlot').value = '';
-                }
-                _populateWorkerSlotDropdown();
+                const slotSel = document.getElementById('workerFilterSlot');
+                if (instSel) instSel.value = '';
+                if (slotSel) slotSel.value = '';
+                _populateWorkerInstanceDropdown(false);
+                _populateWorkerSlotDropdown(false);
                 loadWorkersPageTable();
+            }
+
+            function onWorkerInstanceFilterChange() {
+                const slotSel = document.getElementById('workerFilterSlot');
+                if (slotSel) slotSel.value = '';
+                _populateWorkerSlotDropdown(false);
+                loadWorkersPageTable();
+            }
+
+            function onWorkerSlotFilterChange() {
+                loadWorkersPageTable();
+            }
+
+            function onWorkerFilterChange() {
+                onWorkerHostFilterChange();
             }
 
             function _workerFilterParams() {

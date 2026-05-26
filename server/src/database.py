@@ -1382,13 +1382,13 @@ class JobDatabase:
             key=lambda e: float(e.get("timestamp") or 0),
             reverse=True,
         )
+        h, inst, slot = self.parse_worker_id_parts(d.get("worker_id", ""))
         if not d.get("host"):
-            h, inst, slot = self.parse_worker_id_parts(d.get("worker_id", ""))
             d["host"] = h
-            if not d.get("instance"):
-                d["instance"] = inst
-            if not d.get("slot"):
-                d["slot"] = slot
+        if not d.get("instance"):
+            d["instance"] = inst
+        if d.get("slot") in (None, ""):
+            d["slot"] = slot
         return d
 
     def _backfill_worker_identity_columns(self, conn: sqlite3.Connection) -> None:

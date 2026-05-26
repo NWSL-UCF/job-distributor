@@ -390,19 +390,19 @@
                         <div class="workers-filters">
                             <div class="workers-filter-group">
                                 <label for="workerFilterHost">Host</label>
-                                <select id="workerFilterHost" class="form-select" onchange="onWorkerFilterChange()">
+                                <select id="workerFilterHost" class="form-select workers-filter-select" onchange="onWorkerHostFilterChange()">
                                     <option value="">All hosts</option>
                                 </select>
                             </div>
                             <div class="workers-filter-group">
                                 <label for="workerFilterInstance">Instance</label>
-                                <select id="workerFilterInstance" class="form-select" onchange="onWorkerFilterChange()">
+                                <select id="workerFilterInstance" class="form-select workers-filter-select" disabled onchange="onWorkerInstanceFilterChange()">
                                     <option value="">All instances</option>
                                 </select>
                             </div>
                             <div class="workers-filter-group">
                                 <label for="workerFilterSlot">Slot</label>
-                                <select id="workerFilterSlot" class="form-select" onchange="onWorkerFilterChange()">
+                                <select id="workerFilterSlot" class="form-select workers-filter-select" disabled onchange="onWorkerSlotFilterChange()">
                                     <option value="">All slots</option>
                                 </select>
                             </div>
