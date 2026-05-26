@@ -778,7 +778,7 @@ def workers_filters():
     """Host / instance / slot options for worker filter dropdowns."""
     db.track_api_request("Worker Filters", "GET")
     lifecycle = request.args.get("lifecycle", "active").strip().lower()
-    if lifecycle not in ("active", "disabled", "all"):
+    if lifecycle not in ("active", "disabled", "pending", "all"):
         lifecycle = "active"
     lc = None if lifecycle == "all" else lifecycle
     return jsonify(db.get_worker_filters(lifecycle=lc))
@@ -786,26 +786,42 @@ def workers_filters():
 
 @app.route("/workers/list", methods=["GET"])
 def workers_list():
-    """List workers with lifecycle and host/instance/slot filters."""
+    """Paginated worker list with lifecycle and host/instance/slot filters."""
     db.track_api_request("Worker List", "GET")
     lifecycle = request.args.get("lifecycle", "active").strip().lower()
-    if lifecycle not in ("active", "disabled", "all"):
+    if lifecycle not in ("active", "disabled", "pending", "all"):
         lifecycle = "active"
     host = request.args.get("host", "").strip() or None
     instance = request.args.get("instance", "").strip() or None
     slot_raw = request.args.get("slot", "").strip()
     slot = int(slot_raw) if slot_raw.isdigit() else None
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page", 50))
+    except (TypeError, ValueError):
+        per_page = 50
+    per_page = max(1, min(per_page, 50))
     lc = None if lifecycle == "all" else lifecycle
-    workers = db.list_workers(lifecycle=lc, host=host, instance=instance, slot=slot)
-    completed_counts = db.count_completed_jobs_by_workers(
-        [w.get("worker_id") or "" for w in workers],
+    result = db.list_workers_paginated(
+        page=page,
+        per_page=per_page,
+        lifecycle=lc,
+        host=host,
+        instance=instance,
+        slot=slot,
     )
-    for w in workers:
+    completed_counts = db.count_completed_jobs_by_workers(
+        [w.get("worker_id") or "" for w in result["workers"]],
+    )
+    for w in result["workers"]:
         w["last_poll_at_fmt"] = format_timestamp(w.get("last_poll_at"))
         w["disabled_at_fmt"] = format_timestamp(w.get("disabled_at"))
         w["first_poll_at_fmt"] = format_timestamp(w.get("first_poll_at"))
         w["completed_jobs"] = completed_counts.get(w.get("worker_id") or "", 0)
-    return jsonify({"workers": workers})
+    return jsonify(result)
 
 
 @app.route("/workers/detail", methods=["GET"])

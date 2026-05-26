@@ -368,6 +368,7 @@
                                 <p class="sb-section-title">Workers Management</p>
                                 <p class="workers-sidebar-hint">
                                     Active workers accept dashboard commands on their next poll (~3 min).
+                                    Pending lists workers with a queued command until it is applied.
                                     Disabled workers stopped polling and are read-only.
                                 </p>
                             </div>
@@ -387,18 +388,6 @@
                                         <div class="sb-stat-tile-val" id="workersPageDisabled" style="color:#6c757d;">—</div>
                                         <div class="sb-stat-tile-lbl">Disabled</div>
                                     </div>
-                                </div>
-                            </div>
-
-                            <div class="sb-section">
-                                <p class="sb-section-title">View</p>
-                                <div class="workers-subtabs workers-subtabs--sidebar">
-                                    <button type="button" class="workers-subtab active" id="workerSubtabActive" onclick="switchWorkerSubtab('active')">
-                                        Active Workers
-                                    </button>
-                                    <button type="button" class="workers-subtab" id="workerSubtabDisabled" onclick="switchWorkerSubtab('disabled')">
-                                        Disabled / Stopped
-                                    </button>
                                 </div>
                             </div>
 
@@ -429,43 +418,81 @@
                         </div>
 
                         <div class="workers-main">
-                            <div id="workersActiveToolbar" class="workers-toolbar">
-                                <button type="button" class="workers-btn workers-btn--run" onclick="workerCommand('run','all')">
-                                    <i class="fas fa-play"></i> Resume all
+                            <div class="tabs workers-view-tabs">
+                                <button type="button" class="tab-button active" id="workerSubtabActive" onclick="switchWorkerSubtab('active')">
+                                    <i class="fas fa-server"></i>
+                                    Active Workers
                                 </button>
-                                <button type="button" class="workers-btn workers-btn--pause" onclick="workerCommand('pause','all')">
-                                    <i class="fas fa-pause"></i> Pause all
+                                <button type="button" class="tab-button" id="workerSubtabPending" onclick="switchWorkerSubtab('pending')">
+                                    <i class="fas fa-clock"></i>
+                                    Pending
+                                    <span class="tab-count" id="workerTabPendingCount">0</span>
                                 </button>
-                                <button type="button" class="workers-btn workers-btn--drain" onclick="workerCommand('drain','all')">
-                                    <i class="fas fa-hourglass-half"></i> Drain all
-                                </button>
-                                <button type="button" class="workers-btn workers-btn--stop" onclick="workerCommand('stop','all')">
-                                    <i class="fas fa-stop"></i> Stop all
-                                </button>
-                                <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
-                                    <i class="fas fa-undo"></i> Cancel all pending
+                                <button type="button" class="tab-button" id="workerSubtabDisabled" onclick="switchWorkerSubtab('disabled')">
+                                    <i class="fas fa-power-off"></i>
+                                    Disabled / Stopped
                                 </button>
                             </div>
 
-                            <div class="workers-table-wrap">
-                                <table class="workers-page-table" id="workersPageTable">
-                                    <thead>
-                                        <tr>
-                                            <th>Worker ID</th>
-                                            <th>Host</th>
-                                            <th>Instance</th>
-                                            <th>Slot</th>
-                                            <th>Status</th>
-                                            <th>Job</th>
-                                            <th>Completed jobs</th>
-                                            <th>Last poll</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="workersPageBody">
-                                        <tr><td colspan="9" class="workers-loading">Loading workers…</td></tr>
-                                    </tbody>
-                                </table>
+                            <div class="table-container workers-table-container">
+                                <div class="table-header">
+                                    <div class="table-title">
+                                        <h3 id="workersTableTitle">Active Workers</h3>
+                                        <span id="workersPaginationInfo" class="pagination-info">Loading…</span>
+                                    </div>
+                                </div>
+
+                                <div id="workersActiveToolbar" class="workers-toolbar">
+                                    <button type="button" class="workers-btn workers-btn--pause" onclick="workerCommand('pause','all')">
+                                        <i class="fas fa-pause"></i> Pause all
+                                    </button>
+                                    <button type="button" class="workers-btn workers-btn--drain" onclick="workerCommand('drain','all')">
+                                        <i class="fas fa-hourglass-half"></i> Drain all
+                                    </button>
+                                    <button type="button" class="workers-btn workers-btn--stop" onclick="workerCommand('stop','all')">
+                                        <i class="fas fa-stop"></i> Stop all
+                                    </button>
+                                    <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
+                                        <i class="fas fa-undo"></i> Cancel all pending
+                                    </button>
+                                </div>
+
+                                <div id="workersPendingToolbar" class="workers-toolbar" style="display:none;">
+                                    <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
+                                        <i class="fas fa-undo"></i> Cancel all pending
+                                    </button>
+                                </div>
+
+                                <div class="workers-table-wrap">
+                                    <table class="workers-page-table" id="workersPageTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Worker ID</th>
+                                                <th>Host</th>
+                                                <th>Instance</th>
+                                                <th>Slot</th>
+                                                <th>Status</th>
+                                                <th>Job</th>
+                                                <th>Completed jobs</th>
+                                                <th>Last poll</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="workersPageBody">
+                                            <tr><td colspan="9" class="workers-loading">Loading workers…</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div class="pagination-controls" id="workersPaginationControls">
+                                    <button type="button" id="workersPagePrev" class="pagination-btn" onclick="changeWorkersPage(-1)" disabled>
+                                        <i class="fas fa-chevron-left"></i> Previous
+                                    </button>
+                                    <span id="workersPageInfo" class="page-info">Page 1</span>
+                                    <button type="button" id="workersPageNext" class="pagination-btn" onclick="changeWorkersPage(1)">
+                                        Next <i class="fas fa-chevron-right"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

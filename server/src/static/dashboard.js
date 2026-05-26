@@ -7,6 +7,8 @@ function openModal() {
 
             // ── Main nav: Jobs vs Workers ─────────────────────────────────────
             let _workerSubtab = 'active';
+            let _workerPage = 1;
+            const WORKER_PAGE_SIZE = 50;
             let _workerFiltersData = null;
             let _workerDetailCache = null;
             let _workerHistoryPage = 0;
@@ -47,11 +49,30 @@ function openModal() {
 
             function switchWorkerSubtab(which) {
                 _workerSubtab = which;
+                _workerPage = 1;
                 document.getElementById('workerSubtabActive').classList.toggle('active', which === 'active');
+                document.getElementById('workerSubtabPending').classList.toggle('active', which === 'pending');
                 document.getElementById('workerSubtabDisabled').classList.toggle('active', which === 'disabled');
-                const toolbar = document.getElementById('workersActiveToolbar');
-                if (toolbar) toolbar.style.display = which === 'active' ? 'flex' : 'none';
+                const activeToolbar = document.getElementById('workersActiveToolbar');
+                const pendingToolbar = document.getElementById('workersPendingToolbar');
+                if (activeToolbar) activeToolbar.style.display = which === 'active' ? 'flex' : 'none';
+                if (pendingToolbar) pendingToolbar.style.display = which === 'pending' ? 'flex' : 'none';
+                const titleEl = document.getElementById('workersTableTitle');
+                if (titleEl) {
+                    titleEl.textContent = which === 'disabled'
+                        ? 'Disabled / Stopped Workers'
+                        : which === 'pending'
+                            ? 'Pending Commands'
+                            : 'Active Workers';
+                }
+                loadWorkerSummary();
                 loadWorkerFilters().then(() => loadWorkersPageTable());
+            }
+
+            function _workerListLifecycle() {
+                if (_workerSubtab === 'disabled') return 'disabled';
+                if (_workerSubtab === 'pending') return 'pending';
+                return 'active';
             }
 
             function loadWorkerSummary() {
@@ -66,6 +87,7 @@ function openModal() {
                             workersPageIdle: data.idle,
                             workersPageBusy: data.busy,
                             workersPageDisabled: data.disabled,
+                            workerTabPendingCount: data.pending_commands,
                         };
                         Object.keys(map).forEach(id => {
                             const el = document.getElementById(id);
@@ -81,6 +103,52 @@ function openModal() {
                     .replace(/</g, '&lt;')
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;');
+            }
+
+            function _workerDesiredState(w) {
+                return (w.desired_state || 'run').toLowerCase();
+            }
+
+            function _isWorkerPaused(w) {
+                return _workerDesiredState(w) === 'pause';
+            }
+
+            function _workerControlTerminal(w) {
+                const ds = _workerDesiredState(w);
+                return ds === 'drain' || ds === 'stop';
+            }
+
+            function _buildWorkerRowActions(w) {
+                const wid = w.worker_id || '';
+                const widEsc = _escHtml(wid);
+                let actions = `<button type="button" class="workers-btn-sm" onclick="openWorkerDetail('${widEsc}')">Details</button>`;
+                if (_workerSubtab === 'pending') {
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${widEsc}')">Cancel</button>`;
+                    return actions;
+                }
+                if (_workerSubtab !== 'active') {
+                    return actions;
+                }
+                if (_workerControlTerminal(w)) {
+                    if (w.pending) {
+                        actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${widEsc}')">Cancel</button>`;
+                    }
+                    return actions;
+                }
+                const paused = _isWorkerPaused(w);
+                if (paused) {
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="workerCommand('run','worker','${widEsc}')"><i class="fas fa-play"></i> Resume</button>`;
+                } else {
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--pause" onclick="workerCommand('pause','worker','${widEsc}')"><i class="fas fa-pause"></i> Pause</button>`;
+                }
+                const drainDisabled = paused ? ' disabled' : '';
+                const drainClass = paused ? ' workers-btn-sm--disabled' : ' workers-btn--drain';
+                actions += `<button type="button" class="workers-btn-sm${drainClass}"${drainDisabled} onclick="workerCommand('drain','worker','${widEsc}')">Drain</button>`;
+                actions += `<button type="button" class="workers-btn-sm workers-btn--stop" onclick="workerCommand('stop','worker','${widEsc}')">Stop</button>`;
+                if (w.pending) {
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${widEsc}')">Cancel</button>`;
+                }
+                return actions;
             }
 
             function _workerStateBadge(w) {
@@ -105,8 +173,7 @@ function openModal() {
             }
 
             function loadWorkerFilters() {
-                const lifecycle = _workerSubtab === 'disabled' ? 'disabled' : 'active';
-                return fetch('/workers/filters?lifecycle=' + lifecycle)
+                return fetch('/workers/filters?lifecycle=' + _workerListLifecycle())
                     .then(r => r.json())
                     .then(data => {
                         _workerFiltersData = data;
@@ -178,6 +245,7 @@ function openModal() {
             }
 
             function onWorkerHostFilterChange() {
+                _workerPage = 1;
                 const instSel = document.getElementById('workerFilterInstance');
                 const slotSel = document.getElementById('workerFilterSlot');
                 if (instSel) instSel.value = '';
@@ -188,6 +256,7 @@ function openModal() {
             }
 
             function onWorkerInstanceFilterChange() {
+                _workerPage = 1;
                 const slotSel = document.getElementById('workerFilterSlot');
                 if (slotSel) slotSel.value = '';
                 _populateWorkerSlotDropdown(false);
@@ -195,6 +264,7 @@ function openModal() {
             }
 
             function onWorkerSlotFilterChange() {
+                _workerPage = 1;
                 loadWorkersPageTable();
             }
 
@@ -204,7 +274,9 @@ function openModal() {
 
             function _workerFilterParams() {
                 const p = new URLSearchParams();
-                p.set('lifecycle', _workerSubtab === 'disabled' ? 'disabled' : 'active');
+                p.set('lifecycle', _workerListLifecycle());
+                p.set('page', String(_workerPage));
+                p.set('per_page', String(WORKER_PAGE_SIZE));
                 const host = document.getElementById('workerFilterHost')?.value;
                 const inst = document.getElementById('workerFilterInstance')?.value;
                 const slot = document.getElementById('workerFilterSlot')?.value;
@@ -214,6 +286,43 @@ function openModal() {
                 return p.toString();
             }
 
+            function _updateWorkersPagination(data) {
+                const total = data.total_count || 0;
+                const page = data.current_page || 1;
+                const totalPages = data.total_pages || 0;
+                const perPage = data.per_page || WORKER_PAGE_SIZE;
+                const pageInfo = document.getElementById('workersPageInfo');
+                const paginationInfo = document.getElementById('workersPaginationInfo');
+                const prevBtn = document.getElementById('workersPagePrev');
+                const nextBtn = document.getElementById('workersPageNext');
+                if (pageInfo) {
+                    pageInfo.textContent = totalPages
+                        ? `Page ${page} of ${totalPages}`
+                        : 'Page 1';
+                }
+                if (paginationInfo) {
+                    if (!total) {
+                        paginationInfo.textContent = 'No workers';
+                    } else {
+                        const start = ((page - 1) * perPage) + 1;
+                        const end = Math.min(page * perPage, total);
+                        paginationInfo.textContent =
+                            `Showing ${start}-${end} of ${total} workers`;
+                    }
+                }
+                if (prevBtn) prevBtn.disabled = page <= 1;
+                if (nextBtn) nextBtn.disabled = !totalPages || page >= totalPages;
+                _workerPage = page;
+            }
+
+            function changeWorkersPage(direction) {
+                const next = _workerPage + direction;
+                if (next >= 1) {
+                    _workerPage = next;
+                    loadWorkersPageTable();
+                }
+            }
+
             function loadWorkersPageTable() {
                 const tbody = document.getElementById('workersPageBody');
                 if (!tbody) return;
@@ -221,11 +330,14 @@ function openModal() {
                 fetch('/workers/list?' + _workerFilterParams())
                     .then(r => r.json())
                     .then(data => {
+                        _updateWorkersPagination(data);
                         const workers = data.workers || [];
                         if (!workers.length) {
                             const msg = _workerSubtab === 'disabled'
                                 ? 'No disabled workers.'
-                                : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).';
+                                : _workerSubtab === 'pending'
+                                    ? 'No pending commands. Workers appear here after you queue pause, drain, or stop until their next poll (~3 min).'
+                                    : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).';
                             tbody.innerHTML = `<tr><td colspan="9" class="workers-empty">${msg}</td></tr>`;
                             return;
                         }
@@ -238,16 +350,7 @@ function openModal() {
                             const lastPoll = _formatWorkerPollTime(
                                 w.last_poll_at ?? w.last_poll_at_fmt,
                             );
-                            const isActive = _workerSubtab === 'active';
-                            let actions = `<button type="button" class="workers-btn-sm" onclick="openWorkerDetail('${_escHtml(wid)}')">Details</button>`;
-                            if (isActive) {
-                                actions += `
-                                    <button type="button" class="workers-btn-sm workers-btn--pause" onclick="workerCommand('pause','worker','${_escHtml(wid)}')">Pause</button>
-                                    <button type="button" class="workers-btn-sm workers-btn--drain" onclick="workerCommand('drain','worker','${_escHtml(wid)}')">Drain</button>
-                                    <button type="button" class="workers-btn-sm workers-btn--stop" onclick="workerCommand('stop','worker','${_escHtml(wid)}')">Stop</button>
-                                    <button type="button" class="workers-btn-sm workers-btn--run" onclick="workerCommand('run','worker','${_escHtml(wid)}')">Resume</button>
-                                    ${w.pending ? `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${_escHtml(wid)}')">Cancel</button>` : ''}`;
-                            }
+                            const actions = _buildWorkerRowActions(w);
                             return `<tr>
                                 <td><code class="workers-id">${_escHtml(wid)}</code></td>
                                 <td>${_escHtml(w.host || '—')}</td>
@@ -288,7 +391,11 @@ function openModal() {
                     .then(({ ok, data }) => {
                         if (ok && data.success) {
                             showNotification(`Queued ${label} for ${data.affected} worker(s).`, 'success');
-                            refreshWorkersPage();
+                            if (data.affected > 0) {
+                                switchWorkerSubtab('pending');
+                            } else {
+                                refreshWorkersPage();
+                            }
                         } else {
                             showNotification(data.error || 'Command failed.', 'error');
                         }

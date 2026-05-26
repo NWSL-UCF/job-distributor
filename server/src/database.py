@@ -29,6 +29,7 @@ WORKER_POLL_INTERVAL_BUSY = 57
 WORKER_POLL_INTERVAL = WORKER_POLL_INTERVAL_IDLE  # backward-compatible alias
 WORKER_LIFECYCLE_ACTIVE = "active"
 WORKER_LIFECYCLE_DISABLED = "disabled"
+WORKER_LIST_PENDING = "pending"  # dashboard list filter (queued commands)
 _WORKER_INSTANCE_RE = re.compile(r"^[0-9A-Za-z]{6}$")
 
 
@@ -1439,7 +1440,15 @@ class JobDatabase:
                     self._worker_row_to_dict(r, include_history=False)
                     for r in cur.fetchall()
                 ]
-        if lifecycle:
+        if lifecycle == WORKER_LIST_PENDING:
+            rows = [r for r in rows if r.get("pending")]
+        elif lifecycle == WORKER_LIFECYCLE_ACTIVE:
+            rows = [
+                r for r in rows
+                if r.get("lifecycle_status") == WORKER_LIFECYCLE_ACTIVE
+                and not r.get("pending")
+            ]
+        elif lifecycle:
             rows = [r for r in rows if r.get("lifecycle_status") == lifecycle]
         if host:
             rows = [r for r in rows if (r.get("host") or "") == host]
@@ -1451,7 +1460,7 @@ class JobDatabase:
 
     def get_worker_summary(self) -> Dict[str, int]:
         rows = self._list_worker_rows(lifecycle=WORKER_LIFECYCLE_ACTIVE)
-        pending = sum(1 for r in rows if r["pending"])
+        pending = len(self._list_worker_rows(lifecycle=WORKER_LIST_PENDING))
         busy = sum(1 for r in rows if r["reported_status"] == WORKER_REPORTED_BUSY)
         idle = sum(1 for r in rows if r["reported_status"] == WORKER_REPORTED_IDLE)
         disabled = len(self._list_worker_rows(lifecycle=WORKER_LIFECYCLE_DISABLED))
@@ -1494,6 +1503,93 @@ class JobDatabase:
         return self._list_worker_rows(
             lifecycle=lifecycle, host=host, instance=instance, slot=slot,
         )
+
+    @staticmethod
+    def _worker_list_filters_sql(
+        lifecycle: Optional[str] = None,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+    ) -> tuple:
+        clauses: List[str] = []
+        params: List[Any] = []
+        if lifecycle == WORKER_LIST_PENDING:
+            clauses.append("desired_version > applied_version")
+        elif lifecycle == WORKER_LIFECYCLE_ACTIVE:
+            clauses.append("lifecycle_status = ?")
+            params.append(WORKER_LIFECYCLE_ACTIVE)
+            clauses.append("desired_version <= applied_version")
+        elif lifecycle == WORKER_LIFECYCLE_DISABLED:
+            clauses.append("lifecycle_status = ?")
+            params.append(WORKER_LIFECYCLE_DISABLED)
+        elif lifecycle:
+            clauses.append("lifecycle_status = ?")
+            params.append(lifecycle)
+        if host:
+            clauses.append("host = ?")
+            params.append(host)
+        if instance:
+            clauses.append("instance = ?")
+            params.append(instance)
+        if slot is not None:
+            clauses.append("slot = ?")
+            params.append(int(slot))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        return where, params
+
+    def list_workers_paginated(
+        self,
+        page: int = 1,
+        per_page: int = 50,
+        lifecycle: Optional[str] = None,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        page = max(1, int(page))
+        per_page = max(1, min(int(per_page), 50))
+        where, params = self._worker_list_filters_sql(
+            lifecycle, host, instance, slot,
+        )
+        with self.lock:
+            with self.get_connection() as conn:
+                self._backfill_worker_identity_columns(conn)
+                self._disable_stale_workers(conn)
+                conn.commit()
+                cur = conn.execute(
+                    f"SELECT COUNT(*) FROM workers{where}", params,
+                )
+                total_count = int(cur.fetchone()[0])
+                total_pages = (
+                    (total_count + per_page - 1) // per_page if total_count else 0
+                )
+                if total_count == 0:
+                    return {
+                        "workers": [],
+                        "total_count": 0,
+                        "current_page": 1,
+                        "total_pages": 0,
+                        "per_page": per_page,
+                    }
+                page = min(page, total_pages)
+                offset = (page - 1) * per_page
+                cur = conn.execute(
+                    f"SELECT * FROM workers{where} "
+                    "ORDER BY host, instance, slot, worker_id "
+                    "LIMIT ? OFFSET ?",
+                    params + [per_page, offset],
+                )
+                workers = [
+                    self._worker_row_to_dict(r, include_history=False)
+                    for r in cur.fetchall()
+                ]
+        return {
+            "workers": workers,
+            "total_count": total_count,
+            "current_page": page,
+            "total_pages": total_pages,
+            "per_page": per_page,
+        }
 
     def count_completed_jobs_by_workers(
         self, worker_ids: Optional[List[str]] = None,
