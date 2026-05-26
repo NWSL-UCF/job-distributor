@@ -107,7 +107,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import urlparse, urlunparse
 
 import psutil
@@ -365,7 +365,7 @@ def _apply_server_control(
     applied_version: int,
     registry: Optional[WorkerRegistry],
     logger: logging.Logger,
-) -> tuple[int, bool, bool]:
+) -> Tuple[int, bool, bool]:
     """Apply desired_state from poll response.
 
     Returns (new_applied_version, exit_immediately, stop_after_current_job).
