@@ -78,6 +78,14 @@ def worker_machine_label(worker_id: str) -> str:
         return hparts[0]
     return parts[0] if parts else rb
 
+
+def _hub_dashboard_url() -> Optional[str]:
+    """Hub web UI root URL when running in Hub mode (JD_HUB_URL set)."""
+    hub = os.environ.get("JD_HUB_URL", "").strip().rstrip("/")
+    if not hub:
+        return None
+    return hub
+
 # ── Auth / PIN constants ──────────────────────────────────────────────────
 SESSION_COOKIE = 'jd_session'
 MAX_ATTEMPTS   = 3
@@ -1168,6 +1176,7 @@ def dashboard():
     return render_template(
         'dashboard.html',
         expId=expId,
+        hub_dashboard_url=_hub_dashboard_url(),
         total_jobs=total_jobs,
         total_jobs_served=total_jobs_served,
         total_jobs_completed=total_jobs_completed,

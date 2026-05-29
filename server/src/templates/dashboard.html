@@ -36,6 +36,12 @@
                     </button>
                 </nav>
                 <div class="header-actions">
+                    {% if hub_dashboard_url %}
+                    <a href="{{ hub_dashboard_url }}" target="_blank" rel="noopener noreferrer"
+                       class="header-hub-link" title="Open JobDistributor Hub in a new tab">
+                        <i class="fas fa-external-link-alt"></i> Hub
+                    </a>
+                    {% endif %}
                     <button type="button" class="header-logout-btn" onclick="logout()">
                         <i class="fas fa-sign-out-alt"></i> Logout
                     </button>

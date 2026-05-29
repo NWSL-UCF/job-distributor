@@ -149,6 +149,29 @@
                 background: #2d3650;
             }
 
+            .header-hub-link {
+                padding: 8px 14px;
+                background: transparent;
+                color: #a8bcf0;
+                border: 1px solid #3d4f7a;
+                border-radius: 7px;
+                font-size: 0.82rem;
+                font-weight: 600;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                transition: background 0.15s, color 0.15s;
+                white-space: nowrap;
+                text-decoration: none;
+            }
+
+            .header-hub-link:hover {
+                background: #2d3650;
+                color: #dce4f8;
+                text-decoration: none;
+            }
+
             
             .main-content {
                 flex: 1;
