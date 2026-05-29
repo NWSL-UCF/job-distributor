@@ -244,6 +244,25 @@ def calculate_machine_stats(jobs):
 
     return dict(sorted(machine_stats.items(), key=lambda kv: kv[0]))
 
+
+def _valid_completion_ts(job) -> Optional[float]:
+    """Return completion timestamp when usable for chart bucketing."""
+    ts = job.get("completion_timestamp")
+    try:
+        ts = float(ts)
+    except (TypeError, ValueError):
+        return None
+    if ts <= 0:
+        return None
+    return ts
+
+
+def _utc_day_start(ts: float) -> float:
+    """UTC midnight for the calendar day containing ts."""
+    dt = datetime.fromtimestamp(ts, tz=pytz.utc)
+    midnight = datetime(dt.year, dt.month, dt.day, tzinfo=pytz.utc)
+    return midnight.timestamp()
+
 # ------------------------- JOB STATISTICS ---------------------
 
 
@@ -282,16 +301,24 @@ def job_stats():
                 job_counts[hour] += 1
                 total_jobs_completed += 1
     else:
-        if not filtered_jobs:
+        valid_jobs = [
+            job for job in filtered_jobs
+            if _valid_completion_ts(job) is not None
+        ]
+        if not valid_jobs:
             return jsonify({"labels": [], "values": [], "total_jobs": 0, "timestamps": True})
-        first_day = min(job["completion_timestamp"] for job in filtered_jobs)
-        days_elapsed = int((now - first_day) // 86400 + 1)
-        # Return timestamps for client-side formatting
+
+        completion_times = [_valid_completion_ts(job) for job in valid_jobs]
+        first_day = _utc_day_start(min(completion_times))
+        last_day = _utc_day_start(max(completion_times))
+        days_elapsed = int((last_day - first_day) // 86400) + 1
         x_labels = [first_day + i * 86400 for i in range(days_elapsed)]
-        for job in filtered_jobs:
-            day = int((job["completion_timestamp"] - first_day) // 86400)
-            job_counts[day] += 1
-            total_jobs_completed += 1
+        for job in valid_jobs:
+            ts = _valid_completion_ts(job)
+            day = int((_utc_day_start(ts) - first_day) // 86400)
+            if 0 <= day < days_elapsed:
+                job_counts[day] += 1
+                total_jobs_completed += 1
 
     y_values = [job_counts[i] for i in range(len(x_labels))]
     return jsonify({"labels": x_labels, "values": y_values, "total_jobs": total_jobs_completed, "timestamps": True})
