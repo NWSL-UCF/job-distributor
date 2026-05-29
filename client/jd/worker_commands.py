@@ -31,15 +31,9 @@ from jd.worker_registry import (
 )
 
 
-def _cache_parent() -> Optional[str]:
-    """Registry root for CLI commands (``JD_CACHE_PATH`` or workspace parent)."""
-    cp = os.environ.get("JD_CACHE_PATH", "").strip()
-    if cp:
-        return resolve_cache_parent(cp)
-    wp = os.environ.get("JD_WORKSPACE_PATH", "").strip()
-    if wp:
-        return resolve_cache_parent(wp)
-    return None
+def _cache_parent() -> str:
+    """Registry root for CLI commands (default ``~/.jd_cache``)."""
+    return resolve_cache_parent()
 
 
 def _resolve_exp_id(kv: dict) -> Optional[str]:
@@ -637,8 +631,14 @@ def cmd_drain(kv: dict) -> None:
 
 def cmd_prune() -> None:
     summary = prune_all(_cache_parent())
-    print(f"Pruned {summary['workers_removed']} stale worker row(s).")
-    print(f"Removed {summary['token_dirs_removed']} orphaned token dir(s).")
+    parts = [f"{summary['workers_removed']} stale worker(s)"]
+    if summary.get("instances_released"):
+        parts.append(f"{summary['instances_released']} instance name(s) released")
+    if summary.get("experiments_removed"):
+        parts.append(f"{summary['experiments_removed']} empty experiment(s) removed")
+    if summary.get("token_dirs_removed"):
+        parts.append(f"{summary['token_dirs_removed']} legacy token dir(s) removed")
+    print("Pruned " + ", ".join(parts) + ".")
 
 
 def _sample_launch_config(registry: WorkerRegistry) -> Optional[dict]:

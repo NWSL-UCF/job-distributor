@@ -43,6 +43,9 @@ Usage
     jd_worker_cli interactive
     jd_worker_cli -i
 
+    Interactive mode requires a valid Hub API key before the shell starts
+    (from JD_API_KEY / api_key=, or prompted). The key is verified with the Hub.
+
 Required (start)
 ----------------
     expId=<id>              Experiment identifier (must match the server).
@@ -90,7 +93,7 @@ Other optional arguments
     ``parent`` is ``JD_WORKSPACE_PATH`` if set, otherwise ``~``.
 
     Worker registry (SQLite) lives under ``<cache>/.cache/<expId>/workers.db``.
-    ``cache`` is ``JD_CACHE_PATH`` if set, otherwise the same as ``parent``.
+    ``cache`` is ``JD_CACHE_PATH`` if set, otherwise ``~/.jd_cache``.
     On HPC, set ``JD_CACHE_PATH`` to node-local scratch (e.g. ``/tmp/.jd_cache``)
     and keep ``JD_WORKSPACE_PATH`` on shared storage for large job I/O.
 
@@ -126,15 +129,14 @@ from jd.worker_registry import (
     registry_db_path,
     resolve_cache_parent,
     resolve_workspace_parent,
+    resolve_workspace_path,
 )
 
 IS_WINDOWS = platform.system() == "Windows"
 BUSY_HEARTBEAT_INTERVAL = 57   # seconds while a job runs (also refreshes the job row)
 IDLE_POLL_INTERVAL = 180         # seconds when idle — heartbeat + optional job assignment
 
-# Fixed subdirectory under JD_WORKSPACE_PATH (or home): …/jd_data/<expId>/<job_id>/
-_WORKER_JD_DATA_DIRNAME = "jd_data"
-# JWT cache (Hub mode): column worker_token in ~/.cache/<expId>/workers.db
+# Default local layout: ~/jd_data/<expId>/<job_id>/ and ~/.jd_cache/.cache/<expId>/workers.db
 
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -180,10 +182,9 @@ def _resolve(cfg: dict) -> dict:
 
     base_url = _normalize_server_base_url(server_raw, port_raw)
 
-    # …/<parent>/jd_data/<expId>/<job_id>/  — parent from env or ~
     parent = resolve_workspace_parent()
     cache_parent = resolve_cache_parent()
-    workspace_path = os.path.join(parent, _WORKER_JD_DATA_DIRNAME)
+    workspace_path = resolve_workspace_path()
     os.makedirs(workspace_path, exist_ok=True)
 
     log_override = None
@@ -938,6 +939,14 @@ def main() -> None:
         return
 
     argv = sys.argv[1:]
+
+    skip_prune = (
+        os.environ.get("JD_SKIP_REGISTRY_PRUNE") == "1"
+        or any(a in argv for a in ("help", "-h", "--help"))
+    )
+    if not skip_prune:
+        from jd.registry_prune import ensure_registry_pruned
+        ensure_registry_pruned()
 
     if not argv:
         from jd.worker_repl import run_repl

@@ -29,7 +29,7 @@ Environment variables (set automatically by jd_worker)
     JD_WORKER_WORKSPACE_ROOT    — absolute ``<parent>/jd_data`` (same as ``jd_worker_workspace()``)
     JD_WORKSPACE_PATH           — parent of jd_data (job sandboxes, default logs)
     JD_CACHE_PATH               — optional registry root (``.cache/<expId>/``);
-                                  defaults to JD_WORKSPACE_PATH or home
+                                  defaults to ``~/.jd_cache``
     JD_WORKER_ID                — worker id; entry scripts read JWT from workers.db
     JD_WORKER_TOKEN             — initial JWT at job start (fallback if registry unreadable)
     JD_UPLOAD_MAX_RETRIES         — total jd_upload attempts (default 5)

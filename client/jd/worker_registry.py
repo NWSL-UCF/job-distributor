@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import sqlite3
 import string
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS workers (
 );
 CREATE INDEX IF NOT EXISTS idx_workers_exp ON workers(exp_id);
 CREATE INDEX IF NOT EXISTS idx_workers_job ON workers(current_job_id);
+CREATE INDEX IF NOT EXISTS idx_workers_exp_pid ON workers(exp_id, pid);
 
 CREATE TABLE IF NOT EXISTS experiment_meta (
     exp_id   TEXT PRIMARY KEY,
@@ -49,6 +51,7 @@ CREATE TABLE IF NOT EXISTS possible_instances_name (
     name  TEXT PRIMARY KEY,
     taken INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_instances_taken ON possible_instances_name(taken);
 """
 
 _WORKER_COLUMNS = (
@@ -58,26 +61,39 @@ _WORKER_COLUMNS = (
 )
 
 
+_JD_DATA_DIRNAME = "jd_data"
+_DEFAULT_CACHE_ROOT = os.path.join(os.path.expanduser("~"), ".jd_cache")
+
+
 def resolve_workspace_parent(explicit: Optional[str] = None) -> str:
-    """Parent directory for ``jd_data/`` (job sandboxes, default logs)."""
+    """Parent directory for ``jd_data/`` (job sandboxes, default logs).
+
+    Uses ``JD_WORKSPACE_PATH`` when set; otherwise ``~`` so the default
+    workspace root is ``~/jd_data`` (see :func:`resolve_workspace_path`).
+    """
     if explicit is not None and str(explicit).strip():
         return os.path.abspath(os.path.expanduser(str(explicit)))
     env = os.environ.get("JD_WORKSPACE_PATH", "").strip()
     return os.path.abspath(os.path.expanduser(env or "~"))
 
 
+def resolve_workspace_path(explicit_parent: Optional[str] = None) -> str:
+    """Absolute ``jd_data`` root (default ``~/jd_data``)."""
+    return os.path.join(resolve_workspace_parent(explicit_parent), _JD_DATA_DIRNAME)
+
+
 def resolve_cache_parent(explicit: Optional[str] = None) -> str:
     """Root directory under which ``.cache/<expId>/`` is created.
 
     Uses ``JD_CACHE_PATH`` when set (recommended on Lustre/NFS for SQLite),
-    otherwise the same parent as ``resolve_workspace_parent()``.
+    otherwise ``~/.jd_cache``.
     """
     if explicit is not None and str(explicit).strip():
         return os.path.abspath(os.path.expanduser(str(explicit)))
     env = os.environ.get("JD_CACHE_PATH", "").strip()
     if env:
         return os.path.abspath(os.path.expanduser(env))
-    return resolve_workspace_parent()
+    return os.path.abspath(_DEFAULT_CACHE_ROOT)
 
 
 def cache_root(parent: Optional[str] = None) -> str:
@@ -216,6 +232,14 @@ class WorkerRegistry:
                 except sqlite3.OperationalError:
                     pass
             self._seed_instance_names(conn)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_workers_exp_pid "
+                "ON workers(exp_id, pid)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_instances_taken "
+                "ON possible_instances_name(taken)"
+            )
             conn.commit()
 
     def _seed_instance_names(self, conn: sqlite3.Connection) -> None:
@@ -407,7 +431,103 @@ class WorkerRegistry:
     def touch_ping(self, worker_id: str) -> None:
         self.update_worker(worker_id, last_ping_at=time.time())
 
+    def count_workers(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM workers WHERE exp_id = ?",
+                (self.exp_id,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def deep_prune(
+        self,
+        *,
+        progress_tick: Optional[Any] = None,
+    ) -> Dict[str, int]:
+        """Remove dead workers, release unused instance names, drop empty experiment.
+
+        *progress_tick* is an optional ``callable(n=1)`` invoked once per worker
+        row scanned (for startup progress bar).
+        """
+        with self._connect() as conn:
+            rows = list(conn.execute(
+                "SELECT worker_id, pid FROM workers WHERE exp_id = ?",
+                (self.exp_id,),
+            ))
+
+        dead_ids: List[str] = []
+        active_instances: set[str] = set()
+        for row in rows:
+            wid = row["worker_id"]
+            pid = int(row["pid"])
+            if _pid_alive(pid):
+                inst = _instance_from_worker_id(wid)
+                if inst and is_valid_instance_name(inst):
+                    active_instances.add(normalize_instance_name(inst))
+            else:
+                dead_ids.append(wid)
+            if progress_tick is not None:
+                progress_tick(1)
+
+        workers_removed = 0
+        instances_released = 0
+        with self._lock:
+            with self._connect() as conn:
+                if dead_ids:
+                    conn.executemany(
+                        "DELETE FROM workers WHERE worker_id = ? AND exp_id = ?",
+                        [(wid, self.exp_id) for wid in dead_ids],
+                    )
+                    workers_removed = len(dead_ids)
+
+                cur = conn.execute(
+                    "SELECT name FROM possible_instances_name WHERE taken = 1",
+                )
+                previously_taken = {r["name"] for r in cur.fetchall()}
+                conn.execute(
+                    "UPDATE possible_instances_name SET taken = 0 WHERE taken = 1",
+                )
+                if active_instances:
+                    conn.executemany(
+                        "UPDATE possible_instances_name SET taken = 1 WHERE name = ?",
+                        [(n,) for n in sorted(active_instances)],
+                    )
+                instances_released = len(previously_taken - active_instances)
+
+                remaining = int(conn.execute(
+                    "SELECT COUNT(*) FROM workers WHERE exp_id = ?",
+                    (self.exp_id,),
+                ).fetchone()[0])
+                conn.commit()
+
+        experiment_removed = False
+        if remaining == 0:
+            experiment_removed = self._remove_experiment_cache()
+
+        return {
+            "workers_removed": workers_removed,
+            "instances_released": instances_released,
+            "experiment_removed": experiment_removed,
+        }
+
+    def _remove_experiment_cache(self) -> bool:
+        path = exp_cache_dir(self.exp_id, self.parent)
+        if not os.path.isdir(path):
+            return False
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+            return True
+        except OSError:
+            return False
+
     def list_workers(self, prune_dead: bool = True) -> List[Dict[str, Any]]:
+        if prune_dead:
+            try:
+                from jd.registry_prune import registry_recently_pruned
+                if registry_recently_pruned():
+                    prune_dead = False
+            except ImportError:
+                pass
         rows = self._fetch_all()
         if prune_dead:
             dead = [r for r in rows if not _pid_alive(r["pid"])]
@@ -485,9 +605,7 @@ class WorkerRegistry:
 
     def prune_stale(self) -> int:
         """Remove dead workers; return count removed."""
-        before = len(self._fetch_all())
-        self.list_workers(prune_dead=True)
-        return before - len(self._fetch_all())
+        return self.deep_prune().get("workers_removed", 0)
 
 
 def list_all_experiments(parent: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -520,38 +638,16 @@ def iter_experiment_registries(parent: Optional[str] = None) -> List[WorkerRegis
 
 
 def prune_all(parent: Optional[str] = None) -> Dict[str, int]:
-    """Prune stale workers and legacy per-worker ``.token`` dirs. Returns summary counts."""
-    removed_workers = 0
-    removed_dirs = 0
-    for registry in iter_experiment_registries(parent):
-        removed_workers += registry.prune_stale()
+    """Deep-clean all experiment registries (workers, instances, empty experiments)."""
+    from jd.registry_prune import prune_all_registries
 
-    cache_dir = os.path.join(cache_root(parent), ".cache")
-    if os.path.isdir(cache_dir):
-        for exp_name in os.listdir(cache_dir):
-            exp_path = os.path.join(cache_dir, exp_name)
-            if not os.path.isdir(exp_path):
-                continue
-            for entry in os.listdir(exp_path):
-                token_dir = os.path.join(exp_path, entry)
-                if entry == "workers.db" or not os.path.isdir(token_dir):
-                    continue
-                token_file = os.path.join(token_dir, ".token")
-                if os.path.isfile(token_file):
-                    try:
-                        os.remove(token_file)
-                        os.rmdir(token_dir)
-                        removed_dirs += 1
-                    except OSError:
-                        pass
-            if exp_name != "workers.db":
-                try:
-                    if not os.listdir(exp_path):
-                        os.rmdir(exp_path)
-                except OSError:
-                    pass
-
-    return {"workers_removed": removed_workers, "token_dirs_removed": removed_dirs}
+    summary = prune_all_registries(parent, show_progress=True)
+    return {
+        "workers_removed": summary.workers_removed,
+        "instances_released": summary.instances_released,
+        "experiments_removed": summary.experiments_removed,
+        "token_dirs_removed": summary.token_dirs_removed,
+    }
 
 
 def clear_all_local_cache(parent: Optional[str] = None) -> Dict[str, Any]:

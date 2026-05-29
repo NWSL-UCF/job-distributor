@@ -54,6 +54,86 @@ TOKEN_REFRESH_RETRY_SLEEP_MAX_SECS = max(
     0, int(os.environ.get("JD_TOKEN_REFRESH_RETRY_SLEEP_MAX", "60"))
 )
 
+HUB_API_KEYS_URL = "https://hub.jobdistributor.net/api-keys"
+# Probe experiment for API-key checks (404 = key valid, experiment absent).
+_API_KEY_PROBE_EXPERIMENT = "__api_key_validation__"
+
+
+def validate_hub_api_key(
+    hub_url: str,
+    api_key: str,
+    *,
+    timeout: float = 30,
+) -> tuple[bool, str]:
+    """Verify an API key with the Hub (no real experiment required).
+
+    Calls ``POST /api/worker/token`` with a probe experiment name. The Hub
+    authenticates the key before looking up the experiment:
+
+    - **401** — invalid or unknown API key
+    - **403** — account suspended or forbidden
+    - **404** — key accepted; probe experiment does not exist (success)
+    - **200** — key accepted (probe experiment exists; unlikely)
+
+    Returns ``(valid, error_message)``; *error_message* is empty when valid.
+    """
+    hub_url = (hub_url or "").strip().rstrip("/")
+    api_key = (api_key or "").strip()
+    if not hub_url:
+        return False, "Hub URL is not configured."
+    if not api_key:
+        return False, "API key is not set."
+
+    endpoint = f"{hub_url}/api/worker/token"
+    try:
+        r = requests.post(
+            endpoint,
+            json={"experiment_name": _API_KEY_PROBE_EXPERIMENT},
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        return False, f"Could not reach Hub at {hub_url}: {exc}"
+
+    if r.status_code == 401:
+        return False, (
+            "Your API key isn't found.\n"
+            "Please export or enter a correct API key "
+            f"(export JD_API_KEY=jd_…), or create a new key at {HUB_API_KEYS_URL}"
+        )
+    if r.status_code == 403:
+        try:
+            detail = (r.json() or {}).get("error") or "Account suspended"
+        except (ValueError, TypeError, AttributeError):
+            detail = "Account suspended"
+        return False, (
+            f"Hub rejected this API key: {detail}\n"
+            f"Create or manage keys at {HUB_API_KEYS_URL}"
+        )
+    if r.status_code in (200, 404):
+        return True, ""
+
+    try:
+        detail = (r.json() or {}).get("error") or r.text.strip()
+    except (ValueError, TypeError, AttributeError):
+        detail = r.text.strip() or f"HTTP {r.status_code}"
+    return False, f"Hub API key check failed ({r.status_code}): {detail}"
+
+
+def resolve_hub_url(
+    *,
+    hub: Optional[str] = None,
+    hub_url: Optional[str] = None,
+) -> str:
+    """Default Hub base URL from CLI kv or ``JD_HUB_URL``."""
+    raw = (
+        (hub or "").strip()
+        or (hub_url or "").strip()
+        or os.environ.get("JD_HUB_URL", "").strip()
+        or "https://hub.jobdistributor.net"
+    )
+    return raw.rstrip("/")
+
 
 def jwt_exp_unix(token: str) -> Optional[float]:
     """Return JWT exp claim as Unix timestamp, or None if unreadable."""

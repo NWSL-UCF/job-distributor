@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 import shlex
 import sys
 from typing import Dict, List, Optional
 
 from jd import __version__
+from jd.auth import HUB_API_KEYS_URL, resolve_hub_url, validate_hub_api_key
 
 
 _REPL_HELP = """\
@@ -47,6 +49,71 @@ Global
 
 Trailing semicolons are optional (mysql-style).
 """
+
+
+def _seed_kv(seed_argv: List[str]) -> Dict[str, str]:
+    kv: Dict[str, str] = {}
+    for arg in seed_argv:
+        if "=" in arg:
+            k, v = arg.split("=", 1)
+            kv[k.strip()] = v.strip()
+    return kv
+
+
+def _resolve_api_key(kv: Dict[str, str]) -> str:
+    return (
+        kv.get("api_key")
+        or os.environ.get("JD_API_KEY")
+        or ""
+    ).strip()
+
+
+def ensure_interactive_api_key(seed_argv: Optional[List[str]] = None) -> None:
+    """Require a Hub-valid API key before interactive mode.
+
+    Uses ``JD_API_KEY`` / ``api_key=`` when set; otherwise prompts. Always
+    verifies the key with the Hub. On success sets ``JD_API_KEY`` (and
+    ``JD_HUB_URL`` when provided) for the rest of the session.
+    """
+    kv = _seed_kv(seed_argv or [])
+    hub_url = resolve_hub_url(hub=kv.get("hub"), hub_url=kv.get("hub_url"))
+    api_key = _resolve_api_key(kv)
+
+    if not api_key:
+        print(
+            "Hub API key required for interactive mode.\n"
+            f"Set export JD_API_KEY=jd_… or create a key at {HUB_API_KEYS_URL}"
+        )
+        try:
+            api_key = getpass.getpass("API key: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(1)
+
+    while True:
+        if not api_key:
+            try:
+                api_key = getpass.getpass("API key: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                sys.exit(1)
+            if not api_key:
+                continue
+
+        print(f"Checking API key with Hub ({hub_url})…")
+        valid, err = validate_hub_api_key(hub_url, api_key)
+        if valid:
+            os.environ["JD_API_KEY"] = api_key
+            os.environ["JD_HUB_URL"] = hub_url
+            return
+
+        print(err)
+        print(f"Manage keys at {HUB_API_KEYS_URL}")
+        try:
+            api_key = getpass.getpass("Enter API key again (Ctrl+C to quit): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(1)
 
 
 def _history_path() -> str:
@@ -157,6 +224,8 @@ def _seed_session(session: Dict[str, str], seed_argv: List[str]) -> None:
 def run_repl(seed_argv: Optional[List[str]] = None) -> None:
     """Run the interactive shell until the user exits."""
     from jd.worker_commands import dispatch
+
+    ensure_interactive_api_key(seed_argv)
 
     session: Dict[str, str] = {}
     env_exp = (os.environ.get("JD_EXP_ID") or "").strip().lower()
