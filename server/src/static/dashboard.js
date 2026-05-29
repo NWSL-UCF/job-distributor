@@ -69,9 +69,9 @@ function openModal() {
 
             // ── Main nav: Jobs vs Workers ─────────────────────────────────────
             let _workerSubtab = 'active';
+            const TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200, 500, 1000];
             let _workerPage = 1;
-            const WORKER_PAGE_SIZE = 50;
-            const WORKER_SELECT_ALL_PAGE_SIZE = 500;
+            let _workerPageSize = 50;
             let _workerFiltersData = null;
             let _workerPageRows = [];
             let _workerListTotal = 0;
@@ -120,6 +120,7 @@ function openModal() {
                 _workerSubtab = which;
                 _workerPage = 1;
                 clearWorkerSelection(false);
+                _updateWorkersTableTitle();
                 document.getElementById('workerSubtabActive').classList.toggle('active', which === 'active');
                 document.getElementById('workerSubtabPending').classList.toggle('active', which === 'pending');
                 const pausedBtn = document.getElementById('workerSubtabPaused');
@@ -171,6 +172,69 @@ function openModal() {
                     .replace(/</g, '&lt;')
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;');
+            }
+
+            function _parseWorkerIdParts(workerId) {
+                const raw = String(workerId || '').trim();
+                const parts = raw.split('_');
+                if (parts.length >= 3 && /^\d+$/.test(parts[parts.length - 1])) {
+                    return {
+                        host: parts.slice(0, -2).join('_') || parts[0],
+                        instance: parts[parts.length - 2],
+                        slot: parseInt(parts[parts.length - 1], 10),
+                    };
+                }
+                return { host: raw || '—', instance: '—', slot: '—' };
+            }
+
+            function _workerRowIdentity(w) {
+                let workerId = String(w.worker_id || '').trim();
+                const hostRaw = String(w.host || '').trim();
+                if (!workerId && hostRaw.split('_').length >= 3) {
+                    workerId = hostRaw;
+                }
+                const parsed = workerId ? _parseWorkerIdParts(workerId) : null;
+                const host = (hostRaw && hostRaw !== workerId) ? hostRaw : (parsed?.host || '—');
+                const instance = String(w.instance || '').trim() || (parsed?.instance ?? '—');
+                const slot = (w.slot != null && w.slot !== '') ? w.slot : (parsed?.slot ?? '—');
+                return { workerId: workerId || '—', host, instance, slot };
+            }
+
+            function _workersTableTitle() {
+                return {
+                    active: 'Active Workers',
+                    pending: 'Pending Workers',
+                    paused: 'Paused Workers',
+                    disabled: 'Stopped Workers',
+                }[_workerSubtab] || 'Workers';
+            }
+
+            function _updateWorkersTableTitle() {
+                const el = document.getElementById('workersTableTitle');
+                if (el) el.textContent = _workersTableTitle();
+            }
+
+            function _workersTableOverlayHtml(kind, message) {
+                if (kind === 'loading') {
+                    return '<div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading workers…</div>';
+                }
+                const isError = kind === 'error';
+                const title = isError ? 'Error Loading Workers' : 'No workers found';
+                const sub = message || (isError ? 'Please try again.' : 'No workers on this tab.');
+                return `<div class="empty-state${isError ? ' error-state' : ''}">
+                    <div class="empty-icon"><i class="fas fa-${isError ? 'exclamation-triangle' : 'server'}"></i></div>
+                    <div class="empty-text">${title}</div>
+                    <div class="empty-subtext">${isError ? _escHtml(sub) : sub}</div>
+                </div>`;
+            }
+
+            function _setWorkersTableOverlay(html, visible) {
+                const overlay = document.getElementById('workers-table-overlay');
+                const tbody = document.getElementById('workersPageBody');
+                if (!overlay) return;
+                overlay.innerHTML = html;
+                overlay.style.display = visible ? 'flex' : 'none';
+                if (visible && tbody) tbody.innerHTML = '';
             }
 
             function _workerDesiredState(w) {
@@ -232,8 +296,8 @@ function openModal() {
             function toggleWorkerSelectAllPage(checked) {
                 if (!_workersTabSupportsSelection()) return;
                 _workerPageRows.forEach(w => {
-                    const wid = w.worker_id || '';
-                    if (!wid) return;
+                    const wid = _workerRowIdentity(w).workerId;
+                    if (!wid || wid === '—') return;
                     if (checked) {
                         _workerSelectedIds.add(wid);
                     } else {
@@ -251,7 +315,10 @@ function openModal() {
                     thCheck.style.display = _workersTabSupportsSelection() ? '' : 'none';
                 }
                 if (!checkAll) return;
-                const pageIds = _workerPageRows.map(w => w.worker_id).filter(Boolean);
+                const pageIds = _workerPageRows.map(w => {
+                    const id = _workerRowIdentity(w).workerId;
+                    return id !== '—' ? id : '';
+                }).filter(Boolean);
                 const selectedOnPage = pageIds.filter(id => _workerSelectedIds.has(id)).length;
                 checkAll.checked = pageIds.length > 0 && selectedOnPage === pageIds.length;
                 checkAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageIds.length;
@@ -264,24 +331,49 @@ function openModal() {
             function _updateWorkerBulkBar() {
                 const bar = document.getElementById('workersBulkBar');
                 const countEl = document.getElementById('workersBulkCount');
+                const chipsEl = document.getElementById('workersBulkChips');
                 const actionsEl = document.getElementById('workersBulkActions');
-                const n = _workerSelectedIds.size;
+                const selected = Array.from(_workerSelectedIds).sort();
+                const n = selected.length;
                 if (!bar || !countEl || !actionsEl) return;
                 if (!n || !_workersTabSupportsSelection()) {
                     bar.style.display = 'none';
+                    if (chipsEl) chipsEl.innerHTML = '';
                     return;
                 }
                 bar.style.display = 'flex';
-                countEl.textContent = `${n} selected`;
+
+                const pageIds = new Set(_workerPageRows.map(w => {
+                    const id = _workerRowIdentity(w).workerId;
+                    return id !== '—' ? id : '';
+                }).filter(Boolean));
+                const offPage = selected.filter(id => !pageIds.has(id)).length;
+                countEl.textContent = offPage > 0
+                    ? `${n} selected · ${offPage} not on this page`
+                    : `${n} selected`;
+
+                if (chipsEl) {
+                    const maxChips = 12;
+                    const visible = selected.slice(0, maxChips);
+                    const overflow = selected.length - visible.length;
+                    chipsEl.innerHTML =
+                        visible.map(id =>
+                            `<button type="button" class="jobs-selection-chip" title="Remove ${_escHtml(id)}" onclick="toggleWorkerSelection(decodeURIComponent('${encodeURIComponent(id)}'), false)">${_escHtml(id)}<span class="jobs-selection-chip-x">&times;</span></button>`,
+                        ).join('') +
+                        (overflow > 0
+                            ? `<span class="jobs-selection-chip jobs-selection-chip--more">+${overflow} more</span>`
+                            : '');
+                }
+
                 let html = '';
                 if (_workerSubtab === 'active') {
-                    html += `<button type="button" class="workers-btn-sm workers-btn--pause" onclick="requestWorkerAction('pause','workers')"><i class="fas fa-pause"></i> Pause</button>`;
-                    html += `<button type="button" class="workers-btn-sm workers-btn--drain" onclick="requestWorkerAction('drain','workers')">Drain</button>`;
-                    html += `<button type="button" class="workers-btn-sm workers-btn--stop" onclick="requestWorkerAction('stop','workers')">Stop</button>`;
+                    html += `<button type="button" class="workers-btn-sm workers-btn--pause" onclick="requestWorkerAction('pause','workers')"><i class="fas fa-pause"></i> Pause selected</button>`;
+                    html += `<button type="button" class="workers-btn-sm workers-btn--drain" onclick="requestWorkerAction('drain','workers')">Drain selected</button>`;
+                    html += `<button type="button" class="workers-btn-sm workers-btn--stop" onclick="requestWorkerAction('stop','workers')">Stop selected</button>`;
                 } else if (_workerSubtab === 'paused') {
-                    html += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="requestWorkerAction('run','workers')"><i class="fas fa-play"></i> Resume</button>`;
+                    html += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="requestWorkerAction('run','workers')"><i class="fas fa-play"></i> Resume selected</button>`;
                 } else if (_workerSubtab === 'pending') {
-                    html += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="requestWorkerAction('cancel','workers')">Cancel pending</button>`;
+                    html += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="requestWorkerAction('cancel','workers')">Cancel selected</button>`;
                 }
                 actionsEl.innerHTML = html;
             }
@@ -293,61 +385,77 @@ function openModal() {
                 _workerSearchDebounce = setTimeout(() => {
                     _workerSearchQuery = (input.value || '').trim();
                     _workerPage = 1;
-                    clearWorkerSelection(false);
                     loadWorkersPageTable();
                 }, 280);
             }
 
-            function _updateWorkerSearchHint(total) {
-                const hint = document.getElementById('workerSearchHint');
-                if (!hint) return;
-                if (_workerSearchQuery) {
-                    hint.textContent = total
-                        ? `${total} match${total === 1 ? '' : 'es'} on this tab`
-                        : 'No matches on this tab';
-                } else {
-                    hint.textContent = '';
-                }
+            function searchWorkers() {
+                const input = document.getElementById('workerSearchInput');
+                _workerSearchQuery = (input?.value || '').trim();
+                _workerPage = 1;
+                loadWorkersPageTable();
             }
 
-            function _updateSelectAllMatchingBtn(total) {
+            function clearWorkerSearch() {
+                const input = document.getElementById('workerSearchInput');
+                if (input) input.value = '';
+                _workerSearchQuery = '';
+                _workerPage = 1;
+                loadWorkersPageTable();
+            }
+
+            function _updateWorkersSelectAllMatchingBtn() {
                 const btn = document.getElementById('workersSelectAllMatchingBtn');
                 if (!btn) return;
-                if (!_workersTabSupportsSelection() || total <= _workerPageRows.length) {
+                const search = _workerSearchQuery.trim();
+                const total = _workerListTotal || 0;
+                if (!search || !total || !_workersTabSupportsSelection()) {
                     btn.style.display = 'none';
                     return;
                 }
                 btn.style.display = 'inline';
-                btn.textContent = `Select all ${total} matching on this tab`;
+                btn.textContent = `Add all ${total} matching to selection`;
+                btn.disabled = false;
             }
 
             async function selectAllMatchingWorkers() {
-                if (!_workersTabSupportsSelection()) return;
-                const params = _workerFilterParams();
-                params.set('per_page', String(WORKER_SELECT_ALL_PAGE_SIZE));
-                params.set('page', '1');
+                if (!_workersTabSupportsSelection() || !_workerSearchQuery.trim()) return;
+                const btn = document.getElementById('workersSelectAllMatchingBtn');
+                if (btn) btn.disabled = true;
+                const search = _workerSearchQuery.trim();
                 try {
-                    const r = await fetch('/workers/list?' + params.toString());
-                    const data = await r.json();
-                    const workers = data.workers || [];
-                    workers.forEach(w => {
-                        if (w.worker_id) _workerSelectedIds.add(w.worker_id);
-                    });
-                    if ((data.total_count || 0) > WORKER_SELECT_ALL_PAGE_SIZE) {
-                        showNotification(
-                            `Selected first ${WORKER_SELECT_ALL_PAGE_SIZE} workers (tab has more). Narrow your search.`,
-                            'warning',
-                        );
+                    let page = 1;
+                    let totalPages = 1;
+                    let added = 0;
+                    while (page <= totalPages) {
+                        const params = _workerFilterParams();
+                        params.set('page', String(page));
+                        params.set('per_page', String(_workerPageSize));
+                        params.set('q', search);
+                        const r = await fetch('/workers/list?' + params.toString());
+                        const data = await r.json();
+                        if (!r.ok) throw new Error(data.error || 'Request failed');
+                        totalPages = data.total_pages || 1;
+                        (data.workers || []).forEach(w => {
+                            const wid = _workerRowIdentity(w).workerId;
+                            if (wid && wid !== '—') _workerSelectedIds.add(wid);
+                        });
+                        added += (data.workers || []).length;
+                        page += 1;
                     }
+                    showNotification(`Added ${added} worker(s) to selection.`, 'info');
                     _updateWorkerBulkBar();
                     _syncWorkerPageCheckboxes();
                 } catch (e) {
                     showNotification('Failed to select workers: ' + e.message, 'error');
+                } finally {
+                    if (btn) btn.disabled = false;
                 }
             }
 
             function _buildWorkerRowActions(w) {
-                const wid = w.worker_id || '';
+                const identity = _workerRowIdentity(w);
+                const wid = identity.workerId === '—' ? '' : identity.workerId;
                 const widEsc = _escHtml(wid);
                 const widJs = encodeURIComponent(wid);
                 let actions = `<button type="button" class="workers-btn-sm" onclick="openWorkerDetail('${widEsc}')">Details</button>`;
@@ -509,7 +617,7 @@ function openModal() {
                 const p = new URLSearchParams();
                 p.set('lifecycle', _workerListLifecycle());
                 p.set('page', String(_workerPage));
-                p.set('per_page', String(WORKER_PAGE_SIZE));
+                p.set('per_page', String(_workerPageSize));
                 const host = document.getElementById('workerFilterHost')?.value;
                 const inst = document.getElementById('workerFilterInstance')?.value;
                 const slot = document.getElementById('workerFilterSlot')?.value;
@@ -524,7 +632,7 @@ function openModal() {
                 const total = data.total_count || 0;
                 const page = data.current_page || 1;
                 const totalPages = data.total_pages || 0;
-                const perPage = data.per_page || WORKER_PAGE_SIZE;
+                const perPage = data.per_page || _workerPageSize;
                 const pageInfo = document.getElementById('workersPageInfo');
                 const paginationInfo = document.getElementById('workersPaginationInfo');
                 const prevBtn = document.getElementById('workersPagePrev');
@@ -549,6 +657,16 @@ function openModal() {
                 _workerPage = page;
             }
 
+            function changeWorkerPageSize(size) {
+                const n = parseInt(size, 10);
+                if (!TABLE_PAGE_SIZE_OPTIONS.includes(n)) return;
+                _workerPageSize = n;
+                const sel = document.getElementById('workerPageSize');
+                if (sel) sel.value = String(n);
+                _workerPage = 1;
+                loadWorkersPageTable();
+            }
+
             function changeWorkersPage(direction) {
                 const next = _workerPage + direction;
                 if (next >= 1) {
@@ -560,7 +678,7 @@ function openModal() {
             function loadWorkersPageTable() {
                 const tbody = document.getElementById('workersPageBody');
                 if (!tbody) return;
-                tbody.innerHTML = '<tr><td colspan="10" class="workers-loading">Loading workers…</td></tr>';
+                _setWorkersTableOverlay(_workersTableOverlayHtml('loading'), true);
                 fetch('/workers/list?' + _workerFilterParams().toString())
                     .then(r => r.json())
                     .then(data => {
@@ -568,8 +686,6 @@ function openModal() {
                         const workers = data.workers || [];
                         _workerPageRows = workers;
                         _workerListTotal = data.total_count || 0;
-                        _updateWorkerSearchHint(_workerListTotal);
-                        _updateSelectAllMatchingBtn(_workerListTotal);
                         if (!workers.length) {
                             const msg = _workerSubtab === 'disabled'
                                 ? (_workerSearchQuery
@@ -586,14 +702,17 @@ function openModal() {
                                         : (_workerSearchQuery
                                             ? 'No active workers match your search.'
                                             : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).');
-                            tbody.innerHTML = `<tr><td colspan="10" class="workers-empty">${msg}</td></tr>`;
+                            _setWorkersTableOverlay(_workersTableOverlayHtml('empty', msg), true);
                             _syncWorkerPageCheckboxes();
+                            _updateWorkerBulkBar();
                             return;
                         }
+                        _setWorkersTableOverlay('', false);
                         const selectable = _workersTabSupportsSelection();
                         tbody.innerHTML = workers.map(w => {
-                            const wid = w.worker_id || '';
-                            const widEsc = _escHtml(wid);
+                            const identity = _workerRowIdentity(w);
+                            const wid = identity.workerId === '—' ? '' : identity.workerId;
+                            const widEsc = _escHtml(wid || identity.workerId);
                             const jobCell = w.current_job_id ? `#${w.current_job_id}` : '—';
                             const completedJobs = Number.isFinite(w.completed_jobs)
                                 ? w.completed_jobs
@@ -602,32 +721,42 @@ function openModal() {
                                 w.last_poll_at ?? w.last_poll_at_fmt,
                             );
                             const actions = _buildWorkerRowActions(w);
-                            const checked = _workerSelectedIds.has(wid) ? ' checked' : '';
+                            const checked = wid && _workerSelectedIds.has(wid) ? ' checked' : '';
                             const widEnc = encodeURIComponent(wid);
-                            const checkCell = selectable
+                            const checkCell = selectable && wid
                                 ? `<td class="workers-td-check"><input type="checkbox" class="workers-row-check" data-worker-id="${widEnc}"${checked} onchange="toggleWorkerSelection(decodeURIComponent(this.dataset.workerId), this.checked)" aria-label="Select ${_escHtml(wid)}"></td>`
                                 : '<td class="workers-td-check"></td>';
                             return `<tr>
                                 ${checkCell}
                                 <td><code class="workers-id">${widEsc}</code></td>
-                                <td>${_escHtml(w.host || '—')}</td>
-                                <td><code>${_escHtml(w.instance || '—')}</code></td>
-                                <td>${w.slot != null ? w.slot : '—'}</td>
+                                <td>${_escHtml(identity.host)}</td>
+                                <td><code>${_escHtml(identity.instance)}</code></td>
+                                <td>${identity.slot !== '—' ? identity.slot : '—'}</td>
                                 <td>${_workerStateBadge(w)}</td>
                                 <td>${jobCell}</td>
                                 <td>${completedJobs}</td>
-                                <td>${_escHtml(lastPoll)}</td>
+                                <td class="workers-td-poll">${_escHtml(lastPoll)}</td>
                                 <td class="workers-row-actions">${actions}</td>
                             </tr>`;
                         }).join('');
                         _syncWorkerPageCheckboxes();
+                        _updateWorkerBulkBar();
                     })
                     .catch(err => {
-                        tbody.innerHTML = `<tr><td colspan="10" class="workers-error">Failed to load: ${_escHtml(err.message)}</td></tr>`;
+                        _workerPageRows = [];
+                        _setWorkersTableOverlay(
+                            _workersTableOverlayHtml('error', err.message || 'Failed to load workers.'),
+                            true,
+                        );
+                        _updateWorkerBulkBar();
+                    })
+                    .finally(() => {
+                        _updateWorkersSelectAllMatchingBtn();
                     });
             }
 
             function refreshWorkersPage() {
+                _updateWorkersTableTitle();
                 loadWorkerSummary();
                 loadWorkerFilters().then(() => loadWorkersPageTable());
             }
@@ -1271,8 +1400,7 @@ function openModal() {
 
 // Pagination and Search Variables
             const JOB_STATUSES = ['SERVED', 'DONE', 'ABORTED', 'PENDING', 'DELETED'];
-            const JOB_PAGE_SIZE = 50;
-            const JOB_SELECT_ALL_PAGE_SIZE = 500;
+            let _jobPageSize = 50;
             let currentPages = {
                 'SERVED': 1,
                 'DONE': 1,
@@ -1421,18 +1549,6 @@ function openModal() {
                 ).join('');
             }
 
-            function _updateJobsSelectAllMatchingBtn(status, total) {
-                const btn = document.getElementById(`jobsSelectAllMatchingBtn-${status}`);
-                const pageRows = (_jobPageRowsByStatus[status] || []).length;
-                if (!btn) return;
-                if (!_jobTabSupportsSelection(status) || total <= pageRows) {
-                    btn.style.display = 'none';
-                    return;
-                }
-                btn.style.display = 'inline';
-                btn.textContent = `Add all ${total} matching to selection`;
-            }
-
             function onJobSearchInput(status) {
                 clearTimeout(_jobSearchDebounce[status]);
                 _jobSearchDebounce[status] = setTimeout(() => {
@@ -1442,34 +1558,57 @@ function openModal() {
                 }, 280);
             }
 
+            function _jobSearchQuery(status) {
+                return document.getElementById(`jobSearch-${status}`)?.value?.trim() || '';
+            }
+
+            function _updateJobsSelectAllMatchingBtn(status) {
+                const btn = document.getElementById(`jobsSelectAllMatchingBtn-${status}`);
+                if (!btn) return;
+                const search = _jobSearchQuery(status);
+                const total = _jobListTotalByStatus[status] || 0;
+                if (!search || !total || !_jobTabSupportsSelection(status)) {
+                    btn.style.display = 'none';
+                    return;
+                }
+                btn.style.display = 'inline';
+                btn.textContent = `Add all ${total} matching to selection`;
+                btn.disabled = false;
+            }
+
             async function selectAllMatchingJobs(status) {
-                if (!_jobTabSupportsSelection(status)) return;
-                const searchInput = document.getElementById(`jobSearch-${status}`);
-                const searchJobId = searchInput?.value?.trim() || null;
-                const params = new URLSearchParams({
-                    page: '1',
-                    per_page: String(JOB_SELECT_ALL_PAGE_SIZE),
-                    status: status,
-                });
-                if (searchJobId) params.append('search_job_id', searchJobId);
+                const search = _jobSearchQuery(status);
+                if (!search || !_jobTabSupportsSelection(status)) return;
+                const btn = document.getElementById(`jobsSelectAllMatchingBtn-${status}`);
+                if (btn) btn.disabled = true;
                 try {
-                    const r = await fetch(`/jobs_paginated?${params}`);
-                    const data = await r.json();
-                    (data.jobs || []).forEach(j => {
-                        _jobSelectedIdsByStatus[status].add(parseInt(j.id, 10));
-                    });
-                    if ((data.total_count || 0) > JOB_SELECT_ALL_PAGE_SIZE) {
-                        showNotification(
-                            `Added first ${JOB_SELECT_ALL_PAGE_SIZE} jobs (tab has more). Narrow your search.`,
-                            'warning',
-                        );
-                    } else {
-                        showNotification(`Added ${data.jobs?.length || 0} job(s) to selection.`, 'info');
+                    let page = 1;
+                    let totalPages = 1;
+                    let added = 0;
+                    while (page <= totalPages) {
+                        const params = new URLSearchParams({
+                            page: String(page),
+                            per_page: String(_jobPageSize),
+                            status: status,
+                            search_job_id: search,
+                        });
+                        const r = await fetch(`/jobs_paginated?${params}`);
+                        const data = await r.json();
+                        if (data.error) throw new Error(data.error);
+                        totalPages = data.total_pages || 1;
+                        (data.jobs || []).forEach(j => {
+                            _jobSelectedIdsByStatus[status].add(parseInt(j.id, 10));
+                        });
+                        added += (data.jobs || []).length;
+                        page += 1;
                     }
+                    showNotification(`Added ${added} job(s) to selection.`, 'info');
                     _updateJobBulkBar(status);
                     _syncJobPageCheckboxes(status);
                 } catch (e) {
                     showNotification('Failed to select jobs: ' + e.message, 'error');
+                } finally {
+                    if (btn) btn.disabled = false;
                 }
             }
 
@@ -1477,8 +1616,35 @@ function openModal() {
                 const actions = _jobBulkActionsForTab(status);
                 if (!actions.length) return '';
                 return actions.map(a =>
-                    `<button type="button" class="workers-btn-sm ${a.cls}" onclick="requestJobAction('${a.action}','job','${status}',${jobId})">${a.label}</button>`
+                    `<button type="button" class="workers-btn-sm ${a.cls}" onclick="requestJobAction('${a.action}','job','${status}',${jobId})">${a.label}</button>`,
                 ).join('');
+            }
+
+            function _buildJobRowActions(status, jobId) {
+                return `<button type="button" class="workers-btn-sm" onclick="openJobDetails(${jobId})">Details</button>${_buildJobRowQuickActions(status, jobId)}`;
+            }
+
+            function _jobsTableOverlayHtml(kind, status, message) {
+                if (kind === 'loading') {
+                    return '<div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading jobs...</div>';
+                }
+                const isError = kind === 'error';
+                const title = isError ? 'Error Loading Jobs' : 'No jobs found';
+                const sub = message || (isError ? 'Please try again.' : `No ${status.toLowerCase()} jobs available`);
+                return `<div class="empty-state${isError ? ' error-state' : ''}">
+                    <div class="empty-icon"><i class="fas fa-${isError ? 'exclamation-triangle' : 'database'}"></i></div>
+                    <div class="empty-text">${title}</div>
+                    <div class="empty-subtext">${sub}</div>
+                </div>`;
+            }
+
+            function _setJobsTableOverlay(status, html, visible) {
+                const overlay = document.getElementById(`jobs-table-overlay-${status}`);
+                const tbody = document.getElementById(`tbody-${status}`);
+                if (!overlay) return;
+                overlay.innerHTML = html;
+                overlay.style.display = visible ? 'flex' : 'none';
+                if (visible && tbody) tbody.innerHTML = '';
             }
 
             function _jobActionScopeLabel(action, scope, status, targetJobId) {
@@ -1488,7 +1654,7 @@ function openModal() {
                 }
                 if (scope === 'all') {
                     const search = document.getElementById(`jobSearch-${status}`)?.value?.trim();
-                    const searchNote = search ? ` matching ID ${search}` : '';
+                    const searchNote = search ? ` matching "${search}"` : '';
                     return `${label} all ${status} jobs${searchNote}`;
                 }
                 return `${label} job #${targetJobId}`;
@@ -1858,12 +2024,11 @@ function openModal() {
             // Load jobs for a specific status and page
             function loadJobs(status, page = 1, searchJobId = null) {
                 const tbody = document.getElementById(`tbody-${status}`);
-                const loadingRow = `<tr><td colspan="7" class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading jobs...</td></tr>`;
-                tbody.innerHTML = loadingRow;
+                _setJobsTableOverlay(status, _jobsTableOverlayHtml('loading', status), true);
 
                 const params = new URLSearchParams({
                     page: page,
-                    per_page: JOB_PAGE_SIZE,
+                    per_page: _jobPageSize,
                     status: status
                 });
 
@@ -1875,20 +2040,14 @@ function openModal() {
                     .then(response => response.json())
                     .then(data => {
                         if (data.error) {
-                            tbody.innerHTML = `
-                                <tr>
-                                    <td colspan="7" class="empty-state error-state">
-                                        <div class="empty-icon">
-                                            <i class="fas fa-exclamation-triangle"></i>
-                                        </div>
-                                        <div class="empty-text">Error Loading Jobs</div>
-                                        <div class="empty-subtext">${data.error}</div>
-                                    </td>
-                                </tr>
-                            `;
+                            _jobPageRowsByStatus[status] = [];
+                            _setJobsTableOverlay(status, _jobsTableOverlayHtml('error', status, data.error), true);
                             _updateJobBulkBar(status);
+                            _updateJobsSelectAllMatchingBtn(status);
                             return;
                         }
+
+                        currentPages[status] = data.current_page || page;
 
                         // Update pagination info
                         document.getElementById(`page-info-${status}`).textContent = `Page ${data.current_page} of ${data.total_pages}`;
@@ -1901,26 +2060,18 @@ function openModal() {
 
                         _jobPageRowsByStatus[status] = data.jobs;
                         _jobListTotalByStatus[status] = data.total_count || 0;
-                        _updateJobsSelectAllMatchingBtn(status, _jobListTotalByStatus[status]);
 
                         // Render jobs
                         if (data.jobs.length === 0) {
-                            tbody.innerHTML = `
-                                <tr>
-                                    <td colspan="7" class="empty-state">
-                                        <div class="empty-icon">
-                                            <i class="fas fa-database"></i>
-                                        </div>
-                                        <div class="empty-text">No jobs found</div>
-                                        <div class="empty-subtext">No ${status.toLowerCase()} jobs available</div>
-                                    </td>
-                                </tr>
-                            `;
                             _jobPageRowsByStatus[status] = [];
+                            _setJobsTableOverlay(status, _jobsTableOverlayHtml('empty', status), true);
                             _syncJobPageCheckboxes(status);
                             _updateJobBulkBar(status);
+                            _updateJobsSelectAllMatchingBtn(status);
                             return;
                         }
+
+                        _setJobsTableOverlay(status, '', false);
 
                         const selectable = _jobTabSupportsSelection(status);
                         const selected = _jobSelectedIdsByStatus[status];
@@ -1938,44 +2089,45 @@ function openModal() {
                             const checkCell = selectable
                                 ? `<td class="jobs-td-check"><input type="checkbox" class="jobs-row-check" data-status="${status}" data-job-id="${jid}"${checked} onchange="toggleJobSelection('${status}', this.dataset.jobId, this.checked)" aria-label="Select job ${jid}"></td>`
                                 : '<td class="jobs-td-check"></td>';
-                            const quickActions = _buildJobRowQuickActions(status, jid);
+                            const rowActions = _buildJobRowActions(status, jid);
 
                             html += `
                                 <tr>
                                     ${checkCell}
-                                    <td data-value="${job.id}" style="font-weight:bold;">${job.id}</td>
-                                    <td>${_escHtml(workerId)}</td>
+                                    <td data-value="${job.id}" class="jobs-td-id">${job.id}</td>
+                                    <td class="jobs-td-worker">${_escHtml(workerId)}</td>
                                     <td data-value="${reqTs}">${reqTime}</td>
                                     <td data-value="${compTs}">${compTime}</td>
                                     <td data-value="${durationSec}">${durationFmt}</td>
-                                    <td class="jobs-row-actions">
-                                        <button class="view-details-btn" onclick="openJobDetails(${job.id})" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        ${quickActions}
-                                    </td>
+                                    <td class="jobs-row-actions">${rowActions}</td>
                                 </tr>
                             `;
                         });
                         tbody.innerHTML = html;
                         _syncJobPageCheckboxes(status);
                         _updateJobBulkBar(status);
+                        _updateJobsSelectAllMatchingBtn(status);
                     })
                     .catch(error => {
                         console.error('Error loading jobs:', error);
-                        tbody.innerHTML = `
-                            <tr>
-                                <td colspan="7" class="empty-state error-state">
-                                    <div class="empty-icon">
-                                        <i class="fas fa-exclamation-triangle"></i>
-                                    </div>
-                                    <div class="empty-text">Error Loading Jobs</div>
-                                    <div class="empty-subtext">Failed to load jobs. Please try again.</div>
-                                </td>
-                            </tr>
-                        `;
+                        _jobPageRowsByStatus[status] = [];
+                        _setJobsTableOverlay(status, _jobsTableOverlayHtml('error', status, 'Failed to load jobs. Please try again.'), true);
                         _updateJobBulkBar(status);
+                        _updateJobsSelectAllMatchingBtn(status);
                     });
+            }
+
+            function changeJobPageSize(status, size) {
+                const n = parseInt(size, 10);
+                if (!TABLE_PAGE_SIZE_OPTIONS.includes(n)) return;
+                _jobPageSize = n;
+                JOB_STATUSES.forEach(s => {
+                    const sel = document.getElementById(`jobPageSize-${s}`);
+                    if (sel) sel.value = String(n);
+                    currentPages[s] = 1;
+                });
+                const search = _jobSearchQuery(status) || null;
+                loadJobs(status, 1, search);
             }
 
             // Change page for a specific status
@@ -2056,7 +2208,7 @@ function openModal() {
                 const statuses = ['SERVED', 'DONE', 'ABORTED', 'PENDING', 'DELETED'];
                 statuses.forEach(status => {
                     loadJobs(status, 1);
-                    
+
                     // Add enter key support for each search input
                     const searchInput = document.getElementById(`jobSearch-${status}`);
                     if (searchInput) {
@@ -2067,6 +2219,13 @@ function openModal() {
                         });
                     }
                 });
+                _updateWorkersTableTitle();
+                const workerSearchInput = document.getElementById('workerSearchInput');
+                if (workerSearchInput) {
+                    workerSearchInput.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter') searchWorkers();
+                    });
+                }
             });
 
             let _modalJobId = null;
@@ -3477,6 +3636,9 @@ let chart;
                 const tables = document.querySelectorAll('.myTable');
                 tables.forEach(table => {
                     const tableWrapper = table.closest('.table-wrapper');
+                    if (tableWrapper?.querySelector('.jobs-table-overlay')) {
+                        return;
+                    }
                     const tbody = table.querySelector('tbody');
                     
                     if (tbody) {

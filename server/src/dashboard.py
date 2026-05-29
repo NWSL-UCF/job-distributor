@@ -649,7 +649,7 @@ def traffic_stats():
 
 def _jobs_bulk_request(data: dict) -> dict:
     status = (data.get("status") or "").strip().upper() or None
-    search = data.get("search_job_id")
+    search = data.get("search") or data.get("search_job_id")
     if search is not None:
         search = str(search).strip() or None
     job_ids = data.get("job_ids")
@@ -741,6 +741,7 @@ def get_jobs_paginated():
         per_page = int(request.args.get("per_page", 50))
         status = request.args.get("status", None)
         search_job_id = request.args.get("search_job_id", None)
+        search = request.args.get("search", None) or search_job_id
 
         # Validate parameters
         if page < 1:
@@ -749,7 +750,7 @@ def get_jobs_paginated():
             per_page = 50
 
         result = db.get_jobs_paginated(
-            page=page, per_page=per_page, status=status, search_job_id=search_job_id)
+            page=page, per_page=per_page, status=status, search=search)
 
         for job in result['jobs']:
             wid = job_worker_id(job)

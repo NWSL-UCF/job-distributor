@@ -59,6 +59,31 @@ def _parse_job_message(raw: Any) -> Any:
         return text if text else []
 
 
+def _jobs_assignee_sql() -> str:
+    """SQL expression for the worker that ran or was assigned a job."""
+    return "COALESCE(NULLIF(worker_id, ''), requested_by)"
+
+
+def jobs_search_sql(search: Optional[str]) -> tuple:
+    """
+    Build a WHERE fragment and params for job list search.
+
+    Numeric query → exact job id.
+    Otherwise → host, host_instance, or full worker id (prefix match).
+    """
+    q = (search or "").strip()
+    if not q:
+        return "", []
+    if q.isdigit():
+        return "id = ?", [int(q)]
+    assignee = _jobs_assignee_sql()
+    ql = q.lower()
+    return (
+        f"(LOWER({assignee}) = ? OR LOWER({assignee}) LIKE ?)",
+        [ql, ql + "_%"],
+    )
+
+
 class JobDatabase:
     """SQLite database handler for job distribution system."""
     
@@ -596,7 +621,7 @@ class JobDatabase:
                 return enrich_job_record(job)
             return None
 
-    def get_jobs_paginated(self, page: int = 1, per_page: int = 50, status: str = None, search_job_id: str = None) -> Dict[str, Any]:
+    def get_jobs_paginated(self, page: int = 1, per_page: int = 50, status: str = None, search_job_id: str = None, search: str = None) -> Dict[str, Any]:
         """
         Get jobs with pagination support.
         
@@ -604,11 +629,13 @@ class JobDatabase:
             page: Page number (1-based)
             per_page: Number of jobs per page
             status: Filter by status (optional)
-            search_job_id: Search by job ID (optional)
+            search_job_id: Legacy alias for search (optional)
+            search: Job id (numeric) or worker host / host_instance / worker id
         
         Returns:
             Dict with jobs, total_count, total_pages, current_page
         """
+        query = (search or search_job_id or "").strip() or None
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
@@ -620,9 +647,10 @@ class JobDatabase:
                 where_conditions.append("status = ?")
                 params.append(status)
             
-            if search_job_id:
-                where_conditions.append("id = ?")
-                params.append(int(search_job_id))
+            search_clause, search_params = jobs_search_sql(query)
+            if search_clause:
+                where_conditions.append(search_clause)
+                params.extend(search_params)
             
             where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
             
@@ -1092,28 +1120,27 @@ class JobDatabase:
         *,
         status: Optional[str] = None,
         search_job_id: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Jobs that would be affected by a bulk dashboard action."""
+        query = (search or search_job_id or "").strip() or None
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            if search_job_id:
-                try:
-                    cursor.execute(
-                        "SELECT * FROM jobs WHERE id = ?",
-                        (int(search_job_id),),
-                    )
-                except (TypeError, ValueError):
-                    return []
-            elif status:
-                cursor.execute("SELECT * FROM jobs WHERE status = ?", (status,))
-            else:
-                cursor.execute("SELECT * FROM jobs")
+            where_conditions = []
+            params = []
+            if status:
+                where_conditions.append("status = ?")
+                params.append(status)
+            search_clause, search_params = jobs_search_sql(query)
+            if search_clause:
+                where_conditions.append(search_clause)
+                params.extend(search_params)
+            where = (" WHERE " + " AND ".join(where_conditions)) if where_conditions else ""
+            cursor.execute(f"SELECT * FROM jobs{where}", params)
             rows = [dict(r) for r in cursor.fetchall()]
 
         out: List[Dict[str, Any]] = []
         for job in rows:
-            if status and not search_job_id and job.get("status") != status:
-                continue
             if not self._job_matches_scope(job, scope, target, job_ids):
                 continue
             if not self._job_eligible_for_bulk_action(job, action):
@@ -1138,10 +1165,11 @@ class JobDatabase:
         *,
         status: Optional[str] = None,
         search_job_id: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> Dict[str, Any]:
         jobs = self._jobs_for_bulk_action(
             action, scope, target, job_ids,
-            status=status, search_job_id=search_job_id,
+            status=status, search_job_id=search_job_id, search=search,
         )
         return {"jobs": jobs, "count": len(jobs)}
 
@@ -1155,11 +1183,12 @@ class JobDatabase:
         *,
         status: Optional[str] = None,
         search_job_id: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Apply delete / restore / to_pending / to_done to matching jobs."""
         jobs = self._jobs_for_bulk_action(
             action, scope, target, job_ids,
-            status=status, search_job_id=search_job_id,
+            status=status, search_job_id=search_job_id, search=search,
         )
         affected = 0
         failed: List[Dict[str, Any]] = []

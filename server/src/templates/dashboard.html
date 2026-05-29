@@ -314,7 +314,7 @@
                                         </div>
                                         <div class="search-section">
                                             <div class="search-input-group">
-                                                <input type="text" id="jobSearch-{{ status }}" placeholder="Search by Job ID — selections are kept" class="search-input" oninput="onJobSearchInput('{{ status }}')">
+                                                <input type="text" id="jobSearch-{{ status }}" placeholder="Job ID, host, host_instance, worker ID" class="search-input" oninput="onJobSearchInput('{{ status }}')">
                                                 <button onclick="searchJobs('{{ status }}')" class="search-btn" title="Search">
                                                     <i class="fas fa-search"></i>
                                                 </button>
@@ -351,6 +351,15 @@
                                     
                                     <div class="table-wrapper">
                                         <table class="myTable" id="table-{{ status }}">
+                                            <colgroup>
+                                                <col class="jobs-col-check">
+                                                <col class="jobs-col-id">
+                                                <col class="jobs-col-worker">
+                                                <col class="jobs-col-time">
+                                                <col class="jobs-col-time">
+                                                <col class="jobs-col-duration">
+                                                <col class="jobs-col-actions">
+                                            </colgroup>
                                             <thead>
                                                 <tr>
                                                     <th class="jobs-th-check" id="jobsCheckAllTh-{{ status }}">
@@ -364,14 +373,11 @@
                                                     <th>Actions</th>
                                                 </tr>
                                             </thead>
-                                            <tbody id="tbody-{{ status }}">
-                                                <tr>
-                                                    <td colspan="7" class="loading-message">
-                                                        <i class="fas fa-spinner fa-spin"></i> Loading jobs...
-                                                    </td>
-                                                </tr>
-                                            </tbody>
+                                            <tbody id="tbody-{{ status }}"></tbody>
                                         </table>
+                                        <div id="jobs-table-overlay-{{ status }}" class="jobs-table-overlay">
+                                            <div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading jobs...</div>
+                                        </div>
                                     </div>
                                     
                                     <!-- Pagination Controls -->
@@ -383,6 +389,18 @@
                                         <button id="next-{{ status }}" onclick="changePage('{{ status }}', 1)" class="pagination-btn">
                                             <i class="fas fa-chevron-right"></i> Next
                                         </button>
+                                        <label class="pagination-page-size" for="jobPageSize-{{ status }}">
+                                            Rows
+                                            <select id="jobPageSize-{{ status }}" class="pagination-page-size-select" onchange="changeJobPageSize('{{ status }}', this.value)">
+                                                <option value="10">10</option>
+                                                <option value="20">20</option>
+                                                <option value="50" selected>50</option>
+                                                <option value="100">100</option>
+                                                <option value="200">200</option>
+                                                <option value="500">500</option>
+                                                <option value="1000">1000</option>
+                                            </select>
+                                        </label>
                                     </div>
                                 </div>
                             </div>
@@ -465,25 +483,34 @@
                             </div>
 
                             <div class="table-container workers-table-container">
-                                <div class="workers-search-row">
-                                    <label for="workerSearchInput" class="workers-search-label">
-                                        <i class="fas fa-search"></i> Search
-                                    </label>
-                                    <input type="search" id="workerSearchInput" class="workers-search-input"
-                                        placeholder="host, host_instance, or host_instance_slot (worker id)"
-                                        autocomplete="off" oninput="onWorkerSearchInput()">
-                                    <span id="workerSearchHint" class="workers-search-hint"></span>
+                                <div class="table-header">
+                                    <div class="table-title">
+                                        <h3 id="workersTableTitle">Active Workers</h3>
+                                        <span id="workersPaginationInfo" class="pagination-info">Loading…</span>
+                                        <button type="button" id="workersSelectAllMatchingBtn" class="workers-link-btn" style="display:none;" onclick="selectAllMatchingWorkers()"></button>
+                                    </div>
+                                    <div class="search-section">
+                                        <div class="search-input-group">
+                                            <input type="search" id="workerSearchInput" class="search-input"
+                                                placeholder="Search worker ID (keep selection)"
+                                                autocomplete="off" oninput="onWorkerSearchInput()">
+                                            <button type="button" onclick="searchWorkers()" class="search-btn" title="Search">
+                                                <i class="fas fa-search"></i>
+                                            </button>
+                                            <button type="button" onclick="clearWorkerSearch()" class="clear-btn" title="Clear">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <div id="workersBulkBar" class="workers-bulk-bar" style="display:none;">
-                                    <span id="workersBulkCount" class="workers-bulk-count">0 selected</span>
-                                    <div id="workersBulkActions" class="workers-bulk-actions"></div>
-                                    <button type="button" class="workers-btn-sm workers-btn--cancel" onclick="clearWorkerSelection()">Clear</button>
-                                </div>
-
-                                <div class="table-header workers-table-header">
-                                    <span id="workersPaginationInfo" class="pagination-info">Loading…</span>
-                                    <button type="button" id="workersSelectAllMatchingBtn" class="workers-link-btn" style="display:none;" onclick="selectAllMatchingWorkers()"></button>
+                                <div id="workersBulkBar" class="jobs-bulk-bar" style="display:none;">
+                                    <div class="jobs-bulk-summary">
+                                        <span id="workersBulkCount" class="jobs-bulk-count">0 selected</span>
+                                        <div id="workersBulkChips" class="jobs-bulk-chips"></div>
+                                    </div>
+                                    <div id="workersBulkActions" class="jobs-bulk-actions"></div>
+                                    <button type="button" class="workers-btn-sm workers-btn--cancel" onclick="clearWorkerSelection()">Clear all</button>
                                 </div>
 
                                 <div id="workersActiveToolbar" class="workers-toolbar">
@@ -513,12 +540,24 @@
                                     </button>
                                 </div>
 
-                                <div class="workers-table-wrap">
+                                <div class="table-wrapper workers-table-wrap">
                                     <table class="workers-page-table" id="workersPageTable">
+                                        <colgroup>
+                                            <col class="workers-col-check">
+                                            <col class="workers-col-id">
+                                            <col class="workers-col-host">
+                                            <col class="workers-col-instance">
+                                            <col class="workers-col-slot">
+                                            <col class="workers-col-status">
+                                            <col class="workers-col-job">
+                                            <col class="workers-col-completed">
+                                            <col class="workers-col-poll">
+                                            <col class="workers-col-actions">
+                                        </colgroup>
                                         <thead>
                                             <tr>
                                                 <th class="workers-th-check" id="workersCheckAllTh">
-                                                    <input type="checkbox" id="workersCheckAllPage" title="Select all on this page"
+                                                    <input type="checkbox" id="workersCheckAllPage" title="Toggle all workers on this page in your selection"
                                                         onchange="toggleWorkerSelectAllPage(this.checked)" aria-label="Select all on page">
                                                 </th>
                                                 <th>Worker ID</th>
@@ -532,10 +571,11 @@
                                                 <th>Actions</th>
                                             </tr>
                                         </thead>
-                                        <tbody id="workersPageBody">
-                                            <tr><td colspan="10" class="workers-loading">Loading workers…</td></tr>
-                                        </tbody>
+                                        <tbody id="workersPageBody"></tbody>
                                     </table>
+                                    <div id="workers-table-overlay" class="jobs-table-overlay">
+                                        <div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading workers…</div>
+                                    </div>
                                 </div>
 
                                 <div class="pagination-controls" id="workersPaginationControls">
@@ -546,6 +586,18 @@
                                     <button type="button" id="workersPageNext" class="pagination-btn" onclick="changeWorkersPage(1)">
                                         Next <i class="fas fa-chevron-right"></i>
                                     </button>
+                                    <label class="pagination-page-size" for="workerPageSize">
+                                        Rows
+                                        <select id="workerPageSize" class="pagination-page-size-select" onchange="changeWorkerPageSize(this.value)">
+                                            <option value="10">10</option>
+                                            <option value="20">20</option>
+                                            <option value="50" selected>50</option>
+                                            <option value="100">100</option>
+                                            <option value="200">200</option>
+                                            <option value="500">500</option>
+                                            <option value="1000">1000</option>
+                                        </select>
+                                    </label>
                                 </div>
                             </div>
                         </div>
