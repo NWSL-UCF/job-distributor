@@ -78,24 +78,6 @@
                 text-overflow: ellipsis;
                 max-width: 240px;
             }
-            .header-add-btn {
-                background: #27ae60;
-                color: white;
-                border: none;
-                border-radius: 7px;
-                padding: 8px 18px;
-                font-size: 0.88rem;
-                font-weight: 700;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                gap: 7px;
-                white-space: nowrap;
-                flex-shrink: 0;
-                transition: background 0.15s;
-            }
-            .header-add-btn:hover { background: #219a52; }
-
             .header-actions {
                 display: flex;
                 gap: 10px;
@@ -147,7 +129,6 @@
                 opacity: 0.9;
             }
 
-            .header-refresh-btn,
             .header-logout-btn {
                 padding: 8px 14px;
                 background: transparent;
@@ -164,7 +145,6 @@
                 white-space: nowrap;
             }
 
-            .header-refresh-btn:hover,
             .header-logout-btn:hover {
                 background: #2d3650;
             }
@@ -2162,12 +2142,9 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
             .workers-table-container .table-header {
                 flex-shrink: 0;
             }
-            .workers-table-container .jobs-bulk-bar,
             .workers-table-container .workers-toolbar {
-                margin: 0 0 12px;
-            }
-            .workers-table-container .workers-toolbar {
-                padding: 0;
+                padding: 14px 20px 0;
+                margin-bottom: 14px;
             }
             .workers-table-container .table-wrapper.workers-table-wrap {
                 margin: 0;
@@ -2223,6 +2200,8 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 flex-wrap: wrap;
                 gap: 12px;
                 flex-shrink: 0;
+                padding: 14px 20px 0;
+                margin-bottom: 14px;
             }
             .workers-table-wrap {
                 flex: 1;

@@ -36,12 +36,6 @@
                     </button>
                 </nav>
                 <div class="header-actions">
-                    <button type="button" class="header-add-btn" onclick="openSetupOverlay()">
-                        <i class="fas fa-plus-circle"></i> Add Jobs
-                    </button>
-                    <button type="button" class="header-refresh-btn" onclick="refreshDashboard()" title="Reload the full dashboard">
-                        <i class="fas fa-sync-alt"></i> Refresh
-                    </button>
                     <button type="button" class="header-logout-btn" onclick="logout()">
                         <i class="fas fa-sign-out-alt"></i> Logout
                     </button>
@@ -117,6 +111,26 @@
                         <!-- ACTIONS -->
                         <div class="sb-section">
                             <p class="sb-section-title">Actions</p>
+
+                            <button type="button" class="sb-action-btn" onclick="openSetupOverlay()">
+                                <div class="sb-action-icon" style="background:#e8f8ef; color:#27ae60;">
+                                    <i class="fas fa-plus-circle"></i>
+                                </div>
+                                <div>
+                                    <span class="sb-action-label">Add Jobs</span>
+                                    <span class="sb-action-sub">Upload or queue new jobs</span>
+                                </div>
+                            </button>
+
+                            <button type="button" class="sb-action-btn" onclick="refreshDashboard()" title="Reload the full dashboard">
+                                <div class="sb-action-icon" style="background:#e8f4fd; color:#1976d2;">
+                                    <i class="fas fa-sync-alt"></i>
+                                </div>
+                                <div>
+                                    <span class="sb-action-label">Refresh</span>
+                                    <span class="sb-action-sub">Reload dashboard data</span>
+                                </div>
+                            </button>
 
                             <button class="sb-action-btn" onclick="openSettingsModal()">
                                 <div class="sb-action-icon" style="background:#eef2ff; color:#4f6ef7;">
