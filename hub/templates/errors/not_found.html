@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Page not found — JobDistributor Hub</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Comfortaa', system-ui, sans-serif;
+      background: #f5f5f5;
+      color: #1a1f2e;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      padding: 36px 32px;
+      max-width: 520px;
+      width: 100%;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #737373;
+      margin-bottom: 20px;
+      letter-spacing: 0.02em;
+    }
+    .brand img { width: 22px; height: 22px; }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      line-height: 1.35;
+    }
+    p {
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      color: #525252;
+      margin-bottom: 14px;
+    }
+    .path-line {
+      font-size: 0.875rem;
+      color: #737373;
+      margin-bottom: 22px;
+      word-break: break-all;
+    }
+    .path-line code {
+      font-family: ui-monospace, monospace;
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #1a1f2e;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 700;
+      font-family: inherit;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .btn--primary {
+      background: #1a1f2e;
+      color: #fff;
+    }
+    .btn--primary:hover { background: #000; color: #fff; }
+    .btn--outline {
+      background: #fff;
+      color: #1a1f2e;
+      border: 1px solid #d4d4d4;
+    }
+    .btn--outline:hover { background: #f5f5f5; color: #1a1f2e; }
+    .hub-url {
+      margin-top: 28px;
+      font-size: 0.8125rem;
+      color: #737373;
+    }
+    .hub-url a {
+      color: #525252;
+      text-decoration: none;
+    }
+    .hub-url a:hover { text-decoration: underline; color: #1a1f2e; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <img src="{{ url_for('static', filename='jd-icon-black.svg') }}" alt="">
+      <span>JobDistributor Hub</span>
+    </div>
+    <h1>Page not found</h1>
+    <p>
+      The page you requested does not exist or may have been moved.
+      Check the URL for typos, or return to the Hub dashboard.
+    </p>
+    {% if request.path and request.path != '/' %}
+    <p class="path-line">
+      Requested path: <code>{{ request.path }}</code>
+    </p>
+    {% endif %}
+    <div class="actions">
+      {% if user %}
+      <a class="btn btn--primary" href="{{ url_for('dashboard.index') }}">Go to Dashboard</a>
+      {% else %}
+      <a class="btn btn--primary" href="{{ url_for('auth.login') }}">Sign in</a>
+      <a class="btn btn--outline" href="{{ url_for('pages.getting_started') }}">Getting Started</a>
+      {% endif %}
+    </div>
+  </div>
+  <p class="hub-url">
+    <a href="{{ hub_base_url }}">{{ hub_host }}</a>
+  </p>
+</body>
+</html>

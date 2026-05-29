@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .db import db
 from .models import User
 
 # Each category maps to a boolean column on users (notify_<key>).
@@ -61,10 +62,13 @@ def user_wants_email(user_id: int, event_type: str) -> bool:
     category = EVENT_EMAIL_CATEGORY.get(event_type)
     if category is None:
         return False
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if user is None:
         return True
-    return bool(getattr(user, _pref_column(category), 1))
+    val = getattr(user, _pref_column(category), 1)
+    if val is None:
+        return True
+    return bool(val)
 
 
 def get_user_prefs(user: User) -> dict[str, bool]:

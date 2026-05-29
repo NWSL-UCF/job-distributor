@@ -4,7 +4,7 @@ Hub Flask application factory.
 import logging
 import os
 
-from flask import Flask, redirect, url_for
+from flask import Flask, jsonify, redirect, render_template, request, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import config
@@ -30,6 +30,14 @@ def create_app() -> Flask:
         level   = logging.INFO,
         format  = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
     )
+    log = logging.getLogger(__name__)
+    if not config.BREVO_API_KEY:
+        log.warning(
+            "BREVO_API_KEY is not set — notification emails will not be sent. "
+            "Add it to hub.env (mounted at /app/hub/.env) and restart hub_app."
+        )
+    else:
+        log.info("Brevo email configured (from=%s)", config.BREVO_FROM_EMAIL)
 
     # ── Extensions ────────────────────────────────────────────────────────────
     db.init_app(app)
@@ -46,6 +54,22 @@ def create_app() -> Flask:
     app.register_blueprint(api_bp,    url_prefix="/api")
     app.register_blueprint(admin_bp,  url_prefix="/admin")
     app.register_blueprint(pages_bp)
+
+    @app.errorhandler(404)
+    def not_found(_exc):
+        if request.path.startswith("/api/") or _prefers_json():
+            return jsonify({"error": "Not found"}), 404
+        from .decorators import get_current_user
+        hub_url = config.HUB_BASE_URL.rstrip("/")
+        return (
+            render_template(
+                "errors/not_found.html",
+                hub_base_url=hub_url,
+                hub_host=hub_url.split("://", 1)[-1],
+                user=get_current_user(),
+            ),
+            404,
+        )
 
     # Trust X-Forwarded-* from nginx so request.is_secure works behind TLS termination.
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
@@ -95,6 +119,11 @@ def create_app() -> Flask:
         return min(100, round(used / total * 100))
 
     return app
+
+
+def _prefers_json() -> bool:
+    best = request.accept_mimetypes.best_match(["application/json", "text/html"])
+    return best == "application/json"
 
 
 def _apply_migrations() -> None:

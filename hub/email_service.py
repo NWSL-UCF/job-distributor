@@ -115,10 +115,20 @@ def _notify(
         metadata=metadata,
     )
     if not user_wants_email(user_id, event_type):
+        log.info(
+            "Email skipped for user %s event=%s (disabled in Settings)",
+            user_id, event_type,
+        )
         return False
     if dedup_type:
-        return send_once(user_id, dedup_type, to_email, subject, html)
-    return send_email(to_email, subject, html)
+        ok = send_once(user_id, dedup_type, to_email, subject, html)
+    else:
+        ok = send_email(to_email, subject, html)
+    if ok:
+        log.info("Email sent to %s: %s", to_email, subject)
+    else:
+        log.warning("Email failed for %s: %s", to_email, subject)
+    return ok
 
 
 # ── Specific email builders ───────────────────────────────────────────────────
