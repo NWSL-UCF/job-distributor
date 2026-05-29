@@ -5,26 +5,10 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Dashboard</h1>
-    <p class="page-sub">Experiments, activity, and notification settings</p>
+    <p class="page-sub">Manage your job distribution experiments</p>
   </div>
-  <a href="{{ url_for('dashboard.new_experiment') }}" class="btn btn--primary dash-tab-only-experiments">+ New Experiment</a>
+  <a href="{{ url_for('dashboard.new_experiment') }}" class="btn btn--primary">+ New Experiment</a>
 </div>
-
-{% if notif_success %}
-<div class="alert alert--success">{{ notif_success }}</div>
-{% endif %}
-
-<nav class="dash-tabs" role="tablist" aria-label="Dashboard sections">
-  <button type="button" class="dash-tabs__btn active" role="tab" aria-selected="true"
-          data-tab="experiments" id="tab-btn-experiments">Experiments</button>
-  <button type="button" class="dash-tabs__btn" role="tab" aria-selected="false"
-          data-tab="events" id="tab-btn-events">Recent Events</button>
-  <button type="button" class="dash-tabs__btn" role="tab" aria-selected="false"
-          data-tab="notifications" id="tab-btn-notifications">Notifications</button>
-</nav>
-
-{# ── Experiments tab ─────────────────────────────────────────────────────── #}
-<div class="dash-tab-panel" id="tab-panel-experiments" role="tabpanel" aria-labelledby="tab-btn-experiments">
 
 {# Monthly usage bar #}
 <div class="usage-card">
@@ -172,67 +156,6 @@
   <a href="{{ url_for('dashboard.new_experiment') }}" class="btn btn--primary">Create experiment</a>
 </div>
 {% endif %}
-
-</div>{# /tab-panel-experiments #}
-
-{# ── Recent Events tab ───────────────────────────────────────────────────── #}
-<div class="dash-tab-panel hidden" id="tab-panel-events" role="tabpanel" aria-labelledby="tab-btn-events">
-  <div class="events-card">
-    <div class="events-card__header">
-      <div>
-        <h2 class="events-card__title">Recent Events</h2>
-        <p class="events-card__desc">Major account and experiment activity, newest first.</p>
-      </div>
-      <div class="events-card__controls">
-        <label class="events-page-size">
-          <span>Per page</span>
-          <select id="events-page-size">
-            <option value="10">10</option>
-            <option value="20" selected>20</option>
-            <option value="50">50</option>
-          </select>
-        </label>
-      </div>
-    </div>
-    <div id="events-timeline" class="events-timeline">
-      <div class="timeline-empty">Loading events…</div>
-    </div>
-    <div class="events-pagination" id="events-pagination" style="display:none;">
-      <button type="button" class="btn btn--outline btn--sm" id="events-prev" disabled>← Previous</button>
-      <span class="events-pagination__info" id="events-pagination-info"></span>
-      <button type="button" class="btn btn--outline btn--sm" id="events-next" disabled>Next →</button>
-    </div>
-  </div>
-</div>
-
-{# ── Notifications tab ───────────────────────────────────────────────────── #}
-<div class="dash-tab-panel hidden" id="tab-panel-notifications" role="tabpanel" aria-labelledby="tab-btn-notifications">
-  <div class="form-card">
-    <h2 class="form-card__title">Email Notifications</h2>
-    <p class="form-card__hint">
-      Choose which events send email. All events appear in Recent Events regardless of these settings.
-      Security emails (verification, password reset) are always sent.
-    </p>
-    <form method="post" action="{{ url_for('dashboard.update_notifications') }}" class="notif-form" id="notif-form">
-      {% for cat in notification_categories %}
-      <div class="notif-row">
-        <div class="notif-row__text">
-          <span class="notif-row__label">{{ cat.label }}</span>
-          <span class="notif-row__desc">{{ cat.description }}</span>
-        </div>
-        <label class="toggle-switch">
-          <input type="checkbox" name="{{ cat.key }}" {% if notification_prefs[cat.key] %}checked{% endif %}>
-          <span class="toggle-switch__track" aria-hidden="true"></span>
-        </label>
-      </div>
-      {% endfor %}
-      <div class="form-actions">
-        <button type="submit" class="btn btn--primary">Save notification settings</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 {% endblock %}
 
 {% block extra_scripts %}
@@ -415,150 +338,6 @@ document.querySelector('.usage-card__month') && (
     _resizeTimer = setTimeout(function() {
       loadYear(parseInt(sel.value));
     }, 200);
-  });
-})();
-</script>
-
-<script>
-// ── Dashboard tabs ───────────────────────────────────────────────────────────
-(function () {
-  var TAB_KEY = 'jd_hub_dash_tab';
-  var panels = {
-    experiments: document.getElementById('tab-panel-experiments'),
-    events: document.getElementById('tab-panel-events'),
-    notifications: document.getElementById('tab-panel-notifications'),
-  };
-  var btns = document.querySelectorAll('.dash-tabs__btn');
-  var newExpBtn = document.querySelector('.dash-tab-only-experiments');
-  var eventsLoaded = false;
-
-  function showTab(name) {
-    btns.forEach(function (btn) {
-      var active = btn.dataset.tab === name;
-      btn.classList.toggle('active', active);
-      btn.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
-    Object.keys(panels).forEach(function (key) {
-      if (panels[key]) panels[key].classList.toggle('hidden', key !== name);
-    });
-    if (newExpBtn) newExpBtn.style.display = name === 'experiments' ? '' : 'none';
-    try { sessionStorage.setItem(TAB_KEY, name); } catch (e) {}
-    if (name === 'events' && !eventsLoaded) {
-      eventsLoaded = true;
-      loadEventsPage(0);
-    }
-    if (location.hash !== '#' + name) {
-      history.replaceState(null, '', '#' + name);
-    }
-  }
-
-  btns.forEach(function (btn) {
-    btn.addEventListener('click', function () { showTab(btn.dataset.tab); });
-  });
-
-  var initial = '{{ active_tab|default("experiments") }}';
-  if (location.hash) {
-    var h = location.hash.replace('#', '');
-    if (panels[h]) initial = h;
-  } else {
-    try {
-      var saved = sessionStorage.getItem(TAB_KEY);
-      if (saved && panels[saved]) initial = saved;
-    } catch (e) {}
-  }
-  showTab(initial);
-
-  // ── Recent Events pagination ─────────────────────────────────────────────
-  var eventsPage = 0;
-  var eventsPageSize = 20;
-  var eventsTotal = 0;
-  var eventsLoading = false;
-
-  var timelineEl = document.getElementById('events-timeline');
-  var pagEl = document.getElementById('events-pagination');
-  var infoEl = document.getElementById('events-pagination-info');
-  var prevBtn = document.getElementById('events-prev');
-  var nextBtn = document.getElementById('events-next');
-  var pageSizeSel = document.getElementById('events-page-size');
-
-  function formatLocalTime(isoUtc) {
-    if (!isoUtc) return '—';
-    var s = isoUtc.endsWith('Z') ? isoUtc : isoUtc + 'Z';
-    var d = new Date(s);
-    if (isNaN(d.getTime())) return isoUtc;
-    return d.toLocaleString(undefined, {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: undefined
-    });
-  }
-
-  function escHtml(s) {
-    var d = document.createElement('div');
-    d.textContent = s || '';
-    return d.innerHTML;
-  }
-
-  function loadEventsPage(page) {
-    if (!timelineEl || eventsLoading) return;
-    eventsLoading = true;
-    timelineEl.innerHTML = '<div class="timeline-empty">Loading events…</div>';
-    fetch('/events?page=' + page + '&page_size=' + eventsPageSize, { credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        eventsPage = data.page ?? page;
-        eventsTotal = data.total ?? 0;
-        var entries = data.entries || [];
-        var totalPages = data.total_pages || 1;
-
-        timelineEl.innerHTML = '';
-        if (!entries.length) {
-          timelineEl.innerHTML = '<div class="timeline-empty">No events yet. Activity will appear here as you use the Hub.</div>';
-          if (pagEl) pagEl.style.display = 'none';
-          return;
-        }
-
-        entries.forEach(function (entry) {
-          var item = document.createElement('div');
-          item.className = 'timeline-item ' + (entry.css_class || 'tl-status');
-          var expLine = entry.experiment_name
-            ? '<div class="timeline-item__exp">' + escHtml(entry.experiment_name) + '</div>'
-            : '';
-          item.innerHTML =
-            '<div class="timeline-item__msg">' + escHtml(entry.message) + '</div>' +
-            expLine +
-            '<div class="timeline-item__time">' + escHtml(formatLocalTime(entry.created_at)) + '</div>';
-          timelineEl.appendChild(item);
-        });
-
-        if (pagEl) pagEl.style.display = 'flex';
-        var start = eventsPage * eventsPageSize + 1;
-        var end = Math.min((eventsPage + 1) * eventsPageSize, eventsTotal);
-        if (infoEl) {
-          infoEl.textContent = 'Showing ' + start + '–' + end + ' of ' + eventsTotal + ' (newest first)';
-        }
-        if (prevBtn) prevBtn.disabled = eventsPage <= 0;
-        if (nextBtn) nextBtn.disabled = eventsPage >= totalPages - 1;
-      })
-      .catch(function (err) {
-        timelineEl.innerHTML = '<div class="timeline-empty">Failed to load events.</div>';
-      })
-      .finally(function () { eventsLoading = false; });
-  }
-
-  if (prevBtn) prevBtn.addEventListener('click', function () { loadEventsPage(eventsPage - 1); });
-  if (nextBtn) nextBtn.addEventListener('click', function () { loadEventsPage(eventsPage + 1); });
-  if (pageSizeSel) {
-    pageSizeSel.addEventListener('change', function () {
-      eventsPageSize = parseInt(pageSizeSel.value, 10) || 20;
-      eventsPage = 0;
-      loadEventsPage(0);
-    });
-  }
-
-  window.addEventListener('hashchange', function () {
-    var h = location.hash.replace('#', '');
-    if (panels[h]) showTab(h);
   });
 })();
 </script>

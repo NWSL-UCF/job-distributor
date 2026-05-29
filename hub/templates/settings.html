@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Hub | Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Settings</h1>
+    <p class="page-sub">Email preferences and account security</p>
+  </div>
+</div>
+
+{% if notif_success %}
+<div class="alert alert--success">{{ notif_success }}</div>
+{% endif %}
+{% if password_success %}
+<div class="alert alert--success">{{ password_success }}</div>
+{% endif %}
+{% if password_error %}
+<div class="alert alert--error">{{ password_error }}</div>
+{% endif %}
+{% if password_info %}
+<div class="alert alert--success">{{ password_info }}</div>
+{% endif %}
+
+<div class="form-card">
+  <h2 class="form-card__title">Email Notifications</h2>
+  <p class="form-card__hint">
+    Choose which events send email. All activity appears under
+    <a href="{{ url_for('dashboard.notifications') }}">Notifications</a> regardless of these settings.
+    Security emails (verification, password reset) are always sent.
+  </p>
+  <form method="post" action="{{ url_for('dashboard.update_notification_settings') }}" class="notif-form">
+    {% for cat in notification_categories %}
+    <div class="notif-row">
+      <div class="notif-row__text">
+        <span class="notif-row__label">{{ cat.label }}</span>
+        <span class="notif-row__desc">{{ cat.description }}</span>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" name="{{ cat.key }}" {% if notification_prefs[cat.key] %}checked{% endif %}>
+        <span class="toggle-switch__track" aria-hidden="true"></span>
+      </label>
+    </div>
+    {% endfor %}
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Save email preferences</button>
+    </div>
+  </form>
+</div>
+
+<div class="form-card" id="password">
+  <h2 class="form-card__title">Password</h2>
+  <p class="form-card__hint">
+    Changing your password will sign out all other active sessions.
+    {% if password_step == 2 %}
+    Step 2 of 2 — enter the verification code sent to {{ user.email }}.
+    {% else %}
+    Step 1 of 2 — verify your current password to receive a verification code.
+    {% endif %}
+  </p>
+  <form method="post" action="{{ url_for('dashboard.change_password') }}" style="max-width:480px">
+    <input type="hidden" name="step" value="{{ password_step }}">
+
+    {% if password_step == 1 %}
+    <div class="field">
+      <label class="field__label" for="current_password">Current password</label>
+      <input class="field__input" type="password" id="current_password"
+             name="current_password" required autofocus autocomplete="current-password">
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Send verification code</button>
+    </div>
+    {% else %}
+    <div class="field">
+      <label class="field__label" for="otp">Verification code</label>
+      <input class="field__input field__input--otp" type="text" id="otp" name="otp"
+             required autofocus maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9]{6}" placeholder="000000">
+    </div>
+    <div class="field">
+      <label class="field__label" for="new_password">New password</label>
+      <input class="field__input" type="password" id="new_password"
+             name="new_password" required minlength="10" autocomplete="new-password">
+      <span class="field__hint">At least 10 characters</span>
+    </div>
+    <div class="field">
+      <label class="field__label" for="confirm_password">Confirm new password</label>
+      <input class="field__input" type="password" id="confirm_password"
+             name="confirm_password" required autocomplete="new-password">
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Change password</button>
+      <a href="{{ url_for('dashboard.settings') }}" class="btn btn--ghost">Cancel</a>
+    </div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+if (location.hash === '#password') {
+  var el = document.getElementById('password');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+</script>
+{% endblock %}

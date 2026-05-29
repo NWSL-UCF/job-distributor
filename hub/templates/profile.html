@@ -9,7 +9,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Profile</h1>
-    <p class="page-sub">Manage your account information and security settings</p>
+    <p class="page-sub">Manage your account information</p>
   </div>
 </div>
 
@@ -122,17 +122,6 @@
       <button type="submit" class="btn btn--primary">Save changes</button>
     </div>
   </form>
-</div>
-
-{# ── Security card ─────────────────────────────────────────────────────────── #}
-<div class="form-card">
-  <h2 class="form-card__title">Security</h2>
-  <p class="form-card__hint">
-    Changing your password will sign out all other active sessions.
-  </p>
-  <div class="form-actions" style="margin-top:12px">
-    <a href="{{ url_for('dashboard.change_password') }}" class="btn btn--outline">Change password</a>
-  </div>
 </div>
 
 {# ── Crop modal ──────────────────────────────────────────────────────────────── #}

@@ -54,7 +54,6 @@ def index():
     ).all()
     usage = _current_month_usage(user)
     limit_in, limit_out = _get_limits(user)
-    from ..notification_prefs import get_user_prefs, NOTIFICATION_CATEGORIES
     return render_template(
         "dashboard.html",
         user=user,
@@ -63,9 +62,39 @@ def index():
         limit_in=limit_in,
         limit_out=limit_out,
         now=_now(),
+    )
+
+
+@dashboard_bp.route("/notifications")
+@require_login
+def notifications():
+    return render_template("notifications.html", user=g.current_user)
+
+
+@dashboard_bp.route("/settings")
+@require_login
+def settings():
+    from ..notification_prefs import get_user_prefs, NOTIFICATION_CATEGORIES
+    user = g.current_user
+    return render_template(
+        "settings.html",
+        user=user,
         notification_categories=NOTIFICATION_CATEGORIES,
         notification_prefs=get_user_prefs(user),
+        password_step=1,
     )
+
+
+def _settings_context(user, **kwargs):
+    from ..notification_prefs import get_user_prefs, NOTIFICATION_CATEGORIES
+    base = {
+        "user": user,
+        "notification_categories": NOTIFICATION_CATEGORIES,
+        "notification_prefs": get_user_prefs(user),
+        "password_step": 1,
+    }
+    base.update(kwargs)
+    return base
 
 
 @dashboard_bp.route("/events")
@@ -78,33 +107,18 @@ def events_api():
     return jsonify(get_events_page(g.current_user.id, page=page, page_size=page_size))
 
 
-@dashboard_bp.route("/notifications", methods=["POST"])
+@dashboard_bp.route("/settings/notifications", methods=["POST"])
 @require_login
-def update_notifications():
+def update_notification_settings():
     from ..notification_prefs import update_user_prefs
     user = g.current_user
     update_user_prefs(user, request.form)
     db.session.commit()
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"success": True})
-    from ..notification_prefs import get_user_prefs, NOTIFICATION_CATEGORIES
-    exps = user.experiments.filter(Experiment.status != "DELETED").order_by(
-        Experiment.created_at.desc()
-    ).all()
-    usage = _current_month_usage(user)
-    limit_in, limit_out = _get_limits(user)
     return render_template(
-        "dashboard.html",
-        user=user,
-        experiments=exps,
-        usage=usage,
-        limit_in=limit_in,
-        limit_out=limit_out,
-        now=_now(),
-        notification_categories=NOTIFICATION_CATEGORIES,
-        notification_prefs=get_user_prefs(user),
-        notif_success="Notification settings saved.",
-        active_tab="notifications",
+        "settings.html",
+        **_settings_context(user, notif_success="Email preferences saved."),
     )
 
 
@@ -397,7 +411,7 @@ def change_password():
     user = g.current_user
 
     if request.method == "GET":
-        return render_template("change_password.html", user=user, step=1)
+        return redirect(url_for("dashboard.settings", _anchor="password"))
 
     step = request.form.get("step", "1")
 
@@ -405,15 +419,26 @@ def change_password():
     if step == "1":
         current_pw = request.form.get("current_password", "")
         if not check_password_hash(user.password_hash, current_pw):
-            return render_template("change_password.html", user=user, step=1,
-                                   error="Current password is incorrect.")
+            return render_template(
+                "settings.html",
+                **_settings_context(
+                    user,
+                    password_error="Current password is incorrect.",
+                ),
+            )
         otp = _generate_otp()
         user.reset_token_hash    = _hash_otp(otp)
         user.reset_token_expires = _now() + timedelta(minutes=config.OTP_RESET_EXPIRE_MINUTES)
         db.session.commit()
         send_password_change_otp(user.email, otp)
-        return render_template("change_password.html", user=user, step=2,
-                               info=f"A verification code was sent to {user.email}.")
+        return render_template(
+            "settings.html",
+            **_settings_context(
+                user,
+                password_step=2,
+                password_info=f"A verification code was sent to {user.email}.",
+            ),
+        )
 
     # ── Step 2: verify OTP and set new password ──────────────────────────────
     if step == "2":
@@ -422,27 +447,49 @@ def change_password():
         confirm_pw  = request.form.get("confirm_password", "")
 
         if not _otp_valid(user.reset_token_hash, otp):
-            return render_template("change_password.html", user=user, step=2,
-                                   error="Invalid verification code.",
-                                   info=f"Code was sent to {user.email}.")
+            return render_template(
+                "settings.html",
+                **_settings_context(
+                    user,
+                    password_step=2,
+                    password_error="Invalid verification code.",
+                    password_info=f"Code was sent to {user.email}.",
+                ),
+            )
         if user.reset_token_expires and user.reset_token_expires < _now():
-            return render_template("change_password.html", user=user, step=1,
-                                   error="Verification code expired. Please start again.")
+            return render_template(
+                "settings.html",
+                **_settings_context(
+                    user,
+                    password_error="Verification code expired. Please start again.",
+                ),
+            )
         if len(new_pw) < 10:
-            return render_template("change_password.html", user=user, step=2,
-                                   error="New password must be at least 10 characters.",
-                                   info=f"Code was sent to {user.email}.")
+            return render_template(
+                "settings.html",
+                **_settings_context(
+                    user,
+                    password_step=2,
+                    password_error="New password must be at least 10 characters.",
+                    password_info=f"Code was sent to {user.email}.",
+                ),
+            )
         if new_pw != confirm_pw:
-            return render_template("change_password.html", user=user, step=2,
-                                   error="Passwords do not match.",
-                                   info=f"Code was sent to {user.email}.")
+            return render_template(
+                "settings.html",
+                **_settings_context(
+                    user,
+                    password_step=2,
+                    password_error="Passwords do not match.",
+                    password_info=f"Code was sent to {user.email}.",
+                ),
+            )
 
         user.password_hash       = generate_password_hash(new_pw)
         user.reset_token_hash    = None
         user.reset_token_expires = None
         db.session.commit()
 
-        # Invalidate all OTHER sessions (keep the current one logged in)
         current_token = request.cookies.get("hub_session")
         from ..models import HubSession
         HubSession.query.filter(
@@ -451,10 +498,12 @@ def change_password():
         ).delete()
         db.session.commit()
 
-        return render_template("profile.html", user=user,
-                               profile_success="Password changed successfully.")
+        return render_template(
+            "settings.html",
+            **_settings_context(user, password_success="Password changed successfully."),
+        )
 
-    return redirect(url_for("dashboard.change_password"))
+    return redirect(url_for("dashboard.settings", _anchor="password"))
 
 
 # ── Legacy single-key regenerate (kept for backward compat) ──────────────────

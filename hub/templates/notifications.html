@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Hub | Notifications{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Notifications</h1>
+    <p class="page-sub">Account and experiment activity, newest first</p>
+  </div>
+</div>
+
+<div class="events-card">
+  <div class="events-card__header">
+    <div class="events-card__controls events-card__controls--right">
+      <label class="events-page-size">
+        <span>Per page</span>
+        <select id="events-page-size">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="50">50</option>
+        </select>
+      </label>
+    </div>
+  </div>
+  <div id="events-timeline" class="events-timeline">
+    <div class="timeline-empty">Loading…</div>
+  </div>
+  <div class="events-pagination" id="events-pagination" style="display:none;">
+    <button type="button" class="btn btn--outline btn--sm" id="events-prev" disabled>← Previous</button>
+    <span class="events-pagination__info" id="events-pagination-info"></span>
+    <button type="button" class="btn btn--outline btn--sm" id="events-next" disabled>Next →</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  var eventsPage = 0;
+  var eventsPageSize = 20;
+  var eventsLoading = false;
+
+  var timelineEl = document.getElementById('events-timeline');
+  var pagEl = document.getElementById('events-pagination');
+  var infoEl = document.getElementById('events-pagination-info');
+  var prevBtn = document.getElementById('events-prev');
+  var nextBtn = document.getElementById('events-next');
+  var pageSizeSel = document.getElementById('events-page-size');
+
+  function formatLocalTime(isoUtc) {
+    if (!isoUtc) return '—';
+    var s = isoUtc.endsWith('Z') ? isoUtc : isoUtc + 'Z';
+    var d = new Date(s);
+    if (isNaN(d.getTime())) return isoUtc;
+    return d.toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: undefined
+    });
+  }
+
+  function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  function loadEventsPage(page) {
+    if (!timelineEl || eventsLoading) return;
+    eventsLoading = true;
+    timelineEl.innerHTML = '<div class="timeline-empty">Loading…</div>';
+    fetch('/events?page=' + page + '&page_size=' + eventsPageSize, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        eventsPage = data.page ?? page;
+        var entries = data.entries || [];
+        var totalPages = data.total_pages || 1;
+        var total = data.total ?? 0;
+
+        timelineEl.innerHTML = '';
+        if (!entries.length) {
+          timelineEl.innerHTML =
+            '<div class="timeline-empty">No notifications yet. Activity will appear here as you use the Hub.</div>';
+          if (pagEl) pagEl.style.display = 'none';
+          return;
+        }
+
+        entries.forEach(function (entry) {
+          var item = document.createElement('div');
+          item.className = 'timeline-item ' + (entry.css_class || 'tl-status');
+          var expLine = entry.experiment_name
+            ? '<div class="timeline-item__exp">' + escHtml(entry.experiment_name) + '</div>'
+            : '';
+          item.innerHTML =
+            '<div class="timeline-item__msg">' + escHtml(entry.message) + '</div>' +
+            expLine +
+            '<div class="timeline-item__time">' + escHtml(formatLocalTime(entry.created_at)) + '</div>';
+          timelineEl.appendChild(item);
+        });
+
+        if (pagEl) pagEl.style.display = 'flex';
+        var start = eventsPage * eventsPageSize + 1;
+        var end = Math.min((eventsPage + 1) * eventsPageSize, total);
+        if (infoEl) {
+          infoEl.textContent = 'Showing ' + start + '–' + end + ' of ' + total + ' (newest first)';
+        }
+        if (prevBtn) prevBtn.disabled = eventsPage <= 0;
+        if (nextBtn) nextBtn.disabled = eventsPage >= totalPages - 1;
+      })
+      .catch(function () {
+        timelineEl.innerHTML = '<div class="timeline-empty">Failed to load notifications.</div>';
+      })
+      .finally(function () { eventsLoading = false; });
+  }
+
+  if (prevBtn) prevBtn.addEventListener('click', function () { loadEventsPage(eventsPage - 1); });
+  if (nextBtn) nextBtn.addEventListener('click', function () { loadEventsPage(eventsPage + 1); });
+  if (pageSizeSel) {
+    pageSizeSel.addEventListener('change', function () {
+      eventsPageSize = parseInt(pageSizeSel.value, 10) || 20;
+      eventsPage = 0;
+      loadEventsPage(0);
+    });
+  }
+
+  loadEventsPage(0);
+})();
+</script>
+{% endblock %}
