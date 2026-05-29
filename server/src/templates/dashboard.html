@@ -314,7 +314,7 @@
                                         </div>
                                         <div class="search-section">
                                             <div class="search-input-group">
-                                                <input type="text" id="jobSearch-{{ status }}" placeholder="Search by Job ID..." class="search-input" oninput="onJobSearchInput('{{ status }}')">
+                                                <input type="text" id="jobSearch-{{ status }}" placeholder="Search by Job ID — selections are kept" class="search-input" oninput="onJobSearchInput('{{ status }}')">
                                                 <button onclick="searchJobs('{{ status }}')" class="search-btn" title="Search">
                                                     <i class="fas fa-search"></i>
                                                 </button>
@@ -326,9 +326,12 @@
                                     </div>
 
                                     <div id="jobsBulkBar-{{ status }}" class="jobs-bulk-bar" style="display:none;">
-                                        <span id="jobsBulkCount-{{ status }}" class="jobs-bulk-count">0 selected</span>
+                                        <div class="jobs-bulk-summary">
+                                            <span id="jobsBulkCount-{{ status }}" class="jobs-bulk-count">0 selected</span>
+                                            <div id="jobsBulkChips-{{ status }}" class="jobs-bulk-chips"></div>
+                                        </div>
                                         <div id="jobsBulkActions-{{ status }}" class="jobs-bulk-actions"></div>
-                                        <button type="button" class="workers-btn-sm workers-btn--cancel" onclick="clearJobSelection('{{ status }}')">Clear</button>
+                                        <button type="button" class="workers-btn-sm workers-btn--cancel" onclick="clearJobSelection('{{ status }}')">Clear all</button>
                                     </div>
 
                                     {% if status == 'PENDING' %}
@@ -351,7 +354,7 @@
                                             <thead>
                                                 <tr>
                                                     <th class="jobs-th-check" id="jobsCheckAllTh-{{ status }}">
-                                                        <input type="checkbox" id="jobsCheckAllPage-{{ status }}" title="Select all on this page" onchange="toggleJobSelectAllPage('{{ status }}', this.checked)" aria-label="Select all on page">
+                                                        <input type="checkbox" id="jobsCheckAllPage-{{ status }}" title="Toggle all jobs on this page in your selection" onchange="toggleJobSelectAllPage('{{ status }}', this.checked)" aria-label="Select all on page">
                                                     </th>
                                                     <th>ID <span class="sort-icon" onclick="sortTable(this, 1, 'number')">↕</span></th>
                                                     <th>Worker Id <span class="sort-icon" onclick="sortTable(this, 2, 'string')">↕</span></th>

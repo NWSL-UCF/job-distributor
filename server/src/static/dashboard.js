@@ -1381,17 +1381,43 @@ function openModal() {
             function _updateJobBulkBar(status) {
                 const bar = document.getElementById(`jobsBulkBar-${status}`);
                 const countEl = document.getElementById(`jobsBulkCount-${status}`);
+                const chipsEl = document.getElementById(`jobsBulkChips-${status}`);
                 const actionsEl = document.getElementById(`jobsBulkActions-${status}`);
-                const n = _jobSelectedIdsByStatus[status]?.size || 0;
+                const selected = _jobSelectedIdsByStatus[status];
+                const n = selected?.size || 0;
                 if (!bar || !countEl || !actionsEl) return;
                 if (!n || !_jobTabSupportsSelection(status)) {
                     bar.style.display = 'none';
+                    if (chipsEl) chipsEl.innerHTML = '';
                     return;
                 }
                 bar.style.display = 'flex';
-                countEl.textContent = `${n} selected`;
+
+                const ids = Array.from(selected).sort((a, b) => a - b);
+                const pageIds = new Set(
+                    (_jobPageRowsByStatus[status] || []).map(j => parseInt(j.id, 10)),
+                );
+                const onPage = ids.filter(id => pageIds.has(id)).length;
+                const offPage = n - onPage;
+                countEl.textContent = offPage > 0
+                    ? `${n} selected · ${offPage} not on this page`
+                    : `${n} selected`;
+
+                if (chipsEl) {
+                    const maxChips = 15;
+                    const visible = ids.slice(0, maxChips);
+                    const overflow = ids.length - visible.length;
+                    chipsEl.innerHTML =
+                        visible.map(id =>
+                            `<button type="button" class="jobs-selection-chip" title="Remove #${id} from selection" onclick="toggleJobSelection('${status}', '${id}', false)">#${id}<span class="jobs-selection-chip-x">&times;</span></button>`,
+                        ).join('') +
+                        (overflow > 0
+                            ? `<span class="jobs-selection-chip jobs-selection-chip--more">+${overflow} more</span>`
+                            : '');
+                }
+
                 actionsEl.innerHTML = _jobBulkActionsForTab(status).map(a =>
-                    `<button type="button" class="workers-btn-sm ${a.cls}" onclick="requestJobAction('${a.action}','jobs','${status}')">${a.label}</button>`
+                    `<button type="button" class="workers-btn-sm ${a.cls}" onclick="requestJobAction('${a.action}','jobs','${status}')">${a.label} selected</button>`,
                 ).join('');
             }
 
@@ -1404,14 +1430,13 @@ function openModal() {
                     return;
                 }
                 btn.style.display = 'inline';
-                btn.textContent = `Select all ${total} matching on this tab`;
+                btn.textContent = `Add all ${total} matching to selection`;
             }
 
             function onJobSearchInput(status) {
                 clearTimeout(_jobSearchDebounce[status]);
                 _jobSearchDebounce[status] = setTimeout(() => {
                     currentPages[status] = 1;
-                    clearJobSelection(status, false);
                     const q = document.getElementById(`jobSearch-${status}`)?.value?.trim() || '';
                     loadJobs(status, 1, q || null);
                 }, 280);
@@ -1435,9 +1460,11 @@ function openModal() {
                     });
                     if ((data.total_count || 0) > JOB_SELECT_ALL_PAGE_SIZE) {
                         showNotification(
-                            `Selected first ${JOB_SELECT_ALL_PAGE_SIZE} jobs (tab has more). Narrow your search.`,
+                            `Added first ${JOB_SELECT_ALL_PAGE_SIZE} jobs (tab has more). Narrow your search.`,
                             'warning',
                         );
+                    } else {
+                        showNotification(`Added ${data.jobs?.length || 0} job(s) to selection.`, 'info');
                     }
                     _updateJobBulkBar(status);
                     _syncJobPageCheckboxes(status);
@@ -1859,6 +1886,7 @@ function openModal() {
                                     </td>
                                 </tr>
                             `;
+                            _updateJobBulkBar(status);
                             return;
                         }
 
@@ -1888,7 +1916,9 @@ function openModal() {
                                     </td>
                                 </tr>
                             `;
+                            _jobPageRowsByStatus[status] = [];
                             _syncJobPageCheckboxes(status);
+                            _updateJobBulkBar(status);
                             return;
                         }
 
@@ -1929,6 +1959,7 @@ function openModal() {
                         });
                         tbody.innerHTML = html;
                         _syncJobPageCheckboxes(status);
+                        _updateJobBulkBar(status);
                     })
                     .catch(error => {
                         console.error('Error loading jobs:', error);
@@ -1943,6 +1974,7 @@ function openModal() {
                                 </td>
                             </tr>
                         `;
+                        _updateJobBulkBar(status);
                     });
             }
 
@@ -2011,10 +2043,7 @@ function openModal() {
                 
                 // Load jobs for the selected tab
                 currentStatus = tabName;
-                JOB_STATUSES.forEach(s => {
-                    const bar = document.getElementById(`jobsBulkBar-${s}`);
-                    if (bar) bar.style.display = 'none';
-                });
+                JOB_STATUSES.forEach(s => _updateJobBulkBar(s));
                 // Get current search value for this status
                 const searchInput = document.getElementById(`jobSearch-${tabName}`);
                 const searchJobId = searchInput ? searchInput.value.trim() || null : null;
