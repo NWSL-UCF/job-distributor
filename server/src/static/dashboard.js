@@ -174,6 +174,10 @@ function openModal() {
                     .replace(/"/g, '&quot;');
             }
 
+            function _disabledCheckboxTd(className) {
+                return `<td class="${className}"><input type="checkbox" disabled aria-label="Selection unavailable"></td>`;
+            }
+
             function _parseWorkerIdParts(workerId) {
                 const raw = String(workerId || '').trim();
                 const parts = raw.split('_');
@@ -311,17 +315,22 @@ function openModal() {
             function _syncWorkerPageCheckboxes() {
                 const checkAll = document.getElementById('workersCheckAllPage');
                 const thCheck = document.getElementById('workersCheckAllTh');
-                if (thCheck) {
-                    thCheck.style.display = _workersTabSupportsSelection() ? '' : 'none';
-                }
+                const selectable = _workersTabSupportsSelection();
+                if (thCheck) thCheck.style.display = '';
                 if (!checkAll) return;
+                checkAll.disabled = !selectable;
                 const pageIds = _workerPageRows.map(w => {
                     const id = _workerRowIdentity(w).workerId;
                     return id !== '—' ? id : '';
                 }).filter(Boolean);
-                const selectedOnPage = pageIds.filter(id => _workerSelectedIds.has(id)).length;
-                checkAll.checked = pageIds.length > 0 && selectedOnPage === pageIds.length;
-                checkAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageIds.length;
+                if (!selectable) {
+                    checkAll.checked = false;
+                    checkAll.indeterminate = false;
+                } else {
+                    const selectedOnPage = pageIds.filter(id => _workerSelectedIds.has(id)).length;
+                    checkAll.checked = pageIds.length > 0 && selectedOnPage === pageIds.length;
+                    checkAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageIds.length;
+                }
                 document.querySelectorAll('.workers-row-check').forEach(cb => {
                     const wid = cb.dataset.workerId;
                     if (wid) cb.checked = _workerSelectedIds.has(wid);
@@ -675,6 +684,17 @@ function openModal() {
                 }
             }
 
+            function _workersEmptyTableRow(message) {
+                const check = _workersTabSupportsSelection()
+                    ? '<td class="workers-td-check"></td>'
+                    : _disabledCheckboxTd('workers-td-check');
+                return `<tr class="table-empty-row">${check}<td colspan="9" class="table-empty-cell">${message}</td></tr>`;
+            }
+
+            function _workersErrorTableRow(message) {
+                return `<tr class="table-empty-row table-error-row">${_disabledCheckboxTd('workers-td-check')}<td colspan="9" class="table-empty-cell table-error-cell">${_escHtml(message)}</td></tr>`;
+            }
+
             function loadWorkersPageTable() {
                 const tbody = document.getElementById('workersPageBody');
                 if (!tbody) return;
@@ -702,7 +722,8 @@ function openModal() {
                                         : (_workerSearchQuery
                                             ? 'No active workers match your search.'
                                             : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).');
-                            _setWorkersTableOverlay(_workersTableOverlayHtml('empty', msg), true);
+                            _setWorkersTableOverlay('', false);
+                            tbody.innerHTML = _workersEmptyTableRow(msg);
                             _syncWorkerPageCheckboxes();
                             _updateWorkerBulkBar();
                             return;
@@ -725,7 +746,7 @@ function openModal() {
                             const widEnc = encodeURIComponent(wid);
                             const checkCell = selectable && wid
                                 ? `<td class="workers-td-check"><input type="checkbox" class="workers-row-check" data-worker-id="${widEnc}"${checked} onchange="toggleWorkerSelection(decodeURIComponent(this.dataset.workerId), this.checked)" aria-label="Select ${_escHtml(wid)}"></td>`
-                                : '<td class="workers-td-check"></td>';
+                                : _disabledCheckboxTd('workers-td-check');
                             return `<tr>
                                 ${checkCell}
                                 <td><code class="workers-id">${widEsc}</code></td>
@@ -744,10 +765,8 @@ function openModal() {
                     })
                     .catch(err => {
                         _workerPageRows = [];
-                        _setWorkersTableOverlay(
-                            _workersTableOverlayHtml('error', err.message || 'Failed to load workers.'),
-                            true,
-                        );
+                        _setWorkersTableOverlay('', false);
+                        tbody.innerHTML = _workersErrorTableRow(err.message || 'Failed to load workers.');
                         _updateWorkerBulkBar();
                     })
                     .finally(() => {
@@ -1489,16 +1508,21 @@ function openModal() {
             function _syncJobPageCheckboxes(status) {
                 const checkAll = document.getElementById(`jobsCheckAllPage-${status}`);
                 const thCheck = document.getElementById(`jobsCheckAllTh-${status}`);
-                if (thCheck) {
-                    thCheck.style.display = _jobTabSupportsSelection(status) ? '' : 'none';
-                }
+                const selectable = _jobTabSupportsSelection(status);
+                if (thCheck) thCheck.style.display = '';
                 const rows = _jobPageRowsByStatus[status] || [];
                 const selected = _jobSelectedIdsByStatus[status];
                 if (checkAll) {
-                    const pageIds = rows.map(j => parseInt(j.id, 10));
-                    const onPage = pageIds.filter(id => selected.has(id)).length;
-                    checkAll.checked = pageIds.length > 0 && onPage === pageIds.length;
-                    checkAll.indeterminate = onPage > 0 && onPage < pageIds.length;
+                    checkAll.disabled = !selectable;
+                    if (!selectable) {
+                        checkAll.checked = false;
+                        checkAll.indeterminate = false;
+                    } else {
+                        const pageIds = rows.map(j => parseInt(j.id, 10));
+                        const onPage = pageIds.filter(id => selected.has(id)).length;
+                        checkAll.checked = pageIds.length > 0 && onPage === pageIds.length;
+                        checkAll.indeterminate = onPage > 0 && onPage < pageIds.length;
+                    }
                 }
                 document.querySelectorAll(`.jobs-row-check[data-status="${status}"]`).forEach(cb => {
                     const id = parseInt(cb.dataset.jobId, 10);
@@ -1622,6 +1646,17 @@ function openModal() {
 
             function _buildJobRowActions(status, jobId) {
                 return `<button type="button" class="workers-btn-sm" onclick="openJobDetails(${jobId})">Details</button>${_buildJobRowQuickActions(status, jobId)}`;
+            }
+
+            function _jobsEmptyTableRow(status, message) {
+                const check = _jobTabSupportsSelection(status)
+                    ? '<td class="jobs-td-check"></td>'
+                    : _disabledCheckboxTd('jobs-td-check');
+                return `<tr class="table-empty-row">${check}<td colspan="6" class="table-empty-cell">${message}</td></tr>`;
+            }
+
+            function _jobsErrorTableRow(status, message) {
+                return `<tr class="table-empty-row table-error-row">${_disabledCheckboxTd('jobs-td-check')}<td colspan="6" class="table-empty-cell table-error-cell">${_escHtml(message)}</td></tr>`;
             }
 
             function _jobsTableOverlayHtml(kind, status, message) {
@@ -2041,7 +2076,8 @@ function openModal() {
                     .then(data => {
                         if (data.error) {
                             _jobPageRowsByStatus[status] = [];
-                            _setJobsTableOverlay(status, _jobsTableOverlayHtml('error', status, data.error), true);
+                            _setJobsTableOverlay(status, '', false);
+                            tbody.innerHTML = _jobsErrorTableRow(status, data.error);
                             _updateJobBulkBar(status);
                             _updateJobsSelectAllMatchingBtn(status);
                             return;
@@ -2064,7 +2100,11 @@ function openModal() {
                         // Render jobs
                         if (data.jobs.length === 0) {
                             _jobPageRowsByStatus[status] = [];
-                            _setJobsTableOverlay(status, _jobsTableOverlayHtml('empty', status), true);
+                            _setJobsTableOverlay(status, '', false);
+                            const emptyMsg = _jobSearchQuery(status)
+                                ? `No ${status.toLowerCase()} jobs match your search.`
+                                : `No ${status.toLowerCase()} jobs available.`;
+                            tbody.innerHTML = _jobsEmptyTableRow(status, emptyMsg);
                             _syncJobPageCheckboxes(status);
                             _updateJobBulkBar(status);
                             _updateJobsSelectAllMatchingBtn(status);
@@ -2088,7 +2128,7 @@ function openModal() {
                             const checked = selected.has(jid) ? ' checked' : '';
                             const checkCell = selectable
                                 ? `<td class="jobs-td-check"><input type="checkbox" class="jobs-row-check" data-status="${status}" data-job-id="${jid}"${checked} onchange="toggleJobSelection('${status}', this.dataset.jobId, this.checked)" aria-label="Select job ${jid}"></td>`
-                                : '<td class="jobs-td-check"></td>';
+                                : _disabledCheckboxTd('jobs-td-check');
                             const rowActions = _buildJobRowActions(status, jid);
 
                             html += `
@@ -2111,7 +2151,8 @@ function openModal() {
                     .catch(error => {
                         console.error('Error loading jobs:', error);
                         _jobPageRowsByStatus[status] = [];
-                        _setJobsTableOverlay(status, _jobsTableOverlayHtml('error', status, 'Failed to load jobs. Please try again.'), true);
+                        _setJobsTableOverlay(status, '', false);
+                        tbody.innerHTML = _jobsErrorTableRow(status, 'Failed to load jobs. Please try again.');
                         _updateJobBulkBar(status);
                         _updateJobsSelectAllMatchingBtn(status);
                     });

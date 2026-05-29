@@ -828,7 +828,8 @@
                 color: #495057;
                 font-weight: 600;
                 padding: 12px 8px;
-                text-align: left;
+                text-align: center;
+                vertical-align: middle;
                 border-bottom: 2px solid #dee2e6;
                 border-right: 1px solid #dee2e6;
                 position: sticky;
@@ -837,6 +838,8 @@
                 font-size: 0.8rem;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
+                white-space: normal;
+                line-height: 1.25;
             }
             
             .myTable th:last-child {
@@ -1086,6 +1089,33 @@
                 background-color: #e3f2fd;
                 transform: translateY(-1px);
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+
+            .myTable tr.table-empty-row:hover,
+            .workers-page-table tr.table-empty-row:hover {
+                background-color: transparent;
+                transform: none;
+                box-shadow: none;
+            }
+
+            .table-empty-cell {
+                text-align: center !important;
+                color: #6c757d;
+                font-style: italic;
+                padding: 40px 16px !important;
+                background: #fff;
+                border-right: none !important;
+            }
+
+            .table-error-cell {
+                color: #c53030;
+                font-style: normal;
+            }
+
+            .jobs-td-check input:disabled,
+            .workers-td-check input:disabled {
+                cursor: not-allowed;
+                opacity: 0.45;
             }
             
             /* Column widths via colgroup — stable with empty tbody */
@@ -2210,22 +2240,24 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 font-size: 0.88rem;
             }
             .workers-page-table col.workers-col-check { width: 4%; }
-            .workers-page-table col.workers-col-id { width: 16%; }
-            .workers-page-table col.workers-col-host { width: 9%; }
+            .workers-page-table col.workers-col-id { width: 18%; }
+            .workers-page-table col.workers-col-host { width: 8%; }
             .workers-page-table col.workers-col-instance { width: 8%; }
-            .workers-page-table col.workers-col-slot { width: 5%; }
-            .workers-page-table col.workers-col-status { width: 11%; }
+            .workers-page-table col.workers-col-slot { width: 6%; }
+            .workers-page-table col.workers-col-status { width: 10%; }
             .workers-page-table col.workers-col-job { width: 7%; }
             .workers-page-table col.workers-col-completed { width: 8%; }
-            .workers-page-table col.workers-col-poll { width: 16%; }
+            .workers-page-table col.workers-col-poll { width: 15%; }
             .workers-page-table col.workers-col-actions { width: 16%; }
             .workers-page-table th {
-                text-align: left;
+                text-align: center;
+                vertical-align: middle;
                 padding: 12px 10px;
                 background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
                 border-bottom: 2px solid #dee2e6;
                 border-right: 1px solid #dee2e6;
-                white-space: nowrap;
+                white-space: normal;
+                line-height: 1.25;
                 font-size: 0.8rem;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
@@ -2451,6 +2483,10 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 width: 40px;
                 text-align: center;
             }
+            .workers-th-check input:disabled {
+                cursor: not-allowed;
+                opacity: 0.45;
+            }
             .workers-td-check {
                 text-align: center;
                 vertical-align: middle;
@@ -2565,7 +2601,7 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 gap: 12px;
                 flex-wrap: wrap;
                 padding: 10px 14px;
-                margin-bottom: 12px;
+                margin: 14px 20px 12px;
                 background: #e8f4fd;
                 border: 1px solid #90caf9;
                 border-radius: 8px;
@@ -2630,11 +2666,16 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 display: flex;
                 flex-wrap: wrap;
                 gap: 10px;
-                margin-bottom: 12px;
+                padding: 14px 20px 0;
+                margin-bottom: 14px;
             }
             .jobs-th-check {
                 width: 40px;
                 text-align: center;
+            }
+            .jobs-th-check input:disabled {
+                cursor: not-allowed;
+                opacity: 0.45;
             }
             .jobs-td-check {
                 text-align: center;
