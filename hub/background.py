@@ -373,7 +373,9 @@ def _check_idle() -> None:
         if idle_days >= 5 and exp.idle_warned_at is None:
             exp.idle_warned_at = now
             exp.expires_at     = now + timedelta(days=2)
-            email_service.send_idle_warning(exp.user.email, exp.user_id, exp.name)
+            email_service.send_idle_warning(
+                exp.user.email, exp.user_id, exp.name, experiment_id=exp.id,
+            )
             log.info("Idle warning sent for experiment %s", exp.name)
 
     # Expire timed-out experiments
@@ -385,7 +387,9 @@ def _check_idle() -> None:
         exp.status     = "EXPIRED"
         exp.deleted_at = now
         _disconnect_frp(exp)
-        email_service.send_expired(exp.user.email, exp.user_id, exp.name)
+        email_service.send_expired(
+            exp.user.email, exp.user_id, exp.name, experiment_id=exp.id,
+        )
         log.info("Experiment %s expired", exp.name)
 
     db.session.commit()

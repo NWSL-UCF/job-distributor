@@ -121,6 +121,15 @@ def _apply_migrations() -> None:
         ("users", "country",       "ALTER TABLE users ADD COLUMN country       VARCHAR(100) NULL"),
         ("users", "affiliation",   "ALTER TABLE users ADD COLUMN affiliation   VARCHAR(200) NULL"),
         ("users", "profile_photo", "ALTER TABLE users ADD COLUMN profile_photo VARCHAR(255) NULL"),
+        # v6: email notification preferences
+        ("users", "notify_experiment_lifecycle",
+         "ALTER TABLE users ADD COLUMN notify_experiment_lifecycle TINYINT(1) NOT NULL DEFAULT 1"),
+        ("users", "notify_server_status",
+         "ALTER TABLE users ADD COLUMN notify_server_status TINYINT(1) NOT NULL DEFAULT 1"),
+        ("users", "notify_quota",
+         "ALTER TABLE users ADD COLUMN notify_quota TINYINT(1) NOT NULL DEFAULT 1"),
+        ("users", "notify_extensions",
+         "ALTER TABLE users ADD COLUMN notify_extensions TINYINT(1) NOT NULL DEFAULT 1"),
         # v4: per-experiment frpc authentication token
         (
             "experiments",
@@ -180,6 +189,25 @@ def _apply_migrations() -> None:
                 INDEX ix_daily_traffic_user_id (user_id),
                 CONSTRAINT fk_daily_traffic_user
                     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
+        ),
+        (
+            "user_events",
+            """CREATE TABLE IF NOT EXISTS user_events (
+                id              BIGINT       NOT NULL AUTO_INCREMENT,
+                user_id         BIGINT       NOT NULL,
+                experiment_id   BIGINT       NULL,
+                experiment_name VARCHAR(48)  NULL,
+                event_type      VARCHAR(64)  NOT NULL,
+                message         TEXT         NOT NULL,
+                metadata_json   TEXT         NULL,
+                created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                INDEX ix_user_events_user_created (user_id, created_at),
+                CONSTRAINT fk_user_events_user
+                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                CONSTRAINT fk_user_events_experiment
+                    FOREIGN KEY (experiment_id) REFERENCES experiments (id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
         ),
     ]

@@ -921,7 +921,10 @@ class JobDatabase:
                         current_job_id=None,
                         reported_status=WORKER_REPORTED_IDLE,
                     )
-                
+
+                if status == STATUS_DONE:
+                    self._maybe_stop_workers_when_all_jobs_complete_locked(conn)
+
                 conn.commit()
                 return True
     
@@ -982,7 +985,10 @@ class JobDatabase:
                         SET status = ?, message = ?
                         WHERE id = ?
                     ''', (new_status, json.dumps(messages), job_id))
-                
+
+                if new_status == STATUS_DONE:
+                    self._maybe_stop_workers_when_all_jobs_complete_locked(conn)
+
                 conn.commit()
                 return True
     
@@ -1107,6 +1113,7 @@ class JobDatabase:
                     "UPDATE jobs SET status = ?, message = ? WHERE id = ?",
                     (STATUS_DELETED, json.dumps(messages), job_id)
                 )
+                self._maybe_stop_workers_when_all_jobs_complete_locked(conn)
                 conn.commit()
                 return True
 
@@ -1756,6 +1763,103 @@ class JobDatabase:
                     "Pending command cleared — worker already stopped.",
                 )
 
+    def _all_jobs_terminal_locked(self, conn: sqlite3.Connection) -> bool:
+        """True when at least one job exists and every job is DONE or DELETED."""
+        row = conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()
+        total = int(row[0]) if row else 0
+        if total == 0:
+            return False
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM jobs WHERE status NOT IN (?, ?)",
+            (STATUS_DONE, STATUS_DELETED),
+        ).fetchone()
+        return int(row[0] or 0) == 0
+
+    def _queue_stop_all_active_workers_locked(
+        self,
+        conn: sqlite3.Connection,
+        reason: str,
+    ) -> int:
+        """Queue dashboard stop for all active workers that would accept it."""
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {_WORKER_HOT_COLS} FROM workers WHERE lifecycle_status = ?",
+            (WORKER_LIFECYCLE_ACTIVE,),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        targets = self._command_target_rows(
+            rows,
+            WORKER_STATE_STOP,
+            "all",
+            None,
+            None,
+            lifecycle=WORKER_LIFECYCLE_ACTIVE,
+        )
+        affected = 0
+        for row in targets:
+            wid = row["worker_id"]
+            current = row.get("desired_state") or WORKER_STATE_RUN
+            applied = int(row.get("applied_version") or 0)
+            desired_v = int(row.get("desired_version") or 0)
+            pending = desired_v > applied
+            prev = (
+                current if pending
+                else row.get("previous_desired_state") or WORKER_STATE_RUN
+            )
+            new_version = desired_v + 1
+            cur.execute(
+                """
+                UPDATE workers SET
+                    previous_desired_state = ?,
+                    desired_state = ?,
+                    desired_version = ?
+                WHERE worker_id = ?
+                """,
+                (prev, WORKER_STATE_STOP, new_version, wid),
+            )
+            self._append_worker_history(
+                conn, wid, reason, event="auto_stop_all_jobs_complete",
+            )
+            affected += 1
+        return affected
+
+    def _maybe_stop_workers_when_all_jobs_complete_locked(
+        self,
+        conn: sqlite3.Connection,
+    ) -> Dict[str, Any]:
+        """If every job is DONE or DELETED, queue stop for active workers."""
+        if not self._all_jobs_terminal_locked(conn):
+            return {"triggered": False, "workers_stopped": 0}
+        reason = (
+            "All jobs are DONE or DELETED — stop queued for active workers."
+        )
+        n = self._queue_stop_all_active_workers_locked(conn, reason)
+        if n:
+            logging.info(
+                "All jobs terminal (DONE/DELETED); queued stop for %d worker(s).",
+                n,
+            )
+        return {"triggered": bool(n), "workers_stopped": n}
+
+    def maybe_stop_workers_when_all_jobs_complete(self) -> Dict[str, Any]:
+        """Public entry: stop all active workers when the job queue is fully terminal."""
+        with self.lock:
+            with self.get_connection() as conn:
+                result = self._maybe_stop_workers_when_all_jobs_complete_locked(conn)
+                conn.commit()
+        return result
+
+    def shutdown_stop_all_workers(self) -> Dict[str, Any]:
+        """Queue stop for every active worker (experiment shutdown / Hub deletion)."""
+        reason = "Experiment shutdown — stop queued for active workers."
+        with self.lock:
+            with self.get_connection() as conn:
+                n = self._queue_stop_all_active_workers_locked(conn, reason)
+                conn.commit()
+        if n:
+            logging.info("Shutdown: queued stop for %d active worker(s).", n)
+        return {"workers_stopped": n}
+
     def _sync_worker_lifecycle(self, conn: sqlite3.Connection) -> None:
         """Reconcile commands, then disable active workers with no recent poll."""
         self._reconcile_worker_commands(conn)
@@ -1771,6 +1875,7 @@ class JobDatabase:
             with self.get_connection() as conn:
                 self._backfill_worker_identity_columns(conn)
                 self._sync_worker_lifecycle(conn)
+                self._maybe_stop_workers_when_all_jobs_complete_locked(conn)
                 conn.commit()
         logging.debug("sync_worker_lifecycle: reconcile + stale-disable pass complete.")
 

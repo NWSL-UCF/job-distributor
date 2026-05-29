@@ -54,12 +54,23 @@ if [ -n "$JD_HUB_URL" ] && [ -n "$JD_API_KEY" ] && [ -n "$JD_EXP_NAME" ]; then
   python /app/scripts/hub_register.py &
   python /app/scripts/hub_heartbeat.py &
 
+  _shutdown() {
+    echo "entrypoint: shutting down container stack…" >&2
+    [ -n "${START_PID:-}" ] && kill "$START_PID" 2>/dev/null || true
+    [ -n "${FRPC_PID:-}" ] && kill "$FRPC_PID" 2>/dev/null || true
+    wait "$START_PID" 2>/dev/null || true
+    rm -f /tmp/jd-start.pid
+    exit 0
+  }
+  trap _shutdown SIGTERM SIGINT
+
   # Start gunicorn (server + dashboard) before frpc registers HTTP routes.
   python /app/start.py \
     "--expId=${EXP}" \
     "--workspace_path=${JD_WORKSPACE_PATH}" \
     "$@" &
   START_PID=$!
+  echo "$START_PID" > /tmp/jd-start.pid
 
   _wait_port 8000
   _wait_port 8001

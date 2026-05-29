@@ -54,6 +54,7 @@ def index():
     ).all()
     usage = _current_month_usage(user)
     limit_in, limit_out = _get_limits(user)
+    from ..notification_prefs import get_user_prefs, NOTIFICATION_CATEGORIES
     return render_template(
         "dashboard.html",
         user=user,
@@ -61,6 +62,49 @@ def index():
         usage=usage,
         limit_in=limit_in,
         limit_out=limit_out,
+        now=_now(),
+        notification_categories=NOTIFICATION_CATEGORIES,
+        notification_prefs=get_user_prefs(user),
+    )
+
+
+@dashboard_bp.route("/events")
+@require_login
+def events_api():
+    from ..event_log import get_events_page, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+    page = request.args.get("page", 0, type=int)
+    page_size = request.args.get("page_size", DEFAULT_PAGE_SIZE, type=int)
+    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+    return jsonify(get_events_page(g.current_user.id, page=page, page_size=page_size))
+
+
+@dashboard_bp.route("/notifications", methods=["POST"])
+@require_login
+def update_notifications():
+    from ..notification_prefs import update_user_prefs
+    user = g.current_user
+    update_user_prefs(user, request.form)
+    db.session.commit()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"success": True})
+    from ..notification_prefs import get_user_prefs, NOTIFICATION_CATEGORIES
+    exps = user.experiments.filter(Experiment.status != "DELETED").order_by(
+        Experiment.created_at.desc()
+    ).all()
+    usage = _current_month_usage(user)
+    limit_in, limit_out = _get_limits(user)
+    return render_template(
+        "dashboard.html",
+        user=user,
+        experiments=exps,
+        usage=usage,
+        limit_in=limit_in,
+        limit_out=limit_out,
+        now=_now(),
+        notification_categories=NOTIFICATION_CATEGORIES,
+        notification_prefs=get_user_prefs(user),
+        notif_success="Notification settings saved.",
+        active_tab="notifications",
     )
 
 
@@ -136,7 +180,7 @@ def create_experiment():
 
     exp = _provision_experiment(user, name)
     from ..email_service import send_experiment_created
-    send_experiment_created(user.email, exp.name)
+    send_experiment_created(user.email, user.id, exp.name, exp.id)
     return redirect(url_for("dashboard.experiment_detail", name=name))
 
 
@@ -153,15 +197,23 @@ def experiment_detail(name: str):
 @require_login
 def delete_experiment(name: str):
     from ..background import _disconnect_frp
+    from ..server_shutdown import request_server_shutdown
+
     exp = Experiment.query.filter_by(name=name).first_or_404()
     if exp.user_id != g.current_user.id:
         return redirect(url_for("dashboard.index"))
+
+    request_server_shutdown(exp)
+    exp_id = exp.id
+    exp_name = exp.name
+    user_id = g.current_user.id
+    user_email = g.current_user.email
     exp.status     = "DELETED"
     exp.deleted_at = _now()
     db.session.commit()
     _disconnect_frp(exp)
     from ..email_service import send_experiment_deleted
-    send_experiment_deleted(g.current_user.email, exp.name)
+    send_experiment_deleted(user_email, user_id, exp_name, exp_id)
     return redirect(url_for("dashboard.index"))
 
 
@@ -177,6 +229,14 @@ def extend_experiment(name: str):
     exp.idle_warned_at = None
     exp.status         = "ACTIVE"
     db.session.commit()
+    from ..event_log import log_event
+    log_event(
+        g.current_user.id,
+        "experiment_extended",
+        f"Experiment '{exp.name}' was extended by 14 days.",
+        experiment_id=exp.id,
+        experiment_name=exp.name,
+    )
     return redirect(url_for("dashboard.experiment_detail", name=name))
 
 
@@ -204,6 +264,14 @@ def reset_pin(name: str):
             timeout=10,
         )
         if r.status_code == 200:
+            from ..event_log import log_event
+            log_event(
+                g.current_user.id,
+                "pin_updated",
+                f"Dashboard PIN updated for experiment '{exp.name}'.",
+                experiment_id=exp.id,
+                experiment_name=exp.name,
+            )
             return _render_experiment_detail(exp, pin_success="Dashboard PIN updated successfully.")
         return _render_experiment_detail(exp, pin_error=f"Dashboard returned: {r.text[:200]}")
     except Exception as exc:
@@ -432,6 +500,14 @@ def create_api_key():
     db.session.add(key)
     db.session.commit()
 
+    from ..event_log import log_event
+    log_event(
+        user.id,
+        "api_key_created",
+        f"API key '{name}' was created.",
+        metadata={"key_prefix": key_prefix},
+    )
+
     keys = user.api_keys.order_by(ApiKey.created_at.desc()).all()
     return render_template("api_keys.html", user=user, keys=keys,
                            new_key_name=name, new_key_value=raw)
@@ -441,8 +517,15 @@ def create_api_key():
 @require_login
 def delete_api_key(key_id: int):
     key = ApiKey.query.filter_by(id=key_id, user_id=g.current_user.id).first_or_404()
+    key_name = key.name
     db.session.delete(key)
     db.session.commit()
+    from ..event_log import log_event
+    log_event(
+        g.current_user.id,
+        "api_key_deleted",
+        f"API key '{key_name}' was deleted.",
+    )
     return redirect(url_for("dashboard.api_keys"))
 
 
@@ -480,6 +563,13 @@ def submit_extension():
     )
     db.session.add(req)
     db.session.commit()
+    from ..event_log import log_event
+    log_event(
+        g.current_user.id,
+        "extension_submitted",
+        "Data limit extension request submitted.",
+        metadata={"request_id": req.id},
+    )
     reqs = (g.current_user.ext_requests
             .order_by(LimitExtensionRequest.requested_at.desc()).all())
     return render_template("extensions.html", user=g.current_user,

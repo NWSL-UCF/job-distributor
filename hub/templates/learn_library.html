@@ -104,7 +104,8 @@ pip install --upgrade jd-worker</code></pre>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
         <pre><code>jd_worker_cli help
-jd_worker_cli          # interactive shell
+export JD_API_KEY=jd_…   # required for interactive mode
+jd_worker_cli          # interactive shell (API key verified with Hub)
 python -c "import jd; print(jd.__version__)"</code></pre>
       </div>
     </section>
@@ -130,11 +131,19 @@ python -c "import jd; print(jd.__version__)"</code></pre>
         <li>Marks the job <em>DONE</em> or <em>ABORTED</em> depending on the
             exit code, then goes back to step 3.</li>
         <li>Keeps running when the queue is empty — probing every
-            <strong>3 minutes</strong> for new jobs (or every
-            <strong>10 seconds</strong> on connection errors). Use
-            <code>once=true</code> to exit after one job or when no job is
+            <strong>3 minutes</strong> (180 s idle heartbeat) for new jobs.
+            Use <code>once=true</code> to exit after one job or when no job is
             available.</li>
       </ol>
+
+      <p>
+        On every launch (except <code>help</code>), the CLI first scans the
+        local registry SQLite databases, removes worker rows whose PIDs are no
+        longer running, releases orphaned instance names, and deletes empty
+        experiment cache directories. Large machines (50+ registered workers) may
+        show a short progress bar with ETA during this step; later commands in
+        the same process skip redundant work.
+      </p>
 
       <p>
         Arguments use <code>key=value</code> tokens. Subcommands such as
@@ -252,16 +261,33 @@ jd_worker_cli expId=digits-tune entry_script=train.py</code></pre>
             <td>(derived)</td>
             <td>Override log directory. Default: <code>&lt;parent&gt;/jd_data/&lt;expId&gt;/jd_worker_logs/</code>.</td>
           </tr>
+          <tr>
+            <td>—</td>
+            <td><code>JD_WORKSPACE_PATH</code></td>
+            <td><code>~</code></td>
+            <td>Parent directory for job sandboxes; data lives under <code>…/jd_data/&lt;expId&gt;/</code>.</td>
+          </tr>
+          <tr>
+            <td>—</td>
+            <td><code>JD_CACHE_PATH</code></td>
+            <td><code>~/.jd_cache</code></td>
+            <td>Root for the local worker registry (<code>.cache/&lt;expId&gt;/workers.db</code>). Independent of workspace path.</td>
+          </tr>
         </tbody>
       </table>
 
       <div class="tut-note tut-note--info">
         <span class="tut-note__icon">ℹ️</span>
         <span>
-          Worker job data lives under <code>&lt;parent&gt;/jd_data/&lt;expId&gt;/&lt;job_id&gt;/</code>
-          where <code>parent</code> is <code>JD_WORKSPACE_PATH</code> if set, otherwise
-          <code>~</code>. There is no <code>workspace_path=</code> CLI argument — set
-          <code>JD_WORKSPACE_PATH</code> before launching.
+          <strong>Local storage (defaults):</strong><br>
+          Job data: <code>~/jd_data/&lt;expId&gt;/&lt;job_id&gt;/</code>
+          (override parent with <code>JD_WORKSPACE_PATH</code> — the
+          <code>jd_data/</code> subdirectory is always appended).<br>
+          Registry DB: <code>~/.jd_cache/.cache/&lt;expId&gt;/workers.db</code>
+          (override with <code>JD_CACHE_PATH</code>, e.g.
+          <code>/tmp/.jd_cache</code> on HPC node-local scratch).<br>
+          There is no <code>workspace_path=</code> CLI argument — set env vars
+          before launching.
         </span>
       </div>
 
@@ -274,16 +300,20 @@ jd_worker_cli expId=digits-tune entry_script=train.py</code></pre>
       </p>
       <div class="code-block">
         <div class="code-block__lang"><span>path</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>~/.cache/&lt;expId&gt;/workers.db
-# or &lt;JD_WORKSPACE_PATH&gt;/.cache/&lt;expId&gt;/workers.db</code></pre>
+        <pre><code>~/.jd_cache/.cache/&lt;expId&gt;/workers.db
+# or &lt;JD_CACHE_PATH&gt;/.cache/&lt;expId&gt;/workers.db</code></pre>
       </div>
 
       <p>
-        Each worker gets a <code>worker_id</code> like <code>gpunode_A3f9X2_0</code>
-        (<code>{host}_{instance}_{slot}</code>). Standalone launches always use
-        slot <code>0</code>; <code>num_workers=N</code> uses slots
-        <code>0 … N-1</code>. The same id appears in <code>worker-list</code>,
-        on the server as <code>requested_by</code>, and in log filenames.
+        Each worker gets a <code>worker_id</code> like <code>gpunode_egg_0</code>
+        (<code>{host}_{instance}_{slot}</code>). The <strong>instance</strong>
+        segment is a short random object name (e.g. <code>egg</code>,
+        <code>table</code>, max 6 letters) allocated from a pool in
+        <code>workers.db</code>. Legacy workers may still use 6-character
+        alphanumeric tokens. Standalone launches always use slot <code>0</code>;
+        <code>num_workers=N</code> uses slots <code>0 … N-1</code>. The same id
+        appears in <code>worker-list</code>, on the server as
+        <code>requested_by</code>, and in log filenames.
       </p>
 
       <div class="code-block">
@@ -298,7 +328,7 @@ jd_worker_cli expId=digits-tune worker-list
 jd_worker_cli exp-list
 
 # Stop one worker or all
-jd_worker_cli expId=digits-tune stop gpunode_A3f9X2_0
+jd_worker_cli expId=digits-tune stop gpunode_egg_0
 jd_worker_cli expId=digits-tune stop all</code></pre>
       </div>
 
@@ -325,6 +355,18 @@ jd_worker_cli expId=digits-tune stop all</code></pre>
         This is useful on shared clusters where you manage workers over a long
         SSH session without retyping <code>expId=</code> every time.
       </p>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          Interactive mode requires a valid Hub API key before the shell starts.
+          Use <code>export JD_API_KEY=jd_…</code> (or pass
+          <code>api_key=</code> on the command line). If unset, the CLI prompts
+          securely and verifies the key with the Hub. Invalid keys must be
+          corrected before entering the REPL — create keys at
+          <a href="https://hub.jobdistributor.net/api-keys" target="_blank" rel="noopener">hub.jobdistributor.net/api-keys</a>.
+        </span>
+      </div>
 
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
@@ -358,7 +400,8 @@ jd[digits-tune]> exit</code></pre>
       <p>
         Once <code>use</code> is set, omit <code>expId=</code> on later lines.
         Trailing semicolons are optional. Command history is saved to
-        <code>~/.cache/jd_worker_history</code>.
+        <code>~/.jd_cache/.cache/jd_worker_history</code> (under
+        <code>JD_CACHE_PATH</code> when set).
       </p>
 
       <h3 id="cli-management">Management commands</h3>
@@ -391,15 +434,16 @@ jd[digits-tune]> exit</code></pre>
           <tr><td><code>expId=&lt;id&gt; restart all|&lt;worker-id&gt;</code></td><td>Stop and respawn using stored launch config.</td></tr>
           <tr><td><code>expId=&lt;id&gt; scale num_workers=&lt;N&gt;</code></td><td>Scale up or down to exactly <em>N</em> workers.</td></tr>
           <tr><td><code>expId=&lt;id&gt; drain</code></td><td>Mark experiment draining — workers finish their current job then exit (no new jobs).</td></tr>
-          <tr><td><code>prune</code></td><td>Remove stale registry rows and orphaned token cache directories.</td></tr>
+          <tr><td><code>prune</code></td><td>Force deep-clean of all local registries (also runs automatically at CLI startup).</td></tr>
+          <tr><td><code>clear_all</code></td><td>Wipe <strong>all</strong> local experiment cache on this machine (type <code>clear_all</code> to confirm). Notifies the server for active workers first.</td></tr>
         </tbody>
       </table>
 
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
         <pre><code>jd_worker_cli expId=digits-tune exp-status
-jd_worker_cli expId=digits-tune worker-status gpunode_A3f9X2_0
-jd_worker_cli expId=digits-tune worker-logs gpunode_A3f9X2_0 lines=100 follow=true
+jd_worker_cli expId=digits-tune worker-status gpunode_egg_0
+jd_worker_cli expId=digits-tune worker-logs gpunode_egg_0 lines=100 follow=true
 jd_worker_cli expId=digits-tune server-info
 jd_worker_cli expId=digits-tune scale num_workers=8
 jd_worker_cli expId=digits-tune drain
@@ -428,7 +472,7 @@ jd_worker_cli prune</code></pre>
       <p>The server responds with:</p>
 
       <ul>
-        <li><code>desired_state</code> — <code>run</code>, <code>drain</code>, or <code>stop</code></li>
+        <li><code>desired_state</code> — <code>run</code>, <code>pause</code>, <code>drain</code>, or <code>stop</code></li>
         <li><code>desired_version</code> / <code>applied_version</code> — command versioning</li>
         <li><code>job</code> — optional job payload when idle and <code>desired_state=run</code></li>
         <li><code>heartbeat_interval</code> — seconds until the next heartbeat (180 idle, 57 busy)</li>
@@ -454,16 +498,16 @@ jd_worker_cli prune</code></pre>
 
       <ul>
         <li>Filter workers by host, instance, and slot</li>
-        <li>Queue <strong>Resume</strong>, <strong>Drain</strong>, or
+        <li>Queue <strong>Resume</strong>, <strong>Pause</strong>, <strong>Drain</strong>, or
             <strong>Stop</strong> on the <strong>Active Workers</strong> sub-tab</li>
         <li>Review <strong>Disabled / Stopped</strong> workers (read-only) after shutdown or lost heartbeat</li>
-        <li>Cancel a queued command before the worker’s next heartbeat (~3 min idle)</li>
+        <li>Cancel a queued command before the worker’s next idle heartbeat (~3 min / 180 s)</li>
       </ul>
 
       <p>
         Dashboard commands set <em>desired state</em> on the server — they do not
         send signals directly to worker processes. Precedence is
-        <code>stop &gt; drain &gt; run</code>. Local CLI commands
+        <code>stop &gt; drain &gt; pause &gt; run</code>. Local CLI commands
         (<code>stop</code>, <code>drain</code>) still work on the machine where
         the worker runs; dashboard control is for remote management without SSH.
       </p>
@@ -508,10 +552,15 @@ jd_worker_cli expId=digits-tune entry_script=train.py machine_type=cpu</code></p
               server=192.168.1.10 port=8000</code></pre>
       </div>
 
-      <p><strong>Custom data root on scratch disk:</strong></p>
+      <p><strong>Custom data root on scratch disk (HPC):</strong></p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>export JD_WORKSPACE_PATH=/scratch/$USER
+        <pre><code># Shared storage for large job I/O
+export JD_WORKSPACE_PATH=/scratch/$USER
+# Node-local registry (SQLite) — one .jd_cache per compute node
+export JD_CACHE_PATH="${TMPDIR:-/tmp}/.jd_cache"
+mkdir -p "$JD_WORKSPACE_PATH" "$JD_CACHE_PATH"
+
 jd_worker_cli expId=digits-tune entry_script=train.py num_workers=4</code></pre>
       </div>
 
@@ -552,9 +601,11 @@ jd_worker_cli expId=digits-tune entry_script=train.py num_workers=4</code></pre>
             <strong>Path:</strong> <code>~/jd_data/&lt;exp_id&gt;/&lt;job_id&gt;/</code>
           </p>
           <p>
-            The directory is <em>not</em> created automatically — call
-            <code>.mkdir(parents=True, exist_ok=True)</code> before writing
-            any files.
+            The directory is created by <code>jd_worker_cli</code> before your
+            entry script runs (and passed as <code>--base_path</code> /
+            <code>JD_WORKER_JOB_DIR</code>). Call
+            <code>.mkdir(parents=True, exist_ok=True)</code> if you write to
+            subdirectories you create yourself.
           </p>
           <div class="code-block">
             <div class="code-block__lang"><span>Python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
@@ -661,7 +712,7 @@ print(workspace)  # Path object — e.g. /home/alice/jd_data</code></pre>
       <div class="api-card" id="jd-upload">
         <div class="api-card__header">
           <span class="api-card__badge api-card__badge--fn">function</span>
-          <span class="api-card__sig">jd.jd_upload(file_path: str | Path) → bool</span>
+          <span class="api-card__sig">jd.jd_upload(file_path: str | Path, …) → dict</span>
         </div>
         <div class="api-card__body">
           <p>
@@ -674,7 +725,7 @@ print(workspace)  # Path object — e.g. /home/alice/jd_data</code></pre>
           <ul>
             <li><code>file_path</code> — path to the local file to upload (string or <code>pathlib.Path</code>). Maximum file size: 100 MB.</li>
           </ul>
-          <p><strong>Returns:</strong> <code>True</code> on success, <code>False</code> if the upload failed (a warning is logged; the job continues).</p>
+          <p><strong>Returns:</strong> A dict with <code>success</code>, <code>filename</code>, <code>version</code>, and <code>size_bytes</code> on success. Raises on failure after retries (default 5 attempts; configure with <code>JD_UPLOAD_MAX_RETRIES</code>).</p>
           <p>
             <strong>When to use it:</strong> Call <code>jd_upload()</code> when workers
             run on machines with temporary storage (cloud spot instances, Slurm nodes)
@@ -804,6 +855,16 @@ for epoch in range(start_epoch, args.epochs):
             <td>Full path to this job's output directory</td>
             <td><code>"/home/alice/jd_data/digits-tune/42"</code></td>
           </tr>
+          <tr>
+            <td><code>JD_WORKER_ID</code></td>
+            <td>Worker id for this process (Hub mode)</td>
+            <td><code>"gpunode_egg_0"</code></td>
+          </tr>
+          <tr>
+            <td><code>JD_WORKER_TOKEN</code></td>
+            <td>Short-lived JWT for server API calls (initial value; registry is refreshed by the parent worker)</td>
+            <td><code>"eyJ…"</code></td>
+          </tr>
         </tbody>
       </table>
 
@@ -832,11 +893,13 @@ print(f"Running job {job_id} for experiment '{exp_id}'")</code></pre>
           <tr><td><code>JD_EXP_ID</code></td><td>Default experiment name (replaces <code>expId=</code> CLI argument)</td></tr>
           <tr><td><code>JD_ENTRY_SCRIPT</code></td><td>Default entry script path</td></tr>
           <tr><td><code>JD_MACHINE_TYPE</code></td><td>Machine type label shown in the server dashboard</td></tr>
-          <tr><td><code>JD_WORKSPACE_PATH</code></td><td>Redirect the <code>jd_data/</code> root to a custom directory (default: <code>~</code>)</td></tr>
+          <tr><td><code>JD_WORKSPACE_PATH</code></td><td>Parent directory for <code>jd_data/</code> job sandboxes (default: home directory <code>~</code> → data at <code>~/jd_data/</code>)</td></tr>
+          <tr><td><code>JD_CACHE_PATH</code></td><td>Root for local worker registry (default: <code>~/.jd_cache</code>; registry at <code>.cache/&lt;expId&gt;/workers.db</code>)</td></tr>
           <tr><td><code>JD_NUM_WORKERS</code></td><td>Number of parallel workers to spawn (default: <code>1</code>)</td></tr>
           <tr><td><code>JD_FOREGROUND</code></td><td>Set to <code>true</code> to run attached to the terminal (default: background)</td></tr>
           <tr><td><code>JD_LOG_DIR</code></td><td>Override worker log directory</td></tr>
           <tr><td><code>JD_ONCE</code></td><td>Set to <code>true</code> to run one job then exit (or exit when queue is empty)</td></tr>
+          <tr><td><code>JD_SKIP_REGISTRY_PRUNE</code></td><td>Set to <code>1</code> to skip automatic startup registry cleanup (debugging only)</td></tr>
         </tbody>
       </table>
     </section>
@@ -860,7 +923,7 @@ print(f"Running job {job_id} for experiment '{exp_id}'")</code></pre>
 
       <p>
         <code>worker_id</code> is formatted as
-        <code>{host}_{instance}_{slot}</code> (e.g. <code>gpunode_A3f9X2_0</code>).
+        <code>{host}_{instance}_{slot}</code> (e.g. <code>gpunode_egg_0</code>).
         Override the directory
         with <code>log_dir=&lt;path&gt;</code> or <code>JD_LOG_DIR</code>.
       </p>
@@ -869,10 +932,10 @@ print(f"Running job {job_id} for experiment '{exp_id}'")</code></pre>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
         <pre><code># Last 50 lines
-jd_worker_cli expId=digits-tune worker-logs gpunode_A3f9X2_0
+jd_worker_cli expId=digits-tune worker-logs gpunode_egg_0
 
 # Last 200 lines, then follow live
-jd_worker_cli expId=digits-tune worker-logs gpunode_A3f9X2_0 lines=200 follow=true</code></pre>
+jd_worker_cli expId=digits-tune worker-logs gpunode_egg_0 lines=200 follow=true</code></pre>
       </div>
 
       <p>Or tail the file directly:</p>

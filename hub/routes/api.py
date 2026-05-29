@@ -117,13 +117,27 @@ def get_experiment(name: str):
 @api_bp.route("/experiments/<name>", methods=["DELETE"])
 @require_api_key
 def delete_experiment(name: str):
+    from ..background import _disconnect_frp
+    from ..server_shutdown import request_server_shutdown
+
     exp = _get_owned_exp(name)
     if exp is None:
         return jsonify({"error": "Not found"}), 404
+
+    shutdown = request_server_shutdown(exp)
+    exp_id = exp.id
+    exp_name = exp.name
+    user = g.api_user
     exp.status     = "DELETED"
     exp.deleted_at = _now()
     db.session.commit()
-    return jsonify({"message": "Experiment deleted"}), 200
+    _disconnect_frp(exp)
+    from ..email_service import send_experiment_deleted
+    send_experiment_deleted(user.email, user.id, exp_name, exp_id)
+    return jsonify({
+        "message": "Experiment deleted",
+        "shutdown": shutdown,
+    }), 200
 
 
 # ── Docker container registration ─────────────────────────────────────────────
@@ -471,7 +485,9 @@ def frp_plugin_hook():
             exp = _exp_from_proxy_name(proxy_name)
             if exp and exp.status not in ("DELETED", "EXPIRED"):
                 if _can_notify("disconnected", exp.name):
-                    send_server_disconnected(exp.user.email, exp.name)
+                    send_server_disconnected(
+                        exp.user.email, exp.user_id, exp.name, experiment_id=exp.id,
+                    )
         # CloseProxy responses are ignored by frps — just return OK
         return _frp_allow()
 
@@ -523,7 +539,9 @@ def frp_plugin_hook():
     # Send "connected" email once per tunnel pair (server proxy, not dashboard)
     if proxy_name.startswith("server-"):
         if _can_notify("connected", exp.name):
-            send_server_connected(exp.user.email, exp.name)
+            send_server_connected(
+                exp.user.email, exp.user_id, exp.name, experiment_id=exp.id,
+            )
 
     log.info(
         "frp plugin NewProxy allow proxy=%s domain=%s exp=%s",

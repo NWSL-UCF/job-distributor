@@ -1,5 +1,5 @@
 """
-Email sending via Brevo REST API with deduplication.
+Email sending via Brevo REST API with deduplication and user preference checks.
 """
 import logging
 from datetime import datetime, timezone
@@ -9,7 +9,9 @@ import requests
 
 from . import config
 from .db import db
+from .event_log import log_event
 from .models import EmailNotification
+from .notification_prefs import user_wants_email
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +92,35 @@ def send_once(user_id: int, notification_type: str,
     return ok
 
 
+def _notify(
+    user_id: int,
+    event_type: str,
+    message: str,
+    to_email: str,
+    subject: str,
+    html: str,
+    *,
+    experiment_id: int | None = None,
+    experiment_name: str | None = None,
+    metadata: dict | None = None,
+    dedup_type: str | None = None,
+) -> bool:
+    """Log an in-app event and optionally send email based on user preferences."""
+    log_event(
+        user_id,
+        event_type,
+        message,
+        experiment_id=experiment_id,
+        experiment_name=experiment_name,
+        metadata=metadata,
+    )
+    if not user_wants_email(user_id, event_type):
+        return False
+    if dedup_type:
+        return send_once(user_id, dedup_type, to_email, subject, html)
+    return send_email(to_email, subject, html)
+
+
 # ── Specific email builders ───────────────────────────────────────────────────
 
 def send_verification_otp(user_email: str, otp: str) -> bool:
@@ -136,46 +167,84 @@ def send_quota_warning(user_email: str, user_id: int,
                        direction: str, pct: int, year: int, month: int) -> bool:
     """direction is 'in' or 'out'. pct is 80, 95, or 100."""
     notif_type = f"quota_{pct}_{direction}_{year}_{month:02d}"
+    dir_label = "upload" if direction == "in" else "download"
     if pct == 100:
+        event_type = "quota_exceeded"
         subject = f"Data limit reached — {'uploads' if direction == 'in' else 'downloads'} blocked"
-        msg = (f"You have reached your monthly data {'upload' if direction == 'in' else 'download'} "
+        msg = (f"You have reached your monthly data {dir_label} "
                f"limit for {year}-{month:02d}. "
                f"New {'uploads' if direction == 'in' else 'downloads'} are suspended until "
                f"the 1st of next month or until you request an extension.")
     else:
+        event_type = "quota_warning"
         subject = f"Data limit warning ({pct}%)"
         msg = (f"You have used {pct}% of your monthly data "
-               f"{'upload' if direction == 'in' else 'download'} limit for {year}-{month:02d}.")
+               f"{dir_label} limit for {year}-{month:02d}.")
     html = _email_header() + f"""
     <h2>{subject}</h2>
     <p>{msg}</p>
     <p><a href="{config.HUB_BASE_URL}/extensions">Request a limit extension</a></p>
     """ + _email_footer()
-    return send_once(user_id, notif_type, user_email, subject, html)
+    return _notify(
+        user_id,
+        event_type,
+        msg,
+        user_email,
+        subject,
+        html,
+        metadata={"direction": direction, "pct": pct, "year": year, "month": month},
+        dedup_type=notif_type,
+    )
 
 
-def send_idle_warning(user_email: str, user_id: int, exp_name: str) -> bool:
+def send_idle_warning(user_email: str, user_id: int, exp_name: str,
+                      experiment_id: int | None = None) -> bool:
+    message = (
+        f"Experiment '{exp_name}' has been idle for 5 days and will expire in 2 days."
+    )
     html = _email_header() + f"""
     <h2>Experiment expiring soon</h2>
     <p>Your experiment <strong>{exp_name}</strong> has been idle for 5 days and will
     expire in <strong>2 days</strong>.</p>
     <p><a href="{config.HUB_BASE_URL}/experiments/{exp_name}">Extend experiment</a></p>
     """ + _email_footer()
-    return send_once(user_id, f"idle_warn_{exp_name}", user_email,
-                     f"Experiment '{exp_name}' expiring in 2 days", html)
+    return _notify(
+        user_id,
+        "experiment_idle_warning",
+        message,
+        user_email,
+        f"Experiment '{exp_name}' expiring in 2 days",
+        html,
+        experiment_id=experiment_id,
+        experiment_name=exp_name,
+        dedup_type=f"idle_warn_{exp_name}",
+    )
 
 
-def send_expired(user_email: str, user_id: int, exp_name: str) -> bool:
+def send_expired(user_email: str, user_id: int, exp_name: str,
+                 experiment_id: int | None = None) -> bool:
+    message = f"Experiment '{exp_name}' has expired after 7 days of inactivity."
     html = _email_header() + f"""
     <h2>Experiment expired</h2>
     <p>Your experiment <strong>{exp_name}</strong> has expired after 7 days of inactivity.</p>
     <p>You can create a new experiment from the Hub dashboard.</p>
     """ + _email_footer()
-    return send_once(user_id, f"expired_{exp_name}", user_email,
-                     f"Experiment '{exp_name}' has expired", html)
+    return _notify(
+        user_id,
+        "experiment_expired",
+        message,
+        user_email,
+        f"Experiment '{exp_name}' has expired",
+        html,
+        experiment_id=experiment_id,
+        experiment_name=exp_name,
+        dedup_type=f"expired_{exp_name}",
+    )
 
 
-def send_experiment_created(user_email: str, exp_name: str) -> bool:
+def send_experiment_created(user_email: str, user_id: int, exp_name: str,
+                            experiment_id: int | None = None) -> bool:
+    message = f"Experiment '{exp_name}' was created."
     dashboard_url = f"{config.HUB_BASE_URL}/experiments/{exp_name}"
     html = _email_header() + f"""
     <h2>Experiment created — <em>{exp_name}</em></h2>
@@ -189,10 +258,21 @@ def send_experiment_created(user_email: str, exp_name: str) -> bool:
                 text-decoration:none; border-radius:4px;">View Experiment</a>
     </p>
     """ + _email_footer()
-    return send_email(user_email, f"[JobDistributor] Experiment created — {exp_name}", html)
+    return _notify(
+        user_id,
+        "experiment_created",
+        message,
+        user_email,
+        f"[JobDistributor] Experiment created — {exp_name}",
+        html,
+        experiment_id=experiment_id,
+        experiment_name=exp_name,
+    )
 
 
-def send_experiment_deleted(user_email: str, exp_name: str) -> bool:
+def send_experiment_deleted(user_email: str, user_id: int, exp_name: str,
+                            experiment_id: int | None = None) -> bool:
+    message = f"Experiment '{exp_name}' was deleted."
     html = _email_header() + f"""
     <h2>Experiment deleted — <em>{exp_name}</em></h2>
     <p>Your experiment <strong>{exp_name}</strong> has been deleted from the Hub.</p>
@@ -200,10 +280,21 @@ def send_experiment_deleted(user_email: str, exp_name: str) -> bool:
     <pre style="background:#f4f4f4; padding:10px; border-radius:4px;
                 font-family:monospace; font-size:0.88em; display:inline-block;">docker stop jd-{exp_name}</pre>
     """ + _email_footer()
-    return send_email(user_email, f"[JobDistributor] Experiment deleted — {exp_name}", html)
+    return _notify(
+        user_id,
+        "experiment_deleted",
+        message,
+        user_email,
+        f"[JobDistributor] Experiment deleted — {exp_name}",
+        html,
+        experiment_id=experiment_id,
+        experiment_name=exp_name,
+    )
 
 
-def send_server_connected(user_email: str, exp_name: str) -> bool:
+def send_server_connected(user_email: str, user_id: int, exp_name: str,
+                          experiment_id: int | None = None) -> bool:
+    message = f"Server for experiment '{exp_name}' is now online."
     server_dashboard_url = f"https://{exp_name}-dashboard.{config.JD_BASE_DOMAIN}"
     html = _email_header() + f"""
     <p>&#x1F7E2; Your server for experiment <strong>{exp_name}</strong> is now
@@ -214,10 +305,21 @@ def send_server_connected(user_email: str, exp_name: str) -> bool:
                 text-decoration:none; border-radius:4px;">Open Server Dashboard</a>
     </p>
     """ + _email_footer()
-    return send_email(user_email, f"[JobDistributor] Server online — {exp_name}", html)
+    return _notify(
+        user_id,
+        "server_online",
+        message,
+        user_email,
+        f"[JobDistributor] Server online — {exp_name}",
+        html,
+        experiment_id=experiment_id,
+        experiment_name=exp_name,
+    )
 
 
-def send_server_disconnected(user_email: str, exp_name: str) -> bool:
+def send_server_disconnected(user_email: str, user_id: int, exp_name: str,
+                             experiment_id: int | None = None) -> bool:
+    message = f"Server for experiment '{exp_name}' went offline."
     html = _email_header() + f"""
     <p>&#x1F534; Your server for experiment <strong>{exp_name}</strong> has gone
     <strong>offline</strong>.</p>
@@ -228,22 +330,42 @@ def send_server_disconnected(user_email: str, exp_name: str) -> bool:
     <pre style="background:#f4f4f4; padding:10px; border-radius:4px;
                 font-family:monospace; font-size:0.88em; display:inline-block;">JD_API_KEY=&lt;your-key&gt; ./run.sh {exp_name}</pre>
     """ + _email_footer()
-    return send_email(user_email, f"[JobDistributor] Server offline — {exp_name}", html)
+    return _notify(
+        user_id,
+        "server_offline",
+        message,
+        user_email,
+        f"[JobDistributor] Server offline — {exp_name}",
+        html,
+        experiment_id=experiment_id,
+        experiment_name=exp_name,
+    )
 
 
 def send_extension_result(user_email: str, user_id: int,
                           req_id: int, approved: bool, note: str = "") -> bool:
     if approved:
+        event_type = "extension_approved"
         subject = "Your data limit extension was approved"
         body    = "Great news — your data limit extension request has been approved."
     else:
+        event_type = "extension_declined"
         subject = "Your data limit extension request was declined"
         body    = "Unfortunately your data limit extension request was not approved."
+    message = body + (f" Admin note: {note}" if note else "")
     html = _email_header() + f"""
     <h2>{subject}</h2>
     <p>{body}</p>
     {"<p><strong>Admin note:</strong> " + note + "</p>" if note else ""}
     <p><a href="{config.HUB_BASE_URL}/extensions">View your requests</a></p>
     """ + _email_footer()
-    return send_once(user_id, f"ext_{'approved' if approved else 'declined'}_{req_id}",
-                     user_email, subject, html)
+    return _notify(
+        user_id,
+        event_type,
+        message,
+        user_email,
+        subject,
+        html,
+        metadata={"request_id": req_id, "approved": approved},
+        dedup_type=f"ext_{'approved' if approved else 'declined'}_{req_id}",
+    )

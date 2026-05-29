@@ -12,6 +12,11 @@
       <div class="exp-detail__title-row">
         <h1 class="exp-detail__title">{{ exp.name }}</h1>
         <span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span>
+        {% if exp.server_is_online %}
+        <span class="server-dot server-dot--online" title="Server is online"></span>
+        {% else %}
+        <span class="server-dot server-dot--offline" title="Server is offline or has not connected yet"></span>
+        {% endif %}
       </div>
       <p class="exp-detail__lead">
         Open your experiment dashboard below. Start Docker with your
@@ -46,6 +51,7 @@
     </div>
     <input type="hidden" id="url-dashboard" value="{{ dashboard_url }}">
     <div class="dash-toolbar dash-toolbar--panel">
+      {% if exp.server_is_online %}
       <a href="{{ dashboard_url }}" target="_blank" rel="noopener" class="dash-toolbar__open">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
@@ -53,12 +59,24 @@
         </svg>
         Open dashboard
       </a>
+      {% else %}
+      <span class="dash-toolbar__open dash-toolbar__open--disabled" title="Server is not running">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        Server not running
+      </span>
+      {% endif %}
       <button type="button" class="dash-toolbar__copy" title="Copy dashboard URL" onclick="copyText('url-dashboard')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
         </svg>
       </button>
     </div>
+    {% if not exp.server_is_online %}
+    <p class="dash-toolbar__offline-note">Start your Docker container with Hub credentials to access the dashboard.</p>
+    {% endif %}
     <p class="exp-panel__foot">Default PIN is <code>000000</code> until you change it below.</p>
   </section>
 
@@ -72,10 +90,14 @@
         <div class="field">
           <label class="field__label" for="new_pin">New 6-digit PIN</label>
           <input class="field__input field__input--pin" id="new_pin" type="password" name="new_pin"
-                 maxlength="6" minlength="6" pattern="\d{6}" placeholder="000000" autocomplete="off">
+                 maxlength="6" minlength="6" pattern="\d{6}" placeholder="000000" autocomplete="off"
+                 {% if not exp.server_is_online %}disabled{% endif %}>
         </div>
-        <button type="submit" class="btn btn--primary">Update PIN</button>
+        <button type="submit" class="btn btn--primary" {% if not exp.server_is_online %}disabled{% endif %}>Update PIN</button>
       </form>
+      {% if not exp.server_is_online %}
+      <p class="dash-toolbar__offline-note">PIN reset requires a running server container.</p>
+      {% endif %}
     </section>
 
     <section class="exp-panel exp-panel--danger">

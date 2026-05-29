@@ -529,6 +529,23 @@ def get_latest_checkpoint():
                      as_attachment=True, download_name=latest)
 
 
+@app.route("/admin/shutdown", methods=["POST"])
+def admin_shutdown():
+    """Stop all active workers. Called by Hub before experiment deletion."""
+    provided_token = (request.headers.get("X-Admin-Token") or "").strip()
+    expected_token = db.get_config_value("admin_token", "")
+
+    if not provided_token or not expected_token or provided_token != expected_token:
+        return jsonify({"success": False, "error": "Invalid or missing admin token."}), 403
+
+    result = db.shutdown_stop_all_workers()
+    logging.warning(
+        "Shutdown requested via admin API — stop queued for %d worker(s).",
+        result.get("workers_stopped", 0),
+    )
+    return jsonify({"success": True, **result})
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start the Flask job server")
     parser.add_argument("--expId", type=str, required=True,

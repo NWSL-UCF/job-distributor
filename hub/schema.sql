@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS users (
     affiliation                 VARCHAR(200)    NULL,
     profile_photo               VARCHAR(255)    NULL,   -- filename in static/uploads/avatars/
 
+    -- Email notification toggles (1 = enabled)
+    notify_experiment_lifecycle TINYINT(1)      NOT NULL DEFAULT 1,
+    notify_server_status        TINYINT(1)      NOT NULL DEFAULT 1,
+    notify_quota                TINYINT(1)      NOT NULL DEFAULT 1,
+    notify_extensions           TINYINT(1)      NOT NULL DEFAULT 1,
+
     created_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
                                                 ON UPDATE CURRENT_TIMESTAMP,
@@ -318,6 +324,28 @@ CREATE TABLE IF NOT EXISTS email_notifications (
     UNIQUE KEY uq_email_notif (user_id, notification_type),
     CONSTRAINT fk_email_notif_user FOREIGN KEY (user_id) REFERENCES users (id)
         ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ──────────────────────────────────────────────────────────────
+-- 13. USER EVENTS (activity log)
+-- ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_events (
+    id              BIGINT          NOT NULL AUTO_INCREMENT,
+    user_id         BIGINT          NOT NULL,
+    experiment_id   BIGINT          NULL,
+    experiment_name VARCHAR(48)     NULL,
+    event_type      VARCHAR(64)     NOT NULL,
+    message         TEXT            NOT NULL,
+    metadata_json   TEXT            NULL,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    INDEX ix_user_events_user_created (user_id, created_at),
+    CONSTRAINT fk_user_events_user FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_user_events_experiment FOREIGN KEY (experiment_id) REFERENCES experiments (id)
+        ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 

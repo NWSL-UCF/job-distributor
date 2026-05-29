@@ -28,6 +28,11 @@ class User(db.Model):
     country                    = db.Column(db.String(100))
     affiliation                = db.Column(db.String(200))
     profile_photo              = db.Column(db.String(255))
+    # Email notification toggles (1 = enabled, 0 = disabled)
+    notify_experiment_lifecycle= db.Column(db.SmallInteger, nullable=False, default=1)
+    notify_server_status       = db.Column(db.SmallInteger, nullable=False, default=1)
+    notify_quota               = db.Column(db.SmallInteger, nullable=False, default=1)
+    notify_extensions          = db.Column(db.SmallInteger, nullable=False, default=1)
     created_at                 = db.Column(db.DateTime, default=_now)
     updated_at                 = db.Column(db.DateTime, default=_now, onupdate=_now)
 
@@ -40,6 +45,8 @@ class User(db.Model):
     daily_traffic   = db.relationship("DailyTraffic", back_populates="user", lazy="dynamic",
                                       cascade="all, delete-orphan")
     api_keys        = db.relationship("ApiKey", back_populates="user", lazy="dynamic",
+                                      cascade="all, delete-orphan")
+    events          = db.relationship("UserEvent", back_populates="user", lazy="dynamic",
                                       cascade="all, delete-orphan")
 
 
@@ -206,6 +213,30 @@ class EmailNotification(db.Model):
                                   nullable=False)
     notification_type = db.Column(db.String(96), nullable=False)
     sent_at           = db.Column(db.DateTime, default=_now)
+
+
+class UserEvent(db.Model):
+    """User-visible activity log (experiments, server status, quota, etc.)."""
+    __tablename__ = "user_events"
+
+    id              = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    user_id         = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="CASCADE"),
+                                nullable=False)
+    experiment_id   = db.Column(db.BigInteger,
+                                db.ForeignKey("experiments.id", ondelete="SET NULL"),
+                                nullable=True)
+    experiment_name = db.Column(db.String(48))
+    event_type      = db.Column(db.String(64), nullable=False)
+    message         = db.Column(db.Text, nullable=False)
+    metadata_json   = db.Column(db.Text)
+    created_at      = db.Column(db.DateTime, default=_now, nullable=False)
+
+    user = db.relationship("User", back_populates="events")
+    experiment = db.relationship("Experiment", foreign_keys=[experiment_id])
+
+    __table_args__ = (
+        db.Index("ix_user_events_user_created", "user_id", "created_at"),
+    )
 
 
 class DailyTraffic(db.Model):
