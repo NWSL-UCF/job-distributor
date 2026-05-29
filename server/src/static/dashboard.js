@@ -390,6 +390,7 @@ function openModal() {
             function onWorkerSearchInput() {
                 const input = document.getElementById('workerSearchInput');
                 if (!input) return;
+                _syncSearchClearBtn(input);
                 clearTimeout(_workerSearchDebounce);
                 _workerSearchDebounce = setTimeout(() => {
                     _workerSearchQuery = (input.value || '').trim();
@@ -408,9 +409,17 @@ function openModal() {
             function clearWorkerSearch() {
                 const input = document.getElementById('workerSearchInput');
                 if (input) input.value = '';
+                _syncSearchClearBtn(input);
                 _workerSearchQuery = '';
                 _workerPage = 1;
                 loadWorkersPageTable();
+            }
+
+            function _syncSearchClearBtn(inputEl) {
+                if (!inputEl) return;
+                const clearBtn = inputEl.closest('.search-input-group')?.querySelector('.clear-btn');
+                if (!clearBtn) return;
+                clearBtn.classList.toggle('is-visible', (inputEl.value || '').length > 0);
             }
 
             function _updateWorkersSelectAllMatchingBtn() {
@@ -1574,6 +1583,8 @@ function openModal() {
             }
 
             function onJobSearchInput(status) {
+                const input = document.getElementById(`jobSearch-${status}`);
+                _syncSearchClearBtn(input);
                 clearTimeout(_jobSearchDebounce[status]);
                 _jobSearchDebounce[status] = setTimeout(() => {
                     currentPages[status] = 1;
@@ -2204,6 +2215,7 @@ function openModal() {
             function clearSearch(status) {
                 const searchInput = document.getElementById(`jobSearch-${status}`);
                 searchInput.value = '';
+                _syncSearchClearBtn(searchInput);
                 
                 // Reset page to 1 for this status
                 currentPages[status] = 1;
@@ -2253,6 +2265,7 @@ function openModal() {
                     // Add enter key support for each search input
                     const searchInput = document.getElementById(`jobSearch-${status}`);
                     if (searchInput) {
+                        _syncSearchClearBtn(searchInput);
                         searchInput.addEventListener('keypress', function(e) {
                             if (e.key === 'Enter') {
                                 searchJobs(status);
@@ -2263,6 +2276,7 @@ function openModal() {
                 _updateWorkersTableTitle();
                 const workerSearchInput = document.getElementById('workerSearchInput');
                 if (workerSearchInput) {
+                    _syncSearchClearBtn(workerSearchInput);
                     workerSearchInput.addEventListener('keypress', function(e) {
                         if (e.key === 'Enter') searchWorkers();
                     });

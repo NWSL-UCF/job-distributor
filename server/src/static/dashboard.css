@@ -906,6 +906,14 @@
                 transition: all 0.2s;
                 border-left: 1px solid #e9ecef;
             }
+
+            .clear-btn {
+                display: none;
+            }
+
+            .clear-btn.is-visible {
+                display: flex;
+            }
             
             .search-btn:hover {
                 background: #e3f2fd;
