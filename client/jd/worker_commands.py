@@ -22,7 +22,6 @@ from jd.worker_registry import (
     exp_cache_dir,
     host_from_worker_id,
     list_all_experiments,
-    new_worker_id,
     prune_all,
     registry_db_path,
     resolve_cache_parent,
@@ -692,13 +691,11 @@ def cmd_restart(kv: dict, targets: List[str]) -> None:
         slot = slot_from_worker_id(wid)
         new_cfg = dict(cfg)
         new_cfg["exp_id"] = exp_id
-        new_cfg["worker_id"] = new_worker_id(
-            slot=slot, exp_id=exp_id, parent=_cache_parent(),
-        )
+        new_cfg["worker_id"] = wid
         new_cfg["process_id"] = str(process_id)
         new_cfg["num_workers"] = 1
         new_pid = _spawn_from_config(new_cfg, new_cfg["worker_id"], process_id)
-        print(f"Restarted {wid} → {new_cfg['worker_id']} (pid {new_pid})")
+        print(f"Restarted {wid} (pid {new_pid})")
         restarted += 1
     print(f"Restarted {restarted} worker(s).")
 
@@ -725,18 +722,15 @@ def cmd_scale(kv: dict) -> None:
 
     if target > current:
         to_add = target - current
-        used_ids = {int(w.get("process_id", 0)) for w in workers}
-        next_id = 0
+        existing_ids = [w["worker_id"] for w in workers]
         for _ in range(to_add):
-            while next_id in used_ids:
-                next_id += 1
             cfg = dict(sample)
             cfg["exp_id"] = exp_id
-            wid = new_worker_id(slot=next_id, exp_id=exp_id, parent=_cache_parent())
-            pid = _spawn_from_config(cfg, wid, next_id)
-            used_ids.add(next_id)
+            wid = registry.next_worker_id(existing_ids)
+            process_id = slot_from_worker_id(wid)
+            pid = _spawn_from_config(cfg, wid, process_id)
+            existing_ids.append(wid)
             print(f"Scaled up: worker_id={wid} pid={pid}")
-            next_id += 1
         print(f"Scaled {exp_id}: {current} → {target} workers.")
         return
 

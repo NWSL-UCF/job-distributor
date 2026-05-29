@@ -126,6 +126,7 @@ from jd.worker_registry import (
     WorkerRegistry,
     host_from_worker_id,
     new_worker_id as new_registry_worker_id,
+    new_worker_ids as new_registry_worker_ids,
     registry_db_path,
     resolve_cache_parent,
     resolve_workspace_parent,
@@ -865,13 +866,16 @@ def _launch_workers(cfg: dict, kv: dict) -> None:
             return
 
         procs = []
-        for i in range(num_workers):
+        wids = new_registry_worker_ids(
+            count=num_workers,
+            exp_id=cfg['exp_id'],
+            parent=cfg.get('cache_parent'),
+        )
+        for i, wid in enumerate(wids):
             child_cfg = dict(cfg)
             child_cfg['process_id'] = str(i)
             child_cfg['num_workers'] = 1
-            child_cfg['worker_id'] = new_registry_worker_id(
-                slot=i, exp_id=cfg['exp_id'], parent=cfg.get('cache_parent'),
-            )
+            child_cfg['worker_id'] = wid
             child_cfg['_register'] = True
             env = os.environ.copy()
             env['JD_WORKER_CFG_JSON'] = json.dumps(child_cfg)
@@ -900,13 +904,22 @@ def _launch_workers(cfg: dict, kv: dict) -> None:
     # Default: detach all workers and exit the launcher immediately.
     started = []
     base_process_id = int(cfg.get('process_id', 0))
-    for i in range(num_workers):
-        process_id = i if num_workers > 1 else base_process_id
-        wid = new_registry_worker_id(
-            slot=i if num_workers > 1 else 0,
+    if num_workers > 1:
+        worker_ids = new_registry_worker_ids(
+            count=num_workers,
             exp_id=cfg['exp_id'],
             parent=cfg.get('cache_parent'),
         )
+    else:
+        worker_ids = [
+            new_registry_worker_id(
+                slot=0,
+                exp_id=cfg['exp_id'],
+                parent=cfg.get('cache_parent'),
+            )
+        ]
+    for i, wid in enumerate(worker_ids):
+        process_id = i if num_workers > 1 else base_process_id
         pid = _spawn_background_worker(cfg, wid, process_id)
         started.append((wid, pid))
 

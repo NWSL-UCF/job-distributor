@@ -144,12 +144,30 @@ def new_worker_id(
     slot: int = 0,
     exp_id: str,
     parent: Optional[str] = None,
+    instance: Optional[str] = None,
 ) -> str:
-    """Create a unique worker id using the experiment registry name pool.
+    """Create a worker id using the experiment registry name pool.
 
     Format: ``{host}_{instance}_{slot}``  e.g. ``gpunode_egg_0``
+
+    When *instance* is provided, no new name is allocated from the pool
+    (used for additional slots on the same machine instance).
     """
-    return WorkerRegistry(exp_id.strip().lower(), parent).new_worker_id(slot=slot)
+    return WorkerRegistry(exp_id.strip().lower(), parent).new_worker_id(
+        slot=slot, instance=instance,
+    )
+
+
+def new_worker_ids(
+    *,
+    count: int,
+    exp_id: str,
+    parent: Optional[str] = None,
+) -> list[str]:
+    """Allocate one instance name and return ``count`` worker ids (slots 0…count-1)."""
+    if count < 1:
+        return []
+    return WorkerRegistry(exp_id.strip().lower(), parent).allocate_worker_ids(count)
 
 
 def slot_from_worker_id(worker_id: str) -> int:
@@ -298,9 +316,35 @@ class WorkerRegistry:
                 )
                 conn.commit()
 
-    def new_worker_id(self, *, slot: int = 0) -> str:
+    def new_worker_id(self, *, slot: int = 0, instance: Optional[str] = None) -> str:
+        inst = instance or self.allocate_instance_name()
+        host = host_slug()
+        return f"{host}_{inst}_{slot}"
+
+    def allocate_worker_ids(self, count: int) -> list[str]:
+        """One shared instance name; slots ``0 .. count-1`` on this host."""
         inst = self.allocate_instance_name()
         host = host_slug()
+        return [f"{host}_{inst}_{i}" for i in range(count)]
+
+    def next_worker_id(self, existing_worker_ids: list[str]) -> str:
+        """Next slot on the same host/instance as *existing_worker_ids*, or a new instance."""
+        host = host_slug()
+        inst: Optional[str] = None
+        used_slots: set[int] = set()
+        for wid in existing_worker_ids:
+            parsed = _parse_host_instance_slot(wid)
+            if not parsed or parsed[0] != host:
+                continue
+            if inst is None:
+                inst = parsed[1]
+            if parsed[1] == inst:
+                used_slots.add(parsed[2])
+        if inst is None:
+            inst = self.allocate_instance_name()
+        slot = 0
+        while slot in used_slots:
+            slot += 1
         return f"{host}_{inst}_{slot}"
 
     @contextmanager
@@ -396,10 +440,22 @@ class WorkerRegistry:
             with self._connect() as conn:
                 conn.execute("DELETE FROM workers WHERE worker_id = ?", (worker_id,))
                 if inst:
-                    conn.execute(
-                        "UPDATE possible_instances_name SET taken = 0 WHERE name = ?",
-                        (normalize_instance_name(inst),),
-                    )
+                    norm = normalize_instance_name(inst)
+                    still_used = conn.execute(
+                        """
+                        SELECT worker_id FROM workers
+                        WHERE exp_id = ? AND worker_id != ?
+                        """,
+                        (self.exp_id, worker_id),
+                    ).fetchall()
+                    if not any(
+                        _instance_from_worker_id(r["worker_id"]) == inst
+                        for r in still_used
+                    ):
+                        conn.execute(
+                            "UPDATE possible_instances_name SET taken = 0 WHERE name = ?",
+                            (norm,),
+                        )
                 conn.commit()
 
     def mark_stopping(self, worker_id: str) -> None:
