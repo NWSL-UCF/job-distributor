@@ -541,5 +541,27 @@ deploy/
 ├── nginx/
 │   └── hub-docker.conf      ← Nginx TLS + proxy config
 └── frps/
-    └── frps.toml            ← FRP server config
+    ├── frps.toml            ← FRP server config
+    └── offline.html         ← custom page when experiment server is offline
 ```
+
+### Custom offline page (experiment subdomains)
+
+When a user opens `https://{exp}-dashboard.{domain}` but no container is connected,
+frps used to show a generic **"The page you requested was not found"** page
+(powered by frp). Instead, `deploy/frps/offline.html` is served via
+`custom404Page` in `frps.toml`.
+
+The page tells users to check the Hub Dashboard and links to
+`https://hub.{your-domain}` (derived automatically from the hostname). If the
+URL matches `{exp}-server` or `{exp}-dashboard`, it also links to that experiment
+on the Hub.
+
+After updating these files, restart frps:
+
+```bash
+./run.sh restart frps
+```
+
+For bare-metal frps (systemd), copy both files to `/etc/frp/` and set
+`custom404Page = "/etc/frp/offline.html"` in `/etc/frp/frps.toml`.

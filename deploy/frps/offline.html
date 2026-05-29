@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server not running — JobDistributor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Comfortaa', system-ui, sans-serif;
+      background: #f5f5f5;
+      color: #1a1f2e;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      padding: 36px 32px;
+      max-width: 520px;
+      width: 100%;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+    }
+    .brand {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #737373;
+      margin-bottom: 20px;
+      letter-spacing: 0.02em;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      line-height: 1.35;
+    }
+    p {
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      color: #525252;
+      margin-bottom: 14px;
+    }
+    .exp-line {
+      font-size: 0.875rem;
+      color: #737373;
+      margin-bottom: 22px;
+    }
+    .exp-line code {
+      font-family: ui-monospace, monospace;
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #1a1f2e;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 700;
+      font-family: inherit;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .btn--primary {
+      background: #1a1f2e;
+      color: #fff;
+    }
+    .btn--primary:hover { background: #000; color: #fff; }
+    .btn--outline {
+      background: #fff;
+      color: #1a1f2e;
+      border: 1px solid #d4d4d4;
+    }
+    .btn--outline:hover { background: #f5f5f5; color: #1a1f2e; }
+    .hint {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid #e5e5e5;
+      font-size: 0.8125rem;
+      color: #737373;
+      line-height: 1.55;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">JobDistributor</div>
+    <h1>This server is not running</h1>
+    <p>
+      The experiment dashboard or job server at this address is offline.
+      No container is connected, or the server has stopped.
+    </p>
+    <p class="exp-line" id="exp-line" hidden>
+      Experiment: <code id="exp-name"></code>
+    </p>
+    <p>
+      Open the <strong>Hub Dashboard</strong> to check whether your experiment
+      is online and start your Docker container if needed.
+    </p>
+    <div class="actions">
+      <a class="btn btn--primary" id="hub-link" href="https://hub.jobdistributor.net">Open Hub Dashboard</a>
+      <a class="btn btn--outline" id="exp-link" href="#" hidden>View experiment on Hub</a>
+    </div>
+    <p class="hint">
+      If you recently started the container, wait a minute for the tunnel to
+      register, then refresh this page.
+    </p>
+  </div>
+  <script>
+  (function () {
+    var host = window.location.hostname || '';
+    var parts = host.split('.');
+    if (parts.length < 3) return;
+
+    var baseDomain = parts.slice(-2).join('.');
+    var hubUrl = 'https://hub.' + baseDomain;
+    var hubLink = document.getElementById('hub-link');
+    if (hubLink) hubLink.href = hubUrl;
+
+    var m = host.match(/^(.+)-(server|dashboard)\./);
+    if (!m) return;
+
+    var expName = m[1];
+    var expLine = document.getElementById('exp-line');
+    var expNameEl = document.getElementById('exp-name');
+    var expLink = document.getElementById('exp-link');
+    if (expNameEl) expNameEl.textContent = expName;
+    if (expLine) expLine.hidden = false;
+    if (expLink) {
+      expLink.href = hubUrl + '/experiments/' + encodeURIComponent(expName);
+      expLink.hidden = false;
+    }
+  })();
+  </script>
+</body>
+</html>

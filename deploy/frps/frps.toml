@@ -37,6 +37,11 @@ auth.token  = ""
 # on localhost.
 vhostHTTPPort = 8080
 
+# Custom page when no frpc tunnel is registered for the requested Host
+# (e.g. experiment container stopped). Replaces the default "powered by frp" 404.
+# Mount deploy/frps/offline.html into the container at this path (see hub-compose.yml).
+custom404Page = "/etc/frp/offline.html"
+
 # ── Admin API ─────────────────────────────────────────────────────────────────
 # The Hub container queries this API to check tunnel status / traffic stats.
 # Bind to 0.0.0.0 so the hub container can reach it via the Docker network

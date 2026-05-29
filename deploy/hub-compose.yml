@@ -66,6 +66,7 @@ services:
       # Port 8080: frps vhost HTTP — only nginx talks to this, NOT the internet
     volumes:
       - ./frps/frps.toml:/etc/frp/frps.toml:ro
+      - ./frps/offline.html:/etc/frp/offline.html:ro
     logging:
       driver: json-file
       options:
