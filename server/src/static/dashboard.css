@@ -2353,3 +2353,176 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 gap: 6px;
                 align-items: center;
             }
+            .workers-th-check {
+                width: 40px;
+                text-align: center;
+            }
+            .workers-td-check {
+                text-align: center;
+                vertical-align: middle;
+            }
+            .workers-td-check input { cursor: pointer; }
+            .workers-search-row {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                padding: 0 0 12px 0;
+                flex-shrink: 0;
+            }
+            .workers-search-label {
+                font-size: 0.85rem;
+                font-weight: 600;
+                color: #495057;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                margin: 0;
+            }
+            .workers-search-input {
+                flex: 1 1 280px;
+                min-width: 200px;
+                max-width: 480px;
+                padding: 8px 12px;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                font-size: 0.88rem;
+            }
+            .workers-search-hint {
+                font-size: 0.78rem;
+                color: #868e96;
+            }
+            .workers-bulk-bar {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                padding: 10px 14px;
+                margin-bottom: 12px;
+                background: #e8f4fd;
+                border: 1px solid #90caf9;
+                border-radius: 8px;
+            }
+            .workers-bulk-count {
+                font-size: 0.88rem;
+                font-weight: 600;
+                color: #1565c0;
+            }
+            .workers-bulk-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                flex: 1;
+            }
+            .workers-link-btn {
+                background: none;
+                border: none;
+                color: #1565c0;
+                font-size: 0.82rem;
+                cursor: pointer;
+                text-decoration: underline;
+                padding: 0 4px;
+            }
+            .workers-link-btn:hover { color: #0d47a1; }
+            .workers-action-preview-content { max-width: 720px; width: 95%; }
+            .workers-action-preview-summary {
+                font-size: 0.9rem;
+                color: #495057;
+                margin: 0 0 12px 0;
+                line-height: 1.5;
+            }
+            .workers-action-preview-list {
+                max-height: 50vh;
+                overflow-y: auto;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                margin-bottom: 16px;
+            }
+            .workers-action-preview-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.82rem;
+            }
+            .workers-action-preview-table th {
+                text-align: left;
+                padding: 8px 12px;
+                background: #f8f9fa;
+                border-bottom: 1px solid #dee2e6;
+                position: sticky;
+                top: 0;
+            }
+            .workers-action-preview-table td {
+                padding: 8px 12px;
+                border-bottom: 1px solid #f1f3f5;
+            }
+            .workers-action-preview-footer {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+            }
+            .workers-action-preview-empty {
+                padding: 24px;
+                text-align: center;
+                color: #6c757d;
+            }
+            .jobs-bulk-bar {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                padding: 10px 14px;
+                margin-bottom: 12px;
+                background: #e8f4fd;
+                border: 1px solid #90caf9;
+                border-radius: 8px;
+            }
+            .jobs-bulk-count {
+                font-size: 0.88rem;
+                font-weight: 600;
+                color: #1565c0;
+            }
+            .jobs-bulk-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                flex: 1;
+            }
+            .jobs-tab-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-bottom: 12px;
+            }
+            .jobs-th-check {
+                width: 40px;
+                text-align: center;
+            }
+            .jobs-td-check {
+                text-align: center;
+                vertical-align: middle;
+            }
+            .jobs-td-check input { cursor: pointer; }
+            .jobs-row-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                align-items: center;
+            }
+            .jobs-action-reason-row {
+                margin-bottom: 16px;
+            }
+            .jobs-action-reason-row label {
+                display: block;
+                font-size: 0.85rem;
+                font-weight: 600;
+                color: #495057;
+                margin-bottom: 6px;
+            }
+            .jobs-action-reason-row input {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid #ced4da;
+                border-radius: 6px;
+                font-size: 0.9rem;
+                box-sizing: border-box;
+            }

@@ -71,7 +71,14 @@ function openModal() {
             let _workerSubtab = 'active';
             let _workerPage = 1;
             const WORKER_PAGE_SIZE = 50;
+            const WORKER_SELECT_ALL_PAGE_SIZE = 500;
             let _workerFiltersData = null;
+            let _workerPageRows = [];
+            let _workerListTotal = 0;
+            let _workerSearchQuery = '';
+            let _workerSearchDebounce = null;
+            const _workerSelectedIds = new Set();
+            let _workerActionPreviewState = null;
             let _workerDetailCache = null;
             let _workerHistoryPage = 0;
             let _workerHistoryTotal = 0;
@@ -112,6 +119,7 @@ function openModal() {
             function switchWorkerSubtab(which) {
                 _workerSubtab = which;
                 _workerPage = 1;
+                clearWorkerSelection(false);
                 document.getElementById('workerSubtabActive').classList.toggle('active', which === 'active');
                 document.getElementById('workerSubtabPending').classList.toggle('active', which === 'pending');
                 const pausedBtn = document.getElementById('workerSubtabPaused');
@@ -178,16 +186,177 @@ function openModal() {
                 return ds === 'drain' || ds === 'stop';
             }
 
+            function _workersTabSupportsSelection() {
+                return _workerSubtab !== 'disabled';
+            }
+
+            function _workerFilterContext() {
+                return {
+                    lifecycle: _workerListLifecycle(),
+                    host: document.getElementById('workerFilterHost')?.value || null,
+                    instance: document.getElementById('workerFilterInstance')?.value || null,
+                    slot: document.getElementById('workerFilterSlot')?.value ?? null,
+                    q: _workerSearchQuery || null,
+                };
+            }
+
+            function _workerActionLabels() {
+                return {
+                    run: 'Resume',
+                    pause: 'Pause',
+                    drain: 'Drain',
+                    stop: 'Stop',
+                    cancel: 'Cancel pending',
+                };
+            }
+
+            function clearWorkerSelection(refreshBar) {
+                _workerSelectedIds.clear();
+                if (refreshBar !== false) {
+                    _updateWorkerBulkBar();
+                    _syncWorkerPageCheckboxes();
+                }
+            }
+
+            function toggleWorkerSelection(workerId, checked) {
+                if (!workerId) return;
+                if (checked) {
+                    _workerSelectedIds.add(workerId);
+                } else {
+                    _workerSelectedIds.delete(workerId);
+                }
+                _updateWorkerBulkBar();
+                _syncWorkerPageCheckboxes();
+            }
+
+            function toggleWorkerSelectAllPage(checked) {
+                if (!_workersTabSupportsSelection()) return;
+                _workerPageRows.forEach(w => {
+                    const wid = w.worker_id || '';
+                    if (!wid) return;
+                    if (checked) {
+                        _workerSelectedIds.add(wid);
+                    } else {
+                        _workerSelectedIds.delete(wid);
+                    }
+                });
+                _updateWorkerBulkBar();
+                _syncWorkerPageCheckboxes();
+            }
+
+            function _syncWorkerPageCheckboxes() {
+                const checkAll = document.getElementById('workersCheckAllPage');
+                const thCheck = document.getElementById('workersCheckAllTh');
+                if (thCheck) {
+                    thCheck.style.display = _workersTabSupportsSelection() ? '' : 'none';
+                }
+                if (!checkAll) return;
+                const pageIds = _workerPageRows.map(w => w.worker_id).filter(Boolean);
+                const selectedOnPage = pageIds.filter(id => _workerSelectedIds.has(id)).length;
+                checkAll.checked = pageIds.length > 0 && selectedOnPage === pageIds.length;
+                checkAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageIds.length;
+                document.querySelectorAll('.workers-row-check').forEach(cb => {
+                    const wid = cb.dataset.workerId;
+                    if (wid) cb.checked = _workerSelectedIds.has(wid);
+                });
+            }
+
+            function _updateWorkerBulkBar() {
+                const bar = document.getElementById('workersBulkBar');
+                const countEl = document.getElementById('workersBulkCount');
+                const actionsEl = document.getElementById('workersBulkActions');
+                const n = _workerSelectedIds.size;
+                if (!bar || !countEl || !actionsEl) return;
+                if (!n || !_workersTabSupportsSelection()) {
+                    bar.style.display = 'none';
+                    return;
+                }
+                bar.style.display = 'flex';
+                countEl.textContent = `${n} selected`;
+                let html = '';
+                if (_workerSubtab === 'active') {
+                    html += `<button type="button" class="workers-btn-sm workers-btn--pause" onclick="requestWorkerAction('pause','workers')"><i class="fas fa-pause"></i> Pause</button>`;
+                    html += `<button type="button" class="workers-btn-sm workers-btn--drain" onclick="requestWorkerAction('drain','workers')">Drain</button>`;
+                    html += `<button type="button" class="workers-btn-sm workers-btn--stop" onclick="requestWorkerAction('stop','workers')">Stop</button>`;
+                } else if (_workerSubtab === 'paused') {
+                    html += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="requestWorkerAction('run','workers')"><i class="fas fa-play"></i> Resume</button>`;
+                } else if (_workerSubtab === 'pending') {
+                    html += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="requestWorkerAction('cancel','workers')">Cancel pending</button>`;
+                }
+                actionsEl.innerHTML = html;
+            }
+
+            function onWorkerSearchInput() {
+                const input = document.getElementById('workerSearchInput');
+                if (!input) return;
+                clearTimeout(_workerSearchDebounce);
+                _workerSearchDebounce = setTimeout(() => {
+                    _workerSearchQuery = (input.value || '').trim();
+                    _workerPage = 1;
+                    clearWorkerSelection(false);
+                    loadWorkersPageTable();
+                }, 280);
+            }
+
+            function _updateWorkerSearchHint(total) {
+                const hint = document.getElementById('workerSearchHint');
+                if (!hint) return;
+                if (_workerSearchQuery) {
+                    hint.textContent = total
+                        ? `${total} match${total === 1 ? '' : 'es'} on this tab`
+                        : 'No matches on this tab';
+                } else {
+                    hint.textContent = '';
+                }
+            }
+
+            function _updateSelectAllMatchingBtn(total) {
+                const btn = document.getElementById('workersSelectAllMatchingBtn');
+                if (!btn) return;
+                if (!_workersTabSupportsSelection() || total <= _workerPageRows.length) {
+                    btn.style.display = 'none';
+                    return;
+                }
+                btn.style.display = 'inline';
+                btn.textContent = `Select all ${total} matching on this tab`;
+            }
+
+            async function selectAllMatchingWorkers() {
+                if (!_workersTabSupportsSelection()) return;
+                const params = _workerFilterParams();
+                params.set('per_page', String(WORKER_SELECT_ALL_PAGE_SIZE));
+                params.set('page', '1');
+                try {
+                    const r = await fetch('/workers/list?' + params.toString());
+                    const data = await r.json();
+                    const workers = data.workers || [];
+                    workers.forEach(w => {
+                        if (w.worker_id) _workerSelectedIds.add(w.worker_id);
+                    });
+                    if ((data.total_count || 0) > WORKER_SELECT_ALL_PAGE_SIZE) {
+                        showNotification(
+                            `Selected first ${WORKER_SELECT_ALL_PAGE_SIZE} workers (tab has more). Narrow your search.`,
+                            'warning',
+                        );
+                    }
+                    _updateWorkerBulkBar();
+                    _syncWorkerPageCheckboxes();
+                } catch (e) {
+                    showNotification('Failed to select workers: ' + e.message, 'error');
+                }
+            }
+
             function _buildWorkerRowActions(w) {
                 const wid = w.worker_id || '';
                 const widEsc = _escHtml(wid);
+                const widJs = encodeURIComponent(wid);
                 let actions = `<button type="button" class="workers-btn-sm" onclick="openWorkerDetail('${widEsc}')">Details</button>`;
                 if (_workerSubtab === 'pending') {
-                    actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${widEsc}')">Cancel</button>`;
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="requestWorkerAction('cancel','worker',decodeURIComponent('${widJs}'))">Cancel</button>`;
                     return actions;
                 }
                 if (_workerSubtab === 'paused') {
-                    actions += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="workerCommand('run','worker','${widEsc}')"><i class="fas fa-play"></i> Resume</button>`;
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="requestWorkerAction('run','worker',decodeURIComponent('${widJs}'))"><i class="fas fa-play"></i> Resume</button>`;
                     return actions;
                 }
                 if (_workerSubtab !== 'active') {
@@ -195,22 +364,22 @@ function openModal() {
                 }
                 if (_workerControlTerminal(w)) {
                     if (w.pending) {
-                        actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${widEsc}')">Cancel</button>`;
+                        actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="requestWorkerAction('cancel','worker',decodeURIComponent('${widJs}'))">Cancel</button>`;
                     }
                     return actions;
                 }
                 const paused = _isWorkerPaused(w);
                 if (paused) {
-                    actions += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="workerCommand('run','worker','${widEsc}')"><i class="fas fa-play"></i> Resume</button>`;
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="requestWorkerAction('run','worker',decodeURIComponent('${widJs}'))"><i class="fas fa-play"></i> Resume</button>`;
                 } else {
-                    actions += `<button type="button" class="workers-btn-sm workers-btn--pause" onclick="workerCommand('pause','worker','${widEsc}')"><i class="fas fa-pause"></i> Pause</button>`;
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--pause" onclick="requestWorkerAction('pause','worker',decodeURIComponent('${widJs}'))"><i class="fas fa-pause"></i> Pause</button>`;
                 }
                 const drainDisabled = paused ? ' disabled' : '';
                 const drainClass = paused ? ' workers-btn-sm--disabled' : ' workers-btn--drain';
-                actions += `<button type="button" class="workers-btn-sm${drainClass}"${drainDisabled} onclick="workerCommand('drain','worker','${widEsc}')">Drain</button>`;
-                actions += `<button type="button" class="workers-btn-sm workers-btn--stop" onclick="workerCommand('stop','worker','${widEsc}')">Stop</button>`;
+                actions += `<button type="button" class="workers-btn-sm${drainClass}"${drainDisabled} onclick="requestWorkerAction('drain','worker',decodeURIComponent('${widJs}'))">Drain</button>`;
+                actions += `<button type="button" class="workers-btn-sm workers-btn--stop" onclick="requestWorkerAction('stop','worker',decodeURIComponent('${widJs}'))">Stop</button>`;
                 if (w.pending) {
-                    actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${widEsc}')">Cancel</button>`;
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="requestWorkerAction('cancel','worker',decodeURIComponent('${widJs}'))">Cancel</button>`;
                 }
                 return actions;
             }
@@ -347,7 +516,8 @@ function openModal() {
                 if (host) p.set('host', host);
                 if (inst) p.set('instance', inst);
                 if (slot !== '') p.set('slot', slot);
-                return p.toString();
+                if (_workerSearchQuery) p.set('q', _workerSearchQuery);
+                return p;
             }
 
             function _updateWorkersPagination(data) {
@@ -390,25 +560,40 @@ function openModal() {
             function loadWorkersPageTable() {
                 const tbody = document.getElementById('workersPageBody');
                 if (!tbody) return;
-                tbody.innerHTML = '<tr><td colspan="9" class="workers-loading">Loading workers…</td></tr>';
-                fetch('/workers/list?' + _workerFilterParams())
+                tbody.innerHTML = '<tr><td colspan="10" class="workers-loading">Loading workers…</td></tr>';
+                fetch('/workers/list?' + _workerFilterParams().toString())
                     .then(r => r.json())
                     .then(data => {
                         _updateWorkersPagination(data);
                         const workers = data.workers || [];
+                        _workerPageRows = workers;
+                        _workerListTotal = data.total_count || 0;
+                        _updateWorkerSearchHint(_workerListTotal);
+                        _updateSelectAllMatchingBtn(_workerListTotal);
                         if (!workers.length) {
                             const msg = _workerSubtab === 'disabled'
-                                ? 'No stopped workers.'
+                                ? (_workerSearchQuery
+                                    ? 'No stopped workers match your search.'
+                                    : 'No stopped workers.')
                                 : _workerSubtab === 'pending'
-                                    ? 'No pending commands. Workers appear here after you queue pause, drain, or stop until their next poll (~3 min).'
+                                    ? (_workerSearchQuery
+                                        ? 'No pending workers match your search.'
+                                        : 'No pending commands. Workers appear here after you queue pause, drain, or stop until their next poll (~3 min).')
                                     : _workerSubtab === 'paused'
-                                        ? 'No paused workers. Use Pause on an active worker; it moves here after the command is applied.'
-                                        : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).';
-                            tbody.innerHTML = `<tr><td colspan="9" class="workers-empty">${msg}</td></tr>`;
+                                        ? (_workerSearchQuery
+                                            ? 'No paused workers match your search.'
+                                            : 'No paused workers. Use Pause on an active worker; it moves here after the command is applied.')
+                                        : (_workerSearchQuery
+                                            ? 'No active workers match your search.'
+                                            : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).');
+                            tbody.innerHTML = `<tr><td colspan="10" class="workers-empty">${msg}</td></tr>`;
+                            _syncWorkerPageCheckboxes();
                             return;
                         }
+                        const selectable = _workersTabSupportsSelection();
                         tbody.innerHTML = workers.map(w => {
                             const wid = w.worker_id || '';
+                            const widEsc = _escHtml(wid);
                             const jobCell = w.current_job_id ? `#${w.current_job_id}` : '—';
                             const completedJobs = Number.isFinite(w.completed_jobs)
                                 ? w.completed_jobs
@@ -417,8 +602,14 @@ function openModal() {
                                 w.last_poll_at ?? w.last_poll_at_fmt,
                             );
                             const actions = _buildWorkerRowActions(w);
+                            const checked = _workerSelectedIds.has(wid) ? ' checked' : '';
+                            const widEnc = encodeURIComponent(wid);
+                            const checkCell = selectable
+                                ? `<td class="workers-td-check"><input type="checkbox" class="workers-row-check" data-worker-id="${widEnc}"${checked} onchange="toggleWorkerSelection(decodeURIComponent(this.dataset.workerId), this.checked)" aria-label="Select ${_escHtml(wid)}"></td>`
+                                : '<td class="workers-td-check"></td>';
                             return `<tr>
-                                <td><code class="workers-id">${_escHtml(wid)}</code></td>
+                                ${checkCell}
+                                <td><code class="workers-id">${widEsc}</code></td>
                                 <td>${_escHtml(w.host || '—')}</td>
                                 <td><code>${_escHtml(w.instance || '—')}</code></td>
                                 <td>${w.slot != null ? w.slot : '—'}</td>
@@ -429,9 +620,10 @@ function openModal() {
                                 <td class="workers-row-actions">${actions}</td>
                             </tr>`;
                         }).join('');
+                        _syncWorkerPageCheckboxes();
                     })
                     .catch(err => {
-                        tbody.innerHTML = `<tr><td colspan="9" class="workers-error">Failed to load: ${_escHtml(err.message)}</td></tr>`;
+                        tbody.innerHTML = `<tr><td colspan="10" class="workers-error">Failed to load: ${_escHtml(err.message)}</td></tr>`;
                     });
             }
 
@@ -440,68 +632,218 @@ function openModal() {
                 loadWorkerFilters().then(() => loadWorkersPageTable());
             }
 
-            function workerCommand(action, scope, target) {
-                const labels = { run: 'resume', pause: 'pause', drain: 'drain', stop: 'stop' };
+            function _workerActionScopeLabel(action, scope, target) {
+                const labels = _workerActionLabels();
                 const label = labels[action] || action;
-                const scopeLabel = scope === 'all'
-                    ? (action === 'stop'
-                        ? 'all active workers (idle or busy)'
-                        : action === 'run'
-                            ? 'all paused workers'
-                            : 'all active workers')
-                    : scope === 'host' ? `host ${target}`
-                    : scope === 'instance' ? `instance ${target}`
-                    : `worker ${target}`;
-                const applyNote = action === 'stop'
-                    ? ' Workers abort any current job, exit, and appear under Stopped (~3 min if reachable).'
-                    : ' Applies on next worker poll (~3 min).';
-                if (!confirm(`Queue ${label} for ${scopeLabel}?${applyNote}`)) return;
-                fetch('/workers/command', {
+                if (scope === 'workers') {
+                    return `${label} ${_workerSelectedIds.size} selected worker(s)`;
+                }
+                if (scope === 'all') {
+                    const tab = _workerSubtab;
+                    const search = _workerSearchQuery ? ` matching "${_workerSearchQuery}"` : '';
+                    const filters = [];
+                    const host = document.getElementById('workerFilterHost')?.value;
+                    const inst = document.getElementById('workerFilterInstance')?.value;
+                    if (host) filters.push(`host ${host}`);
+                    if (inst) filters.push(`instance ${inst}`);
+                    const filt = filters.length ? ` (${filters.join(', ')})` : '';
+                    return `${label} all on ${tab} tab${search}${filt}`;
+                }
+                if (scope === 'worker') {
+                    return `${label} worker ${target}`;
+                }
+                return `${label} ${scope} ${target}`;
+            }
+
+            function _workerActionApplyNote(action) {
+                if (action === 'stop') {
+                    return 'Workers abort any current job, exit, and move to Stopped (~3 min if reachable).';
+                }
+                if (action === 'cancel') {
+                    return 'Queued commands are reverted on the next poll (~3 min).';
+                }
+                return 'Applies on the next worker poll (~3 min).';
+            }
+
+            function _buildWorkerActionPayload(action, scope, target) {
+                const ctx = _workerFilterContext();
+                const payload = {
+                    action,
+                    scope,
+                    lifecycle: ctx.lifecycle,
+                    host: ctx.host,
+                    instance: ctx.instance,
+                    q: ctx.q,
+                };
+                if (ctx.slot !== null && ctx.slot !== '') {
+                    payload.slot = ctx.slot;
+                }
+                if (scope === 'worker') {
+                    payload.target = target;
+                } else if (scope === 'workers') {
+                    payload.worker_ids = Array.from(_workerSelectedIds);
+                }
+                return payload;
+            }
+
+            function _renderWorkerPreviewList(workers) {
+                if (!workers.length) {
+                    return '<p class="workers-action-preview-empty">No workers would be affected.</p>';
+                }
+                const rows = workers.map(w => {
+                    const job = w.current_job_id ? `#${w.current_job_id}` : '—';
+                    const st = w.pending
+                        ? `pending ${w.desired_state || ''}`
+                        : (w.desired_state && w.desired_state !== 'run'
+                            ? w.desired_state
+                            : (w.reported_status || 'idle'));
+                    return `<tr>
+                        <td><code>${_escHtml(w.worker_id)}</code></td>
+                        <td>${_escHtml(w.host || '—')}</td>
+                        <td>${_escHtml(w.instance || '—')}</td>
+                        <td>${w.slot != null ? w.slot : '—'}</td>
+                        <td>${_escHtml(st)}</td>
+                        <td>${job}</td>
+                    </tr>`;
+                }).join('');
+                return `<table class="workers-action-preview-table">
+                    <thead><tr>
+                        <th>Worker ID</th><th>Host</th><th>Instance</th><th>Slot</th><th>Status</th><th>Job</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+            }
+
+            function closeWorkerActionPreviewModal() {
+                const modal = document.getElementById('workerActionPreviewModal');
+                if (modal) modal.style.display = 'none';
+                _workerActionPreviewState = null;
+            }
+
+            function confirmWorkerActionPreview() {
+                const st = _workerActionPreviewState;
+                if (!st) return;
+                const btn = document.getElementById('workerActionPreviewConfirm');
+                if (btn) btn.disabled = true;
+                const url = st.action === 'cancel' ? '/workers/cancel' : '/workers/command';
+                const body = { ...st.payload };
+                if (st.action === 'cancel') {
+                    delete body.action;
+                }
+                fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action, scope, target: target || null }),
+                    body: JSON.stringify(body),
                 })
                     .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
                     .then(({ ok, data }) => {
-                        if (ok && data.success) {
-                            showNotification(`Queued ${label} for ${data.affected} worker(s).`, 'success');
-                            if (data.affected > 0) {
-                                if (action === 'run') {
-                                    switchWorkerSubtab('pending');
-                                } else if (action === 'stop') {
-                                    refreshWorkersPage();
-                                } else {
-                                    switchWorkerSubtab('pending');
-                                }
-                            } else {
-                                refreshWorkersPage();
-                            }
-                        } else {
-                            showNotification(data.error || 'Command failed.', 'error');
+                        if (btn) btn.disabled = false;
+                        closeWorkerActionPreviewModal();
+                        if (!ok || !data.success) {
+                            showNotification(data.error || 'Action failed.', 'error');
+                            return;
                         }
+                        const labels = _workerActionLabels();
+                        const label = labels[st.action] || st.action;
+                        if (st.action === 'cancel') {
+                            showNotification(
+                                `Reverted ${data.reverted} pending command(s).`,
+                                'success',
+                            );
+                            clearWorkerSelection();
+                            refreshWorkersPage();
+                            return;
+                        }
+                        showNotification(
+                            `Queued ${label.toLowerCase()} for ${data.affected} worker(s).`,
+                            'success',
+                        );
+                        clearWorkerSelection();
+                        if (data.affected > 0 && st.action === 'stop') {
+                            refreshWorkersPage();
+                        } else if (data.affected > 0 && st.action !== 'run') {
+                            switchWorkerSubtab('pending');
+                        } else {
+                            refreshWorkersPage();
+                        }
+                    })
+                    .catch(e => {
+                        if (btn) btn.disabled = false;
+                        showNotification('Network error: ' + e.message, 'error');
+                    });
+            }
+
+            function requestWorkerAction(action, scope, target) {
+                if (scope === 'workers' && _workerSelectedIds.size === 0) {
+                    showNotification('Select at least one worker.', 'warning');
+                    return;
+                }
+                const payload = _buildWorkerActionPayload(action, scope, target);
+                const previewPayload = { ...payload };
+                if (action === 'cancel') {
+                    previewPayload.action = 'cancel';
+                }
+                fetch('/workers/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(previewPayload),
+                })
+                    .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+                    .then(({ ok, data }) => {
+                        if (!ok || !data.success) {
+                            showNotification(data.error || 'Preview failed.', 'error');
+                            return;
+                        }
+                        const workers = data.workers || [];
+                        const count = data.count ?? workers.length;
+                        const modal = document.getElementById('workerActionPreviewModal');
+                        const title = document.getElementById('workerActionPreviewTitle');
+                        const summary = document.getElementById('workerActionPreviewSummary');
+                        const list = document.getElementById('workerActionPreviewList');
+                        const confirmBtn = document.getElementById('workerActionPreviewConfirm');
+                        if (!modal || !title || !summary || !list) return;
+
+                        const scopeLabel = _workerActionScopeLabel(action, scope, target);
+                        title.textContent = count
+                            ? `Confirm: ${scopeLabel}`
+                            : 'No workers affected';
+                        summary.textContent = count
+                            ? `${count} worker(s) will be affected. ${_workerActionApplyNote(action)}`
+                            : `No workers match this action on the current tab${_workerSearchQuery ? ` (search: "${_workerSearchQuery}")` : ''}.`;
+                        list.innerHTML = _renderWorkerPreviewList(workers);
+
+                        if (confirmBtn) {
+                            const labels = _workerActionLabels();
+                            confirmBtn.textContent = count
+                                ? `Confirm ${labels[action] || action}`
+                                : 'Close';
+                            confirmBtn.className = 'workers-btn ' + (
+                                action === 'stop' ? 'workers-btn--stop'
+                                : action === 'cancel' ? 'workers-btn--cancel'
+                                : action === 'run' ? 'workers-btn--run'
+                                : action === 'pause' ? 'workers-btn--pause'
+                                : action === 'drain' ? 'workers-btn--drain'
+                                : 'workers-btn--pause'
+                            );
+                            confirmBtn.onclick = count
+                                ? () => confirmWorkerActionPreview()
+                                : () => closeWorkerActionPreviewModal();
+                        }
+
+                        _workerActionPreviewState = count
+                            ? { action, payload, scope, target }
+                            : null;
+                        modal.style.display = 'block';
                     })
                     .catch(e => showNotification('Network error: ' + e.message, 'error'));
             }
 
+            function workerCommand(action, scope, target) {
+                requestWorkerAction(action, scope, target);
+            }
+
             function cancelWorkerCommand(scope, target) {
-                const scopeLabel = scope === 'all' ? 'all active workers'
-                    : scope === 'host' ? `host ${target}` : `worker ${target}`;
-                if (!confirm(`Cancel pending commands for ${scopeLabel}?`)) return;
-                fetch('/workers/cancel', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ scope, target: target || null }),
-                })
-                    .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
-                    .then(({ ok, data }) => {
-                        if (ok && data.success) {
-                            showNotification(`Reverted ${data.reverted} pending command(s).`, 'success');
-                            refreshWorkersPage();
-                        } else {
-                            showNotification(data.error || 'Cancel failed.', 'error');
-                        }
-                    })
-                    .catch(e => showNotification('Network error: ' + e.message, 'error'));
+                requestWorkerAction('cancel', scope, target);
             }
 
             function switchWorkerModalTab(tab, btn) {
@@ -928,14 +1270,342 @@ function openModal() {
             });
 
 // Pagination and Search Variables
+            const JOB_STATUSES = ['SERVED', 'DONE', 'ABORTED', 'PENDING', 'DELETED'];
+            const JOB_PAGE_SIZE = 50;
+            const JOB_SELECT_ALL_PAGE_SIZE = 500;
             let currentPages = {
                 'SERVED': 1,
                 'DONE': 1,
                 'ABORTED': 1,
-                'PENDING': 1
+                'PENDING': 1,
+                'DELETED': 1,
             };
             let currentSearchJobId = null;
             let currentStatus = 'SERVED';
+            const _jobPageRowsByStatus = {};
+            const _jobListTotalByStatus = {};
+            const _jobSelectedIdsByStatus = {};
+            let _jobSearchDebounce = {};
+            let _jobActionPreviewState = null;
+
+            JOB_STATUSES.forEach(s => { _jobSelectedIdsByStatus[s] = new Set(); });
+
+            function _jobTabSupportsSelection(status) {
+                return status !== 'SERVED';
+            }
+
+            function _jobBulkActionsForTab(status) {
+                if (status === 'PENDING') {
+                    return [
+                        { action: 'delete', label: 'Delete', cls: 'workers-btn--stop' },
+                        { action: 'to_done', label: 'Mark DONE', cls: 'workers-btn--run' },
+                    ];
+                }
+                if (status === 'DONE' || status === 'ABORTED') {
+                    return [{ action: 'to_pending', label: 'Reset to PENDING', cls: 'workers-btn--pause' }];
+                }
+                if (status === 'DELETED') {
+                    return [{ action: 'restore', label: 'Restore to PENDING', cls: 'workers-btn--run' }];
+                }
+                return [];
+            }
+
+            function _jobActionLabel(action) {
+                return {
+                    delete: 'Delete',
+                    restore: 'Restore to PENDING',
+                    to_pending: 'Reset to PENDING',
+                    to_done: 'Mark DONE',
+                }[action] || action;
+            }
+
+            function clearJobSelection(status, refreshBar) {
+                if (!_jobSelectedIdsByStatus[status]) return;
+                _jobSelectedIdsByStatus[status].clear();
+                if (refreshBar !== false) {
+                    _updateJobBulkBar(status);
+                    _syncJobPageCheckboxes(status);
+                }
+            }
+
+            function clearAllJobSelections() {
+                JOB_STATUSES.forEach(s => clearJobSelection(s, false));
+            }
+
+            function toggleJobSelection(status, jobId, checked) {
+                if (!jobId || !_jobSelectedIdsByStatus[status]) return;
+                const id = parseInt(jobId, 10);
+                if (checked) {
+                    _jobSelectedIdsByStatus[status].add(id);
+                } else {
+                    _jobSelectedIdsByStatus[status].delete(id);
+                }
+                _updateJobBulkBar(status);
+                _syncJobPageCheckboxes(status);
+            }
+
+            function toggleJobSelectAllPage(status, checked) {
+                if (!_jobTabSupportsSelection(status)) return;
+                (_jobPageRowsByStatus[status] || []).forEach(job => {
+                    const id = parseInt(job.id, 10);
+                    if (checked) {
+                        _jobSelectedIdsByStatus[status].add(id);
+                    } else {
+                        _jobSelectedIdsByStatus[status].delete(id);
+                    }
+                });
+                _updateJobBulkBar(status);
+                _syncJobPageCheckboxes(status);
+            }
+
+            function _syncJobPageCheckboxes(status) {
+                const checkAll = document.getElementById(`jobsCheckAllPage-${status}`);
+                const thCheck = document.getElementById(`jobsCheckAllTh-${status}`);
+                if (thCheck) {
+                    thCheck.style.display = _jobTabSupportsSelection(status) ? '' : 'none';
+                }
+                const rows = _jobPageRowsByStatus[status] || [];
+                const selected = _jobSelectedIdsByStatus[status];
+                if (checkAll) {
+                    const pageIds = rows.map(j => parseInt(j.id, 10));
+                    const onPage = pageIds.filter(id => selected.has(id)).length;
+                    checkAll.checked = pageIds.length > 0 && onPage === pageIds.length;
+                    checkAll.indeterminate = onPage > 0 && onPage < pageIds.length;
+                }
+                document.querySelectorAll(`.jobs-row-check[data-status="${status}"]`).forEach(cb => {
+                    const id = parseInt(cb.dataset.jobId, 10);
+                    cb.checked = selected.has(id);
+                });
+            }
+
+            function _updateJobBulkBar(status) {
+                const bar = document.getElementById(`jobsBulkBar-${status}`);
+                const countEl = document.getElementById(`jobsBulkCount-${status}`);
+                const actionsEl = document.getElementById(`jobsBulkActions-${status}`);
+                const n = _jobSelectedIdsByStatus[status]?.size || 0;
+                if (!bar || !countEl || !actionsEl) return;
+                if (!n || !_jobTabSupportsSelection(status)) {
+                    bar.style.display = 'none';
+                    return;
+                }
+                bar.style.display = 'flex';
+                countEl.textContent = `${n} selected`;
+                actionsEl.innerHTML = _jobBulkActionsForTab(status).map(a =>
+                    `<button type="button" class="workers-btn-sm ${a.cls}" onclick="requestJobAction('${a.action}','jobs','${status}')">${a.label}</button>`
+                ).join('');
+            }
+
+            function _updateJobsSelectAllMatchingBtn(status, total) {
+                const btn = document.getElementById(`jobsSelectAllMatchingBtn-${status}`);
+                const pageRows = (_jobPageRowsByStatus[status] || []).length;
+                if (!btn) return;
+                if (!_jobTabSupportsSelection(status) || total <= pageRows) {
+                    btn.style.display = 'none';
+                    return;
+                }
+                btn.style.display = 'inline';
+                btn.textContent = `Select all ${total} matching on this tab`;
+            }
+
+            function onJobSearchInput(status) {
+                clearTimeout(_jobSearchDebounce[status]);
+                _jobSearchDebounce[status] = setTimeout(() => {
+                    currentPages[status] = 1;
+                    clearJobSelection(status, false);
+                    const q = document.getElementById(`jobSearch-${status}`)?.value?.trim() || '';
+                    loadJobs(status, 1, q || null);
+                }, 280);
+            }
+
+            async function selectAllMatchingJobs(status) {
+                if (!_jobTabSupportsSelection(status)) return;
+                const searchInput = document.getElementById(`jobSearch-${status}`);
+                const searchJobId = searchInput?.value?.trim() || null;
+                const params = new URLSearchParams({
+                    page: '1',
+                    per_page: String(JOB_SELECT_ALL_PAGE_SIZE),
+                    status: status,
+                });
+                if (searchJobId) params.append('search_job_id', searchJobId);
+                try {
+                    const r = await fetch(`/jobs_paginated?${params}`);
+                    const data = await r.json();
+                    (data.jobs || []).forEach(j => {
+                        _jobSelectedIdsByStatus[status].add(parseInt(j.id, 10));
+                    });
+                    if ((data.total_count || 0) > JOB_SELECT_ALL_PAGE_SIZE) {
+                        showNotification(
+                            `Selected first ${JOB_SELECT_ALL_PAGE_SIZE} jobs (tab has more). Narrow your search.`,
+                            'warning',
+                        );
+                    }
+                    _updateJobBulkBar(status);
+                    _syncJobPageCheckboxes(status);
+                } catch (e) {
+                    showNotification('Failed to select jobs: ' + e.message, 'error');
+                }
+            }
+
+            function _buildJobRowQuickActions(status, jobId) {
+                const actions = _jobBulkActionsForTab(status);
+                if (!actions.length) return '';
+                return actions.map(a =>
+                    `<button type="button" class="workers-btn-sm ${a.cls}" onclick="requestJobAction('${a.action}','job','${status}',${jobId})">${a.label}</button>`
+                ).join('');
+            }
+
+            function _jobActionScopeLabel(action, scope, status, targetJobId) {
+                const label = _jobActionLabel(action);
+                if (scope === 'jobs') {
+                    return `${label} ${_jobSelectedIdsByStatus[status]?.size || 0} selected job(s)`;
+                }
+                if (scope === 'all') {
+                    const search = document.getElementById(`jobSearch-${status}`)?.value?.trim();
+                    const searchNote = search ? ` matching ID ${search}` : '';
+                    return `${label} all ${status} jobs${searchNote}`;
+                }
+                return `${label} job #${targetJobId}`;
+            }
+
+            function _renderJobPreviewList(jobs) {
+                if (!jobs.length) {
+                    return '<p class="workers-action-preview-empty">No jobs would be affected.</p>';
+                }
+                const rows = jobs.map(j => `<tr>
+                    <td><strong>#${j.id}</strong></td>
+                    <td>${_escHtml(j.worker_id || '—')}</td>
+                    <td>${_escHtml(j.status || '—')}</td>
+                </tr>`).join('');
+                return `<table class="workers-action-preview-table">
+                    <thead><tr><th>Job ID</th><th>Worker</th><th>Status</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+            }
+
+            function closeJobActionPreviewModal() {
+                const modal = document.getElementById('jobActionPreviewModal');
+                if (modal) modal.style.display = 'none';
+                _jobActionPreviewState = null;
+            }
+
+            function _refreshJobsAfterBulk(status) {
+                const searchInput = document.getElementById(`jobSearch-${status}`);
+                const searchJobId = searchInput?.value?.trim() || null;
+                clearJobSelection(status);
+                loadJobs(status, currentPages[status] || 1, searchJobId);
+                JOB_STATUSES.forEach(s => {
+                    if (s !== status) loadJobs(s, currentPages[s] || 1,
+                        document.getElementById(`jobSearch-${s}`)?.value?.trim() || null);
+                });
+                setTimeout(() => location.reload(), 800);
+            }
+
+            function confirmJobActionPreview() {
+                const st = _jobActionPreviewState;
+                if (!st) return;
+                const btn = document.getElementById('jobActionPreviewConfirm');
+                const reason = (document.getElementById('jobActionPreviewReason')?.value || '').trim();
+                if (btn) btn.disabled = true;
+                fetch('/jobs/bulk_action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...st.payload, reason }),
+                })
+                    .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+                    .then(({ ok, data }) => {
+                        if (btn) btn.disabled = false;
+                        closeJobActionPreviewModal();
+                        if (!ok || !data.success) {
+                            showNotification(data.error || 'Action failed.', 'error');
+                            return;
+                        }
+                        const label = _jobActionLabel(st.action);
+                        let msg = `${label}: ${data.affected} job(s) updated.`;
+                        if (data.failed?.length) {
+                            msg += ` ${data.failed.length} failed.`;
+                        }
+                        showNotification(msg, data.failed?.length ? 'warning' : 'success');
+                        closeMessageModal();
+                        _refreshJobsAfterBulk(st.status);
+                    })
+                    .catch(e => {
+                        if (btn) btn.disabled = false;
+                        showNotification('Network error: ' + e.message, 'error');
+                    });
+            }
+
+            function requestJobAction(action, scope, status, targetJobId, prefillReason) {
+                status = status || currentStatus;
+                if (scope === 'jobs' && (!_jobSelectedIdsByStatus[status] || _jobSelectedIdsByStatus[status].size === 0)) {
+                    showNotification('Select at least one job.', 'warning');
+                    return;
+                }
+                const searchInput = document.getElementById(`jobSearch-${status}`);
+                const searchJobId = searchInput?.value?.trim() || null;
+                const payload = {
+                    action,
+                    scope,
+                    status,
+                    search_job_id: searchJobId,
+                };
+                if (scope === 'job') {
+                    payload.target = parseInt(targetJobId, 10);
+                } else if (scope === 'jobs') {
+                    payload.job_ids = Array.from(_jobSelectedIdsByStatus[status]);
+                }
+
+                fetch('/jobs/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                    .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+                    .then(({ ok, data }) => {
+                        if (!ok || !data.success) {
+                            showNotification(data.error || 'Preview failed.', 'error');
+                            return;
+                        }
+                        const jobs = data.jobs || [];
+                        const count = data.count ?? jobs.length;
+                        const modal = document.getElementById('jobActionPreviewModal');
+                        const title = document.getElementById('jobActionPreviewTitle');
+                        const summary = document.getElementById('jobActionPreviewSummary');
+                        const list = document.getElementById('jobActionPreviewList');
+                        const confirmBtn = document.getElementById('jobActionPreviewConfirm');
+                        const reasonInput = document.getElementById('jobActionPreviewReason');
+                        if (!modal || !title || !summary || !list) return;
+
+                        title.textContent = count
+                            ? `Confirm: ${_jobActionScopeLabel(action, scope, status, targetJobId)}`
+                            : 'No jobs affected';
+                        summary.textContent = count
+                            ? `${count} job(s) will be updated. The reason is recorded in each job's history.`
+                            : `No jobs match this action on the ${status} tab.`;
+                        list.innerHTML = _renderJobPreviewList(jobs);
+                        if (reasonInput) {
+                            reasonInput.value = (prefillReason != null && prefillReason !== '')
+                                ? String(prefillReason) : '';
+                        }
+
+                        if (confirmBtn) {
+                            confirmBtn.textContent = count
+                                ? `Confirm ${_jobActionLabel(action)}`
+                                : 'Close';
+                            confirmBtn.className = 'workers-btn ' + (
+                                action === 'delete' ? 'workers-btn--stop' : 'workers-btn--run'
+                            );
+                            confirmBtn.onclick = count
+                                ? () => confirmJobActionPreview()
+                                : () => closeJobActionPreviewModal();
+                        }
+
+                        _jobActionPreviewState = count
+                            ? { action, payload, status, scope, targetJobId }
+                            : null;
+                        modal.style.display = 'block';
+                    })
+                    .catch(e => showNotification('Network error: ' + e.message, 'error'));
+            }
 
             // Enhanced encoding with validation - Define these functions first
             function encodeForHtmlAttribute(text) {
@@ -1161,12 +1831,12 @@ function openModal() {
             // Load jobs for a specific status and page
             function loadJobs(status, page = 1, searchJobId = null) {
                 const tbody = document.getElementById(`tbody-${status}`);
-                const loadingRow = `<tr><td colspan="6" class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading jobs...</td></tr>`;
+                const loadingRow = `<tr><td colspan="7" class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading jobs...</td></tr>`;
                 tbody.innerHTML = loadingRow;
 
                 const params = new URLSearchParams({
                     page: page,
-                    per_page: 50,
+                    per_page: JOB_PAGE_SIZE,
                     status: status
                 });
 
@@ -1180,7 +1850,7 @@ function openModal() {
                         if (data.error) {
                             tbody.innerHTML = `
                                 <tr>
-                                    <td colspan="6" class="empty-state error-state">
+                                    <td colspan="7" class="empty-state error-state">
                                         <div class="empty-icon">
                                             <i class="fas fa-exclamation-triangle"></i>
                                         </div>
@@ -1201,11 +1871,15 @@ function openModal() {
                         document.getElementById(`paginationInfo-${status}`).textContent = 
                             `Showing ${((data.current_page - 1) * data.per_page) + 1}-${Math.min(data.current_page * data.per_page, data.total_count)} of ${data.total_count} jobs`;
 
+                        _jobPageRowsByStatus[status] = data.jobs;
+                        _jobListTotalByStatus[status] = data.total_count || 0;
+                        _updateJobsSelectAllMatchingBtn(status, _jobListTotalByStatus[status]);
+
                         // Render jobs
                         if (data.jobs.length === 0) {
                             tbody.innerHTML = `
                                 <tr>
-                                    <td colspan="6" class="empty-state">
+                                    <td colspan="7" class="empty-state">
                                         <div class="empty-icon">
                                             <i class="fas fa-database"></i>
                                         </div>
@@ -1214,9 +1888,12 @@ function openModal() {
                                     </td>
                                 </tr>
                             `;
+                            _syncJobPageCheckboxes(status);
                             return;
                         }
 
+                        const selectable = _jobTabSupportsSelection(status);
+                        const selected = _jobSelectedIdsByStatus[status];
                         let html = '';
                         data.jobs.forEach(job => {
                             const workerId       = job.worker_id || 'Unassigned';
@@ -1226,29 +1903,38 @@ function openModal() {
                             const compTime       = compTs ? new Date(compTs * 1000).toLocaleString() : '';
                             const durationSec    = job.required_time || 0;
                             const durationFmt    = durationSec ? formatTime(durationSec) : '';
+                            const jid = parseInt(job.id, 10);
+                            const checked = selected.has(jid) ? ' checked' : '';
+                            const checkCell = selectable
+                                ? `<td class="jobs-td-check"><input type="checkbox" class="jobs-row-check" data-status="${status}" data-job-id="${jid}"${checked} onchange="toggleJobSelection('${status}', this.dataset.jobId, this.checked)" aria-label="Select job ${jid}"></td>`
+                                : '<td class="jobs-td-check"></td>';
+                            const quickActions = _buildJobRowQuickActions(status, jid);
 
                             html += `
                                 <tr>
+                                    ${checkCell}
                                     <td data-value="${job.id}" style="font-weight:bold;">${job.id}</td>
-                                    <td>${workerId}</td>
+                                    <td>${_escHtml(workerId)}</td>
                                     <td data-value="${reqTs}">${reqTime}</td>
                                     <td data-value="${compTs}">${compTime}</td>
                                     <td data-value="${durationSec}">${durationFmt}</td>
-                                    <td>
+                                    <td class="jobs-row-actions">
                                         <button class="view-details-btn" onclick="openJobDetails(${job.id})" title="View Details">
                                             <i class="fas fa-eye"></i>
                                         </button>
+                                        ${quickActions}
                                     </td>
                                 </tr>
                             `;
                         });
                         tbody.innerHTML = html;
+                        _syncJobPageCheckboxes(status);
                     })
                     .catch(error => {
                         console.error('Error loading jobs:', error);
                         tbody.innerHTML = `
                             <tr>
-                                <td colspan="6" class="empty-state error-state">
+                                <td colspan="7" class="empty-state error-state">
                                     <div class="empty-icon">
                                         <i class="fas fa-exclamation-triangle"></i>
                                     </div>
@@ -1325,6 +2011,10 @@ function openModal() {
                 
                 // Load jobs for the selected tab
                 currentStatus = tabName;
+                JOB_STATUSES.forEach(s => {
+                    const bar = document.getElementById(`jobsBulkBar-${s}`);
+                    if (bar) bar.style.display = 'none';
+                });
                 // Get current search value for this status
                 const searchInput = document.getElementById(`jobSearch-${tabName}`);
                 const searchJobId = searchInput ? searchInput.value.trim() || null : null;
@@ -2126,129 +2816,22 @@ function openModal() {
 
             function changeJobStatus() {
                 const jobId = document.getElementById("jobId").textContent;
-                const reason = document.getElementById("statusChangeReason").value;
-                const title = document.getElementById("statusChangeTitle").textContent;
-                
-                // Determine new status from title
-                let newStatus = "";
-                if (title.includes("to PENDING")) {
-                    newStatus = "PENDING";
-                } else if (title.includes("to DONE")) {
-                    newStatus = "DONE";
-                }
-                
-                if (!newStatus) {
-                    showNotification("Unable to determine target status", "error");
-                    return;
-                }
-                
-                // Show loading state
-                const changeBtn = document.getElementById("changeStatusBtn");
-                const originalText = changeBtn.textContent;
-                changeBtn.textContent = "Changing...";
-                changeBtn.disabled = true;
-                
-                fetch('/change_job_status', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        job_id: parseInt(jobId),
-                        new_status: newStatus,
-                        reason: reason
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification("Status changed successfully!", "success");
-                        // Reset form
-                        document.getElementById("statusChangeReason").value = "";
-                        // Close modal after a short delay
-                        setTimeout(() => {
-                            closeMessageModal();
-                            location.reload();
-                        }, 1500);
-                    } else {
-                        showNotification("Error: " + (data.error || "Failed to change status"), "error");
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showNotification("Error changing status: " + error.message, "error");
-                })
-                .finally(() => {
-                    // Reset button state
-                    changeBtn.textContent = originalText;
-                    changeBtn.disabled = false;
-                });
+                const status = document.getElementById("jobStatusBadge").textContent;
+                const action = status === 'PENDING' ? 'to_done' : 'to_pending';
+                const reason = document.getElementById("statusChangeReason")?.value || '';
+                requestJobAction(action, 'job', status, jobId, reason);
             }
 
             function deleteJob() {
                 const jobId = document.getElementById("jobId").textContent;
-                const reason = document.getElementById("deleteReason").value;
-
-                const btn = document.getElementById("deleteJobBtn");
-                const originalText = btn.textContent;
-                btn.textContent = "Deleting...";
-                btn.disabled = true;
-
-                fetch('/delete_job', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ job_id: parseInt(jobId), reason: reason })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification("Job deleted successfully.", "success");
-                        document.getElementById("deleteReason").value = "";
-                        setTimeout(() => { closeMessageModal(); location.reload(); }, 1500);
-                    } else {
-                        showNotification("Error: " + (data.error || "Failed to delete job"), "error");
-                    }
-                })
-                .catch(error => {
-                    showNotification("Error deleting job: " + error.message, "error");
-                })
-                .finally(() => {
-                    btn.textContent = originalText;
-                    btn.disabled = false;
-                });
+                const reason = document.getElementById("deleteReason")?.value || '';
+                requestJobAction('delete', 'job', 'PENDING', jobId, reason);
             }
 
             function restoreJob() {
                 const jobId = document.getElementById("jobId").textContent;
-                const reason = document.getElementById("restoreReason").value;
-
-                const btn = document.getElementById("restoreJobBtn");
-                const originalText = btn.textContent;
-                btn.textContent = "Restoring...";
-                btn.disabled = true;
-
-                fetch('/restore_job', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ job_id: parseInt(jobId), reason: reason })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification("Job restored to PENDING successfully.", "success");
-                        document.getElementById("restoreReason").value = "";
-                        setTimeout(() => { closeMessageModal(); location.reload(); }, 1500);
-                    } else {
-                        showNotification("Error: " + (data.error || "Failed to restore job"), "error");
-                    }
-                })
-                .catch(error => {
-                    showNotification("Error restoring job: " + error.message, "error");
-                })
-                .finally(() => {
-                    btn.textContent = originalText;
-                    btn.disabled = false;
-                });
+                const reason = document.getElementById("restoreReason")?.value || '';
+                requestJobAction('restore', 'job', 'DELETED', jobId, reason);
             }
 
             function updateJobParameters() {

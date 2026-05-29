@@ -1050,6 +1050,143 @@ class JobDatabase:
                 conn.commit()
                 return True
 
+    @staticmethod
+    def _job_eligible_for_bulk_action(job: Dict[str, Any], action: str) -> bool:
+        status = job.get("status") or ""
+        if action == "delete":
+            return status == STATUS_PENDING
+        if action == "restore":
+            return status == STATUS_DELETED
+        if action == "to_pending":
+            return status in (STATUS_DONE, STATUS_ABORTED)
+        if action == "to_done":
+            return status == STATUS_PENDING
+        return False
+
+    def _job_matches_scope(
+        self,
+        job: Dict[str, Any],
+        scope: str,
+        target: Optional[Any],
+        job_ids: Optional[List[int]] = None,
+    ) -> bool:
+        jid = int(job["id"])
+        if scope == "jobs":
+            ids = {int(x) for x in (job_ids or [])}
+            return jid in ids
+        if scope == "job":
+            try:
+                return jid == int(target)
+            except (TypeError, ValueError):
+                return False
+        if scope == "all":
+            return True
+        return False
+
+    def _jobs_for_bulk_action(
+        self,
+        action: str,
+        scope: str,
+        target: Optional[Any] = None,
+        job_ids: Optional[List[int]] = None,
+        *,
+        status: Optional[str] = None,
+        search_job_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Jobs that would be affected by a bulk dashboard action."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if search_job_id:
+                try:
+                    cursor.execute(
+                        "SELECT * FROM jobs WHERE id = ?",
+                        (int(search_job_id),),
+                    )
+                except (TypeError, ValueError):
+                    return []
+            elif status:
+                cursor.execute("SELECT * FROM jobs WHERE status = ?", (status,))
+            else:
+                cursor.execute("SELECT * FROM jobs")
+            rows = [dict(r) for r in cursor.fetchall()]
+
+        out: List[Dict[str, Any]] = []
+        for job in rows:
+            if status and not search_job_id and job.get("status") != status:
+                continue
+            if not self._job_matches_scope(job, scope, target, job_ids):
+                continue
+            if not self._job_eligible_for_bulk_action(job, action):
+                continue
+            job = enrich_job_record(job)
+            out.append({
+                "id": job["id"],
+                "status": job.get("status"),
+                "worker_id": job_worker_id(job) or "Unassigned",
+                "request_timestamp": job.get("request_timestamp"),
+                "completion_timestamp": job.get("completion_timestamp"),
+            })
+        out.sort(key=lambda j: int(j["id"]))
+        return out
+
+    def preview_jobs_bulk_action(
+        self,
+        action: str,
+        scope: str,
+        target: Optional[Any] = None,
+        job_ids: Optional[List[int]] = None,
+        *,
+        status: Optional[str] = None,
+        search_job_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        jobs = self._jobs_for_bulk_action(
+            action, scope, target, job_ids,
+            status=status, search_job_id=search_job_id,
+        )
+        return {"jobs": jobs, "count": len(jobs)}
+
+    def execute_jobs_bulk_action(
+        self,
+        action: str,
+        scope: str,
+        reason: str = "",
+        target: Optional[Any] = None,
+        job_ids: Optional[List[int]] = None,
+        *,
+        status: Optional[str] = None,
+        search_job_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Apply delete / restore / to_pending / to_done to matching jobs."""
+        jobs = self._jobs_for_bulk_action(
+            action, scope, target, job_ids,
+            status=status, search_job_id=search_job_id,
+        )
+        affected = 0
+        failed: List[Dict[str, Any]] = []
+        for job in jobs:
+            jid = int(job["id"])
+            ok = False
+            try:
+                if action == "delete":
+                    ok = self.delete_job(jid, reason)
+                elif action == "restore":
+                    ok = self.restore_deleted_job(jid, reason)
+                elif action == "to_pending":
+                    ok = self.change_job_status(jid, STATUS_PENDING, reason)
+                elif action == "to_done":
+                    ok = self.change_job_status(jid, STATUS_DONE, reason)
+                else:
+                    failed.append({"id": jid, "error": f"Unknown action: {action}"})
+                    continue
+            except Exception as exc:
+                failed.append({"id": jid, "error": str(exc)})
+                continue
+            if ok:
+                affected += 1
+            else:
+                failed.append({"id": jid, "error": "Action rejected by server"})
+        return {"affected": affected, "failed": failed, "total": len(jobs)}
+
     def update_job_parameters(self, job_id: int, updates: Dict[str, Any], reason: str = "") -> bool:
         """Update parameters of a PENDING job. Only works on PENDING jobs."""
         with self.lock:
@@ -1729,6 +1866,7 @@ class JobDatabase:
         host: Optional[str] = None,
         instance: Optional[str] = None,
         slot: Optional[int] = None,
+        search: Optional[str] = None,
     ) -> tuple:
         clauses: List[str] = []
         params: List[Any] = []
@@ -1761,6 +1899,10 @@ class JobDatabase:
         if slot is not None:
             clauses.append("slot = ?")
             params.append(int(slot))
+        q = (search or "").strip().lower()
+        if q:
+            clauses.append("(LOWER(worker_id) = ? OR LOWER(worker_id) LIKE ?)")
+            params.extend([q, q + "_%"])
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         return where, params
 
@@ -1772,11 +1914,12 @@ class JobDatabase:
         host: Optional[str] = None,
         instance: Optional[str] = None,
         slot: Optional[int] = None,
+        search: Optional[str] = None,
     ) -> Dict[str, Any]:
         page = max(1, int(page))
-        per_page = max(1, min(int(per_page), 50))
+        per_page = max(1, min(int(per_page), 500))
         where, params = self._worker_list_filters_sql(
-            lifecycle, host, instance, slot,
+            lifecycle, host, instance, slot, search,
         )
         with self.lock:
             with self.get_connection() as conn:
@@ -2101,11 +2244,215 @@ class JobDatabase:
             WORKER_REPORTED_BUSY,
         )
 
+    @staticmethod
+    def _worker_matches_search(row: Dict[str, Any], search: Optional[str]) -> bool:
+        """Match host, host_instance, host_instance_slot, or full worker_id prefix."""
+        q = (search or "").strip().lower()
+        if not q:
+            return True
+        wid = (row.get("worker_id") or "").lower()
+        return wid == q or wid.startswith(q + "_")
+
+    def _worker_matches_list_filters(
+        self,
+        row: Dict[str, Any],
+        *,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+        search: Optional[str] = None,
+    ) -> bool:
+        if host and (row.get("host") or "") != host:
+            return False
+        if instance and (row.get("instance") or "") != instance:
+            return False
+        if slot is not None and int(row.get("slot") or 0) != int(slot):
+            return False
+        if not self._worker_matches_search(row, search):
+            return False
+        return True
+
+    def _worker_matches_scope(
+        self,
+        row: Dict[str, Any],
+        scope: str,
+        target: Optional[str],
+        worker_ids: Optional[List[str]] = None,
+    ) -> bool:
+        wid = row["worker_id"]
+        host = row.get("host") or ""
+        inst = row.get("instance") or ""
+        if scope == "workers":
+            ids = {w for w in (worker_ids or []) if w}
+            return wid in ids
+        if scope == "worker":
+            return wid == target
+        if scope == "host":
+            return host == target
+        if scope == "instance":
+            parts = (target or "").split("|", 1)
+            return len(parts) == 2 and host == parts[0] and inst == parts[1]
+        if scope == "all":
+            return True
+        return False
+
+    def _worker_command_would_apply(
+        self, row: Dict[str, Any], action: str,
+    ) -> bool:
+        current = row.get("desired_state") or WORKER_STATE_RUN
+        applied = int(row.get("applied_version") or 0)
+        desired_v = int(row.get("desired_version") or 0)
+        pending = desired_v > applied
+
+        if action == WORKER_STATE_RUN:
+            if current == WORKER_STATE_STOP and not pending:
+                return False
+            if pending and self._worker_state_rank(current) >= self._worker_state_rank(
+                action
+            ):
+                return True
+            if not pending and current == WORKER_STATE_STOP:
+                return False
+            return not (current == WORKER_STATE_RUN and not pending)
+        if self._worker_state_rank(action) >= self._worker_state_rank(current):
+            new_state = action
+            return not (new_state == current and not pending)
+        return False
+
+    def _worker_cancel_would_apply(self, row: Dict[str, Any]) -> bool:
+        applied = int(row.get("applied_version") or 0)
+        desired_v = int(row.get("desired_version") or 0)
+        return desired_v > applied
+
+    def _command_target_rows(
+        self,
+        rows: List[Dict[str, Any]],
+        action: str,
+        scope: str,
+        target: Optional[str] = None,
+        worker_ids: Optional[List[str]] = None,
+        *,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+        search: Optional[str] = None,
+        lifecycle: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Rows that would receive a dashboard command (after tab + filter + scope)."""
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            if lifecycle and not self._worker_row_matches_lifecycle(row, lifecycle):
+                continue
+            if not self._worker_matches_list_filters(
+                row, host=host, instance=instance, slot=slot, search=search,
+            ):
+                continue
+            if not self._worker_matches_scope(row, scope, target, worker_ids):
+                continue
+            if action == WORKER_STATE_STOP:
+                if not self._worker_eligible_for_stop(row):
+                    continue
+            elif action == "cancel":
+                if not self._worker_is_active_target(row):
+                    continue
+                if not self._worker_cancel_would_apply(row):
+                    continue
+            elif not self._worker_is_active_target(row):
+                continue
+            else:
+                if not self._worker_command_would_apply(row, action):
+                    continue
+            out.append(row)
+        return out
+
+    def _worker_row_matches_lifecycle(
+        self, row: Dict[str, Any], lifecycle: str,
+    ) -> bool:
+        pending = int(row.get("desired_version") or 0) > int(row.get("applied_version") or 0)
+        lc = row.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE
+        ds = row.get("desired_state") or WORKER_STATE_RUN
+        if lifecycle == WORKER_LIST_PENDING:
+            return pending
+        if lifecycle == WORKER_LIST_PAUSED:
+            return (
+                lc == WORKER_LIFECYCLE_ACTIVE
+                and not pending
+                and ds == WORKER_STATE_PAUSE
+            )
+        if lifecycle == WORKER_LIFECYCLE_ACTIVE:
+            return (
+                lc == WORKER_LIFECYCLE_ACTIVE
+                and not pending
+                and ds in (WORKER_STATE_RUN, WORKER_STATE_DRAIN)
+            )
+        if lifecycle == WORKER_LIFECYCLE_DISABLED:
+            return lc == WORKER_LIFECYCLE_DISABLED
+        return True
+
+    def preview_workers_action(
+        self,
+        action: str,
+        scope: str,
+        target: Optional[str] = None,
+        worker_ids: Optional[List[str]] = None,
+        *,
+        lifecycle: Optional[str] = None,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+        search: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List workers that would be affected by a command or cancel."""
+        with self.lock:
+            with self.get_connection() as conn:
+                self._sync_worker_lifecycle(conn)
+                conn.commit()
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM workers")
+                rows = [dict(r) for r in cur.fetchall()]
+        targets = self._command_target_rows(
+            rows,
+            action,
+            scope,
+            target,
+            worker_ids,
+            host=host,
+            instance=instance,
+            slot=slot,
+            search=search,
+            lifecycle=lifecycle,
+        )
+        workers = []
+        for row in targets:
+            w = dict(row)
+            w["pending"] = int(w.get("desired_version") or 0) > int(
+                w.get("applied_version") or 0
+            )
+            workers.append({
+                "worker_id": w.get("worker_id"),
+                "host": w.get("host"),
+                "instance": w.get("instance"),
+                "slot": w.get("slot"),
+                "reported_status": w.get("reported_status"),
+                "desired_state": w.get("desired_state"),
+                "pending": w["pending"],
+                "current_job_id": w.get("current_job_id"),
+                "lifecycle_status": w.get("lifecycle_status"),
+            })
+        return {"workers": workers, "count": len(workers)}
+
     def set_workers_command(
         self,
         action: str,
         scope: str,
         target: Optional[str] = None,
+        worker_ids: Optional[List[str]] = None,
+        *,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+        search: Optional[str] = None,
+        lifecycle: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Set desired worker state. Precedence: stop > drain > pause > run."""
         if action not in (
@@ -2130,53 +2477,34 @@ class JobDatabase:
                 cur = conn.cursor()
                 cur.execute("SELECT * FROM workers")
                 rows = [dict(r) for r in cur.fetchall()]
-                for row in rows:
-                    if action == WORKER_STATE_STOP:
-                        if not self._worker_eligible_for_stop(row):
-                            continue
-                    elif not self._worker_is_active_target(row):
-                        continue
+                targets = self._command_target_rows(
+                    rows,
+                    action,
+                    scope,
+                    target,
+                    worker_ids,
+                    host=host,
+                    instance=instance,
+                    slot=slot,
+                    search=search,
+                    lifecycle=lifecycle,
+                )
+                for row in targets:
                     wid = row["worker_id"]
-                    host = row.get("host") or ""
-                    inst = row.get("instance") or ""
-                    if scope == "worker":
-                        if wid != target:
-                            continue
-                    elif scope == "host":
-                        if host != target:
-                            continue
-                    elif scope == "instance":
-                        parts = (target or "").split("|", 1)
-                        if len(parts) != 2 or host != parts[0] or inst != parts[1]:
-                            continue
-                    elif scope != "all":
-                        continue
-
                     current = row.get("desired_state") or WORKER_STATE_RUN
                     applied = int(row.get("applied_version") or 0)
                     desired_v = int(row.get("desired_version") or 0)
                     pending = desired_v > applied
 
                     if action == WORKER_STATE_RUN:
-                        if current == WORKER_STATE_STOP and not pending:
-                            continue
-                        if pending and self._worker_state_rank(current) >= self._worker_state_rank(
-                            action
-                        ):
-                            new_state = WORKER_STATE_RUN
-                        elif not pending and current == WORKER_STATE_STOP:
-                            continue
-                        else:
-                            new_state = WORKER_STATE_RUN
-                    elif self._worker_state_rank(action) >= self._worker_state_rank(current):
-                        new_state = action
+                        new_state = WORKER_STATE_RUN
                     else:
-                        continue
+                        new_state = action
 
-                    if new_state == current and not pending:
-                        continue
-
-                    prev = current if pending else row.get("previous_desired_state") or WORKER_STATE_RUN
+                    prev = (
+                        current if pending
+                        else row.get("previous_desired_state") or WORKER_STATE_RUN
+                    )
                     new_version = desired_v + 1
                     cur.execute(
                         """
@@ -2203,6 +2531,13 @@ class JobDatabase:
         self,
         scope: str,
         target: Optional[str] = None,
+        worker_ids: Optional[List[str]] = None,
+        *,
+        host: Optional[str] = None,
+        instance: Optional[str] = None,
+        slot: Optional[int] = None,
+        search: Optional[str] = None,
+        lifecycle: Optional[str] = None,
     ) -> int:
         """Revert queued (not yet applied) commands to previous_desired_state."""
         reverted = 0
@@ -2211,29 +2546,21 @@ class JobDatabase:
                 self._sync_worker_lifecycle(conn)
                 cur = conn.cursor()
                 cur.execute("SELECT * FROM workers")
-                for row in cur.fetchall():
-                    row = dict(row)
-                    if not self._worker_is_active_target(row):
-                        continue
-                    applied = int(row.get("applied_version") or 0)
-                    desired_v = int(row.get("desired_version") or 0)
-                    if desired_v <= applied:
-                        continue
+                rows = [dict(r) for r in cur.fetchall()]
+                targets = self._command_target_rows(
+                    rows,
+                    "cancel",
+                    scope,
+                    target,
+                    worker_ids,
+                    host=host,
+                    instance=instance,
+                    slot=slot,
+                    search=search,
+                    lifecycle=lifecycle,
+                )
+                for row in targets:
                     wid = row["worker_id"]
-                    host = row.get("host") or ""
-                    inst = row.get("instance") or ""
-                    if scope == "worker" and wid != target:
-                        continue
-                    if scope == "host" and host != target:
-                        continue
-                    if scope == "instance":
-                        parts = (target or "").split("|", 1)
-                        if len(parts) != 2 or host != parts[0] or inst != parts[1]:
-                            continue
-                    if scope == "all":
-                        pass
-                    elif scope not in ("worker", "host", "instance"):
-                        continue
                     prev = row.get("previous_desired_state") or WORKER_STATE_RUN
                     cancelled = row.get("desired_state") or WORKER_STATE_RUN
                     cur.execute(

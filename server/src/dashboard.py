@@ -646,6 +646,89 @@ def traffic_stats():
         return jsonify({"error": str(e)}), 500
 
 
+def _jobs_bulk_request(data: dict) -> dict:
+    status = (data.get("status") or "").strip().upper() or None
+    search = data.get("search_job_id")
+    if search is not None:
+        search = str(search).strip() or None
+    job_ids = data.get("job_ids")
+    if job_ids is not None:
+        if not isinstance(job_ids, list):
+            raise ValueError("job_ids must be a list")
+        job_ids = [int(x) for x in job_ids]
+    target = data.get("target")
+    if target is not None and data.get("scope") == "job":
+        target = int(target)
+    return {
+        "status": status,
+        "search_job_id": search,
+        "job_ids": job_ids,
+        "target": target,
+    }
+
+
+def _validate_jobs_bulk_scope(scope: str, target, job_ids) -> Optional[str]:
+    if scope not in ("job", "jobs", "all"):
+        return "scope must be job, jobs, or all"
+    if scope == "job" and target is None:
+        return "target job id is required for job scope"
+    if scope == "jobs" and not job_ids:
+        return "job_ids is required for jobs scope"
+    return None
+
+
+@app.route("/jobs/preview", methods=["POST"])
+def jobs_preview():
+    """Preview jobs affected by a bulk dashboard action."""
+    db.track_api_request("Jobs Preview", "POST")
+    data = request.json or {}
+    action = (data.get("action") or "").strip().lower()
+    scope = (data.get("scope") or "").strip().lower()
+    if action not in ("delete", "restore", "to_pending", "to_done"):
+        return jsonify({"error": "action must be delete, restore, to_pending, or to_done"}), 400
+    err = _validate_jobs_bulk_scope(scope, data.get("target"), data.get("job_ids"))
+    if err:
+        return jsonify({"error": err}), 400
+    try:
+        filters = _jobs_bulk_request(data)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    result = db.preview_jobs_bulk_action(
+        action, scope, filters["target"], job_ids=filters["job_ids"],
+        status=filters["status"], search_job_id=filters["search_job_id"],
+    )
+    return jsonify({"success": True, **result})
+
+
+@app.route("/jobs/bulk_action", methods=["POST"])
+def jobs_bulk_action():
+    """Execute bulk job action with audit reason."""
+    db.track_api_request("Jobs Bulk Action", "POST")
+    data = request.json or {}
+    action = (data.get("action") or "").strip().lower()
+    scope = (data.get("scope") or "").strip().lower()
+    reason = (data.get("reason") or "").strip()
+    if action not in ("delete", "restore", "to_pending", "to_done"):
+        return jsonify({"error": "action must be delete, restore, to_pending, or to_done"}), 400
+    err = _validate_jobs_bulk_scope(scope, data.get("target"), data.get("job_ids"))
+    if err:
+        return jsonify({"error": err}), 400
+    try:
+        filters = _jobs_bulk_request(data)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    result = db.execute_jobs_bulk_action(
+        action, scope, reason,
+        filters["target"], job_ids=filters["job_ids"],
+        status=filters["status"], search_job_id=filters["search_job_id"],
+    )
+    logging.info(
+        f"Jobs bulk: action={action} scope={scope} affected={result['affected']} "
+        f"failed={len(result.get('failed') or [])}"
+    )
+    return jsonify({"success": True, **result})
+
+
 @app.route("/jobs_paginated", methods=["GET"])
 def get_jobs_paginated():
     """Get jobs with pagination support."""
@@ -816,7 +899,8 @@ def workers_list():
         per_page = int(request.args.get("per_page", 50))
     except (TypeError, ValueError):
         per_page = 50
-    per_page = max(1, min(per_page, 50))
+    per_page = max(1, min(per_page, 500))
+    search = request.args.get("q", "").strip() or None
     lc = None if lifecycle == "all" else lifecycle
     result = db.list_workers_paginated(
         page=page,
@@ -825,6 +909,7 @@ def workers_list():
         host=host,
         instance=instance,
         slot=slot,
+        search=search,
     )
     completed_counts = db.count_completed_jobs_by_workers(
         [w.get("worker_id") or "" for w in result["workers"]],
@@ -886,6 +971,73 @@ def workers_history():
     return jsonify(result)
 
 
+def _workers_request_filters(data: dict) -> dict:
+    """Parse lifecycle, sidebar filters, and search from a workers API payload."""
+    lifecycle = (data.get("lifecycle") or "").strip().lower() or None
+    if lifecycle not in ("active", "disabled", "pending", "paused", None):
+        lifecycle = None
+    host = (data.get("host") or "").strip() or None
+    instance = (data.get("instance") or "").strip() or None
+    slot_raw = data.get("slot")
+    slot = None
+    if slot_raw is not None and str(slot_raw).strip().isdigit():
+        slot = int(str(slot_raw).strip())
+    search = (data.get("q") or data.get("search") or "").strip() or None
+    return {
+        "lifecycle": lifecycle,
+        "host": host,
+        "instance": instance,
+        "slot": slot,
+        "search": search,
+    }
+
+
+def _workers_scope_validate(scope: str, target, worker_ids) -> Optional[str]:
+    if scope not in ("worker", "host", "instance", "all", "workers"):
+        return "scope must be worker, workers, host, instance, or all"
+    if scope in ("worker", "host", "instance") and not target:
+        return "target is required for worker/host/instance scope"
+    if scope == "workers":
+        ids = worker_ids if isinstance(worker_ids, list) else []
+        if not ids:
+            return "worker_ids is required for workers scope"
+    return None
+
+
+@app.route("/workers/preview", methods=["POST"])
+def workers_preview():
+    """Preview workers affected by a command or cancel."""
+    db.track_api_request("Worker Preview", "POST")
+    data = request.json or {}
+    action = (data.get("action") or "").strip().lower()
+    scope = (data.get("scope") or "").strip().lower()
+    target = data.get("target")
+    if target is not None:
+        target = str(target).strip()
+    worker_ids = data.get("worker_ids")
+    if worker_ids is not None and not isinstance(worker_ids, list):
+        return jsonify({"error": "worker_ids must be a list"}), 400
+
+    err = _workers_scope_validate(scope, target, worker_ids)
+    if err:
+        return jsonify({"error": err}), 400
+    if action not in ("run", "pause", "drain", "stop", "cancel"):
+        return jsonify({"error": "action must be run, pause, drain, stop, or cancel"}), 400
+
+    filters = _workers_request_filters(data)
+    try:
+        result = db.preview_workers_action(
+            action,
+            scope,
+            target,
+            worker_ids=worker_ids,
+            **filters,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"success": True, **result})
+
+
 @app.route("/workers/command", methods=["POST"])
 def workers_command():
     """Queue run / pause / drain / stop for active workers (applied on next poll)."""
@@ -896,18 +1048,30 @@ def workers_command():
     target = data.get("target")
     if target is not None:
         target = str(target).strip()
+    worker_ids = data.get("worker_ids")
+    if worker_ids is not None and not isinstance(worker_ids, list):
+        return jsonify({"error": "worker_ids must be a list"}), 400
 
-    if scope not in ("worker", "host", "instance", "all"):
-        return jsonify({"error": "scope must be worker, host, instance, or all"}), 400
-    if scope in ("worker", "host", "instance") and not target:
-        return jsonify({"error": "target is required for worker/host/instance scope"}), 400
+    err = _workers_scope_validate(scope, target, worker_ids)
+    if err:
+        return jsonify({"error": err}), 400
 
+    filters = _workers_request_filters(data)
     try:
-        result = db.set_workers_command(action, scope, target)
+        result = db.set_workers_command(
+            action,
+            scope,
+            target,
+            worker_ids=worker_ids,
+            **filters,
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    logging.info(f"Worker command: action={action} scope={scope} target={target} affected={result['affected']}")
+    logging.info(
+        f"Worker command: action={action} scope={scope} target={target} "
+        f"affected={result['affected']}"
+    )
     return jsonify({"success": True, **result})
 
 
@@ -920,13 +1084,21 @@ def workers_cancel():
     target = data.get("target")
     if target is not None:
         target = str(target).strip()
+    worker_ids = data.get("worker_ids")
+    if worker_ids is not None and not isinstance(worker_ids, list):
+        return jsonify({"error": "worker_ids must be a list"}), 400
 
-    if scope not in ("worker", "host", "instance", "all"):
-        return jsonify({"error": "scope must be worker, host, instance, or all"}), 400
-    if scope in ("worker", "host", "instance") and not target:
-        return jsonify({"error": "target is required for worker/host/instance scope"}), 400
+    err = _workers_scope_validate(scope, target, worker_ids)
+    if err:
+        return jsonify({"error": err}), 400
 
-    reverted = db.cancel_pending_worker_commands(scope, target)
+    filters = _workers_request_filters(data)
+    reverted = db.cancel_pending_worker_commands(
+        scope,
+        target,
+        worker_ids=worker_ids,
+        **filters,
+    )
     logging.info(f"Worker cancel: scope={scope} target={target} reverted={reverted}")
     return jsonify({"success": True, "reverted": reverted})
 

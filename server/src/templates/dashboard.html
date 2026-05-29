@@ -310,10 +310,11 @@
                                         <div class="table-title">
                                             <h3>{{ status }} Jobs</h3>
                                             <span id="paginationInfo-{{ status }}" class="pagination-info">Loading...</span>
+                                            <button type="button" id="jobsSelectAllMatchingBtn-{{ status }}" class="workers-link-btn" style="display:none;" onclick="selectAllMatchingJobs('{{ status }}')"></button>
                                         </div>
                                         <div class="search-section">
                                             <div class="search-input-group">
-                                                <input type="text" id="jobSearch-{{ status }}" placeholder="Search by Job ID..." class="search-input">
+                                                <input type="text" id="jobSearch-{{ status }}" placeholder="Search by Job ID..." class="search-input" oninput="onJobSearchInput('{{ status }}')">
                                                 <button onclick="searchJobs('{{ status }}')" class="search-btn" title="Search">
                                                     <i class="fas fa-search"></i>
                                                 </button>
@@ -323,22 +324,46 @@
                                             </div>
                                         </div>
                                     </div>
+
+                                    <div id="jobsBulkBar-{{ status }}" class="jobs-bulk-bar" style="display:none;">
+                                        <span id="jobsBulkCount-{{ status }}" class="jobs-bulk-count">0 selected</span>
+                                        <div id="jobsBulkActions-{{ status }}" class="jobs-bulk-actions"></div>
+                                        <button type="button" class="workers-btn-sm workers-btn--cancel" onclick="clearJobSelection('{{ status }}')">Clear</button>
+                                    </div>
+
+                                    {% if status == 'PENDING' %}
+                                    <div class="jobs-tab-toolbar">
+                                        <button type="button" class="workers-btn workers-btn--stop" onclick="requestJobAction('delete','all','{{ status }}')"><i class="fas fa-trash"></i> Delete all</button>
+                                        <button type="button" class="workers-btn workers-btn--run" onclick="requestJobAction('to_done','all','{{ status }}')"><i class="fas fa-check"></i> Mark all DONE</button>
+                                    </div>
+                                    {% elif status == 'DONE' or status == 'ABORTED' %}
+                                    <div class="jobs-tab-toolbar">
+                                        <button type="button" class="workers-btn workers-btn--pause" onclick="requestJobAction('to_pending','all','{{ status }}')"><i class="fas fa-undo"></i> Reset all to PENDING</button>
+                                    </div>
+                                    {% elif status == 'DELETED' %}
+                                    <div class="jobs-tab-toolbar">
+                                        <button type="button" class="workers-btn workers-btn--run" onclick="requestJobAction('restore','all','{{ status }}')"><i class="fas fa-undo"></i> Restore all to PENDING</button>
+                                    </div>
+                                    {% endif %}
                                     
                                     <div class="table-wrapper">
                                         <table class="myTable" id="table-{{ status }}">
                                             <thead>
                                                 <tr>
-                                                    <th>ID <span class="sort-icon" onclick="sortTable(this, 0, 'number')">↕</span></th>
-                                                    <th>Worker Id <span class="sort-icon" onclick="sortTable(this, 1, 'string')">↕</span></th>
-                                                    <th>Requested At <span class="sort-icon" onclick="sortTable(this, 2, 'number')">↕</span></th>
-                                                    <th>Completed At <span class="sort-icon" onclick="sortTable(this, 3, 'number')">↕</span></th>
-                                                    <th>Duration <span class="sort-icon" onclick="sortTable(this, 4, 'number')">↕</span></th>
-                                                    <th>Job Details</th>
+                                                    <th class="jobs-th-check" id="jobsCheckAllTh-{{ status }}">
+                                                        <input type="checkbox" id="jobsCheckAllPage-{{ status }}" title="Select all on this page" onchange="toggleJobSelectAllPage('{{ status }}', this.checked)" aria-label="Select all on page">
+                                                    </th>
+                                                    <th>ID <span class="sort-icon" onclick="sortTable(this, 1, 'number')">↕</span></th>
+                                                    <th>Worker Id <span class="sort-icon" onclick="sortTable(this, 2, 'string')">↕</span></th>
+                                                    <th>Requested At <span class="sort-icon" onclick="sortTable(this, 3, 'number')">↕</span></th>
+                                                    <th>Completed At <span class="sort-icon" onclick="sortTable(this, 4, 'number')">↕</span></th>
+                                                    <th>Duration <span class="sort-icon" onclick="sortTable(this, 5, 'number')">↕</span></th>
+                                                    <th>Actions</th>
                                                 </tr>
                                             </thead>
                                             <tbody id="tbody-{{ status }}">
                                                 <tr>
-                                                    <td colspan="6" class="loading-message">
+                                                    <td colspan="7" class="loading-message">
                                                         <i class="fas fa-spinner fa-spin"></i> Loading jobs...
                                                     </td>
                                                 </tr>
@@ -437,33 +462,50 @@
                             </div>
 
                             <div class="table-container workers-table-container">
+                                <div class="workers-search-row">
+                                    <label for="workerSearchInput" class="workers-search-label">
+                                        <i class="fas fa-search"></i> Search
+                                    </label>
+                                    <input type="search" id="workerSearchInput" class="workers-search-input"
+                                        placeholder="host, host_instance, or host_instance_slot (worker id)"
+                                        autocomplete="off" oninput="onWorkerSearchInput()">
+                                    <span id="workerSearchHint" class="workers-search-hint"></span>
+                                </div>
+
+                                <div id="workersBulkBar" class="workers-bulk-bar" style="display:none;">
+                                    <span id="workersBulkCount" class="workers-bulk-count">0 selected</span>
+                                    <div id="workersBulkActions" class="workers-bulk-actions"></div>
+                                    <button type="button" class="workers-btn-sm workers-btn--cancel" onclick="clearWorkerSelection()">Clear</button>
+                                </div>
+
                                 <div class="table-header workers-table-header">
                                     <span id="workersPaginationInfo" class="pagination-info">Loading…</span>
+                                    <button type="button" id="workersSelectAllMatchingBtn" class="workers-link-btn" style="display:none;" onclick="selectAllMatchingWorkers()"></button>
                                 </div>
 
                                 <div id="workersActiveToolbar" class="workers-toolbar">
-                                    <button type="button" class="workers-btn workers-btn--pause" onclick="workerCommand('pause','all')">
+                                    <button type="button" class="workers-btn workers-btn--pause" onclick="requestWorkerAction('pause','all')">
                                         <i class="fas fa-pause"></i> Pause all
                                     </button>
-                                    <button type="button" class="workers-btn workers-btn--drain" onclick="workerCommand('drain','all')">
+                                    <button type="button" class="workers-btn workers-btn--drain" onclick="requestWorkerAction('drain','all')">
                                         <i class="fas fa-hourglass-half"></i> Drain all
                                     </button>
-                                    <button type="button" class="workers-btn workers-btn--stop" onclick="workerCommand('stop','all')">
+                                    <button type="button" class="workers-btn workers-btn--stop" onclick="requestWorkerAction('stop','all')">
                                         <i class="fas fa-stop"></i> Stop all
                                     </button>
-                                    <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
+                                    <button type="button" class="workers-btn workers-btn--cancel" onclick="requestWorkerAction('cancel','all')">
                                         <i class="fas fa-undo"></i> Cancel all pending
                                     </button>
                                 </div>
 
                                 <div id="workersPendingToolbar" class="workers-toolbar" style="display:none;">
-                                    <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
+                                    <button type="button" class="workers-btn workers-btn--cancel" onclick="requestWorkerAction('cancel','all')">
                                         <i class="fas fa-undo"></i> Cancel all pending
                                     </button>
                                 </div>
 
                                 <div id="workersPausedToolbar" class="workers-toolbar" style="display:none;">
-                                    <button type="button" class="workers-btn workers-btn--run" onclick="workerCommand('run','all')">
+                                    <button type="button" class="workers-btn workers-btn--run" onclick="requestWorkerAction('run','all')">
                                         <i class="fas fa-play"></i> Resume all
                                     </button>
                                 </div>
@@ -472,6 +514,10 @@
                                     <table class="workers-page-table" id="workersPageTable">
                                         <thead>
                                             <tr>
+                                                <th class="workers-th-check" id="workersCheckAllTh">
+                                                    <input type="checkbox" id="workersCheckAllPage" title="Select all on this page"
+                                                        onchange="toggleWorkerSelectAllPage(this.checked)" aria-label="Select all on page">
+                                                </th>
                                                 <th>Worker ID</th>
                                                 <th>Host</th>
                                                 <th>Instance</th>
@@ -484,7 +530,7 @@
                                             </tr>
                                         </thead>
                                         <tbody id="workersPageBody">
-                                            <tr><td colspan="9" class="workers-loading">Loading workers…</td></tr>
+                                            <tr><td colspan="10" class="workers-loading">Loading workers…</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -675,6 +721,42 @@
                             <i class="fas fa-key"></i> Change PIN
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job action preview modal -->
+        <div id="jobActionPreviewModal" class="modal">
+            <div class="modal-content workers-action-preview-content">
+                <div class="modal-header-row">
+                    <h2 id="jobActionPreviewTitle" style="margin:0; font-size:1.15rem;">Confirm job action</h2>
+                    <button class="close" onclick="closeJobActionPreviewModal()" title="Close">&times;</button>
+                </div>
+                <p id="jobActionPreviewSummary" class="workers-action-preview-summary"></p>
+                <div id="jobActionPreviewList" class="workers-action-preview-list"></div>
+                <div class="jobs-action-reason-row">
+                    <label for="jobActionPreviewReason">Reason</label>
+                    <input type="text" id="jobActionPreviewReason" placeholder="Reason (optional)" autocomplete="off">
+                </div>
+                <div class="workers-action-preview-footer">
+                    <button type="button" class="workers-btn workers-btn--cancel" onclick="closeJobActionPreviewModal()">Cancel</button>
+                    <button type="button" id="jobActionPreviewConfirm" class="workers-btn workers-btn--stop" onclick="confirmJobActionPreview()">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Worker action preview modal -->
+        <div id="workerActionPreviewModal" class="modal">
+            <div class="modal-content workers-action-preview-content">
+                <div class="modal-header-row">
+                    <h2 id="workerActionPreviewTitle" style="margin:0; font-size:1.15rem;">Confirm action</h2>
+                    <button class="close" onclick="closeWorkerActionPreviewModal()" title="Close">&times;</button>
+                </div>
+                <p id="workerActionPreviewSummary" class="workers-action-preview-summary"></p>
+                <div id="workerActionPreviewList" class="workers-action-preview-list"></div>
+                <div class="workers-action-preview-footer">
+                    <button type="button" class="workers-btn workers-btn--cancel" onclick="closeWorkerActionPreviewModal()">Cancel</button>
+                    <button type="button" id="workerActionPreviewConfirm" class="workers-btn workers-btn--stop" onclick="confirmWorkerActionPreview()">Confirm</button>
                 </div>
             </div>
         </div>
