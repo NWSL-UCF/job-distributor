@@ -159,6 +159,8 @@ def _apply_migrations() -> None:
          "ALTER TABLE users ADD COLUMN notify_quota TINYINT(1) NOT NULL DEFAULT 1"),
         ("users", "notify_extensions",
          "ALTER TABLE users ADD COLUMN notify_extensions TINYINT(1) NOT NULL DEFAULT 1"),
+        ("users", "email_prefs_customized",
+         "ALTER TABLE users ADD COLUMN email_prefs_customized TINYINT(1) NOT NULL DEFAULT 0"),
         # v4: per-experiment frpc authentication token
         (
             "experiments",

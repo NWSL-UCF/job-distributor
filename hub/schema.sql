@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS users (
     notify_server_status        TINYINT(1)      NOT NULL DEFAULT 1,
     notify_quota                TINYINT(1)      NOT NULL DEFAULT 1,
     notify_extensions           TINYINT(1)      NOT NULL DEFAULT 1,
+    email_prefs_customized      TINYINT(1)      NOT NULL DEFAULT 0,
 
     created_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP

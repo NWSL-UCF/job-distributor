@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from .db import db
 from .models import User
+
+log = logging.getLogger(__name__)
 
 # Each category maps to a boolean column on users (notify_<key>).
 NOTIFICATION_CATEGORIES = (
@@ -31,7 +35,7 @@ NOTIFICATION_CATEGORIES = (
     },
 )
 
-# event_type → notification category (None = always email, not toggleable)
+# event_type → notification category (None = never email, not toggleable)
 EVENT_EMAIL_CATEGORY: dict[str, str | None] = {
     "experiment_created": "experiment_lifecycle",
     "experiment_deleted": "experiment_lifecycle",
@@ -58,17 +62,30 @@ def _pref_column(category: str) -> str:
 
 
 def user_wants_email(user_id: int, event_type: str) -> bool:
-    """Return True if the user wants email for this event type."""
+    """Return True if the user wants email for this event type.
+
+    Until the user saves Settings at least once (email_prefs_customized=1),
+    all toggleable emails default to ON — matching pre-notification behavior.
+    """
     category = EVENT_EMAIL_CATEGORY.get(event_type)
     if category is None:
         return False
-    user = db.session.get(User, user_id)
-    if user is None:
+    try:
+        user = db.session.get(User, user_id)
+        if user is None:
+            return True
+        if not int(getattr(user, "email_prefs_customized", 0) or 0):
+            return True
+        val = getattr(user, _pref_column(category), 1)
+        if val is None:
+            return True
+        return bool(int(val))
+    except Exception:
+        log.exception(
+            "user_wants_email failed for user %s event %s — defaulting to send",
+            user_id, event_type,
+        )
         return True
-    val = getattr(user, _pref_column(category), 1)
-    if val is None:
-        return True
-    return bool(val)
 
 
 def get_user_prefs(user: User) -> dict[str, bool]:
@@ -82,3 +99,4 @@ def update_user_prefs(user: User, form_data: dict) -> None:
     for cat in NOTIFICATION_CATEGORIES:
         key = cat["key"]
         setattr(user, _pref_column(key), 1 if form_data.get(key) == "on" else 0)
+    user.email_prefs_customized = 1

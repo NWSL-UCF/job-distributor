@@ -33,6 +33,7 @@ class User(db.Model):
     notify_server_status       = db.Column(db.SmallInteger, nullable=False, default=1)
     notify_quota               = db.Column(db.SmallInteger, nullable=False, default=1)
     notify_extensions          = db.Column(db.SmallInteger, nullable=False, default=1)
+    email_prefs_customized     = db.Column(db.SmallInteger, nullable=False, default=0)
     created_at                 = db.Column(db.DateTime, default=_now)
     updated_at                 = db.Column(db.DateTime, default=_now, onupdate=_now)
 
