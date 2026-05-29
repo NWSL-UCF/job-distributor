@@ -114,11 +114,15 @@ function openModal() {
                 _workerPage = 1;
                 document.getElementById('workerSubtabActive').classList.toggle('active', which === 'active');
                 document.getElementById('workerSubtabPending').classList.toggle('active', which === 'pending');
+                const pausedBtn = document.getElementById('workerSubtabPaused');
+                if (pausedBtn) pausedBtn.classList.toggle('active', which === 'paused');
                 document.getElementById('workerSubtabDisabled').classList.toggle('active', which === 'disabled');
                 const activeToolbar = document.getElementById('workersActiveToolbar');
                 const pendingToolbar = document.getElementById('workersPendingToolbar');
+                const pausedToolbar = document.getElementById('workersPausedToolbar');
                 if (activeToolbar) activeToolbar.style.display = which === 'active' ? 'flex' : 'none';
                 if (pendingToolbar) pendingToolbar.style.display = which === 'pending' ? 'flex' : 'none';
+                if (pausedToolbar) pausedToolbar.style.display = which === 'paused' ? 'flex' : 'none';
                 loadWorkerSummary();
                 loadWorkerFilters().then(() => loadWorkersPageTable());
             }
@@ -126,6 +130,7 @@ function openModal() {
             function _workerListLifecycle() {
                 if (_workerSubtab === 'disabled') return 'disabled';
                 if (_workerSubtab === 'pending') return 'pending';
+                if (_workerSubtab === 'paused') return 'paused';
                 return 'active';
             }
 
@@ -142,6 +147,7 @@ function openModal() {
                             workersPageBusy: data.busy,
                             workersPageDisabled: data.disabled,
                             workerTabPendingCount: data.pending_commands,
+                            workerTabPausedCount: data.paused,
                         };
                         Object.keys(map).forEach(id => {
                             const el = document.getElementById(id);
@@ -178,6 +184,10 @@ function openModal() {
                 let actions = `<button type="button" class="workers-btn-sm" onclick="openWorkerDetail('${widEsc}')">Details</button>`;
                 if (_workerSubtab === 'pending') {
                     actions += `<button type="button" class="workers-btn-sm workers-btn--cancel" onclick="cancelWorkerCommand('worker','${widEsc}')">Cancel</button>`;
+                    return actions;
+                }
+                if (_workerSubtab === 'paused') {
+                    actions += `<button type="button" class="workers-btn-sm workers-btn--run" onclick="workerCommand('run','worker','${widEsc}')"><i class="fas fa-play"></i> Resume</button>`;
                     return actions;
                 }
                 if (_workerSubtab !== 'active') {
@@ -391,7 +401,9 @@ function openModal() {
                                 ? 'No stopped workers.'
                                 : _workerSubtab === 'pending'
                                     ? 'No pending commands. Workers appear here after you queue pause, drain, or stop until their next poll (~3 min).'
-                                    : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).';
+                                    : _workerSubtab === 'paused'
+                                        ? 'No paused workers. Use Pause on an active worker; it moves here after the command is applied.'
+                                        : 'No active workers. Start workers with <code>jd_worker_cli</code> — they appear after the first poll (~3 min).';
                             tbody.innerHTML = `<tr><td colspan="9" class="workers-empty">${msg}</td></tr>`;
                             return;
                         }
@@ -431,11 +443,19 @@ function openModal() {
             function workerCommand(action, scope, target) {
                 const labels = { run: 'resume', pause: 'pause', drain: 'drain', stop: 'stop' };
                 const label = labels[action] || action;
-                const scopeLabel = scope === 'all' ? 'all active workers'
+                const scopeLabel = scope === 'all'
+                    ? (action === 'stop'
+                        ? 'all active workers (idle or busy)'
+                        : action === 'run'
+                            ? 'all paused workers'
+                            : 'all active workers')
                     : scope === 'host' ? `host ${target}`
                     : scope === 'instance' ? `instance ${target}`
                     : `worker ${target}`;
-                if (!confirm(`Queue ${label} for ${scopeLabel}? Applies on next worker poll (~3 min).`)) return;
+                const applyNote = action === 'stop'
+                    ? ' Workers abort any current job, exit, and appear under Stopped (~3 min if reachable).'
+                    : ' Applies on next worker poll (~3 min).';
+                if (!confirm(`Queue ${label} for ${scopeLabel}?${applyNote}`)) return;
                 fetch('/workers/command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -446,7 +466,13 @@ function openModal() {
                         if (ok && data.success) {
                             showNotification(`Queued ${label} for ${data.affected} worker(s).`, 'success');
                             if (data.affected > 0) {
-                                switchWorkerSubtab('pending');
+                                if (action === 'run') {
+                                    switchWorkerSubtab('pending');
+                                } else if (action === 'stop') {
+                                    refreshWorkersPage();
+                                } else {
+                                    switchWorkerSubtab('pending');
+                                }
                             } else {
                                 refreshWorkersPage();
                             }

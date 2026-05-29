@@ -371,8 +371,9 @@
                             <div class="sb-section">
                                 <p class="sb-section-title">Workers Management</p>
                                 <p class="workers-sidebar-hint">
-                                    Active workers accept dashboard commands on their next poll (~3 min).
-                                    Pending lists workers with a queued command until it is applied.
+                                    Active workers (idle or busy) accept commands on their next poll (~3 min).
+                                    Pending lists queued commands until applied or finalized.
+                                    Paused workers finish the current job, then stay idle until resumed.
                                     Stopped workers no longer poll and are read-only.
                                 </p>
                             </div>
@@ -428,6 +429,10 @@
                                     Pending
                                     <span class="tab-count" id="workerTabPendingCount">0</span>
                                 </button>
+                                <button type="button" class="tab-button" id="workerSubtabPaused" onclick="switchWorkerSubtab('paused')">
+                                    Paused
+                                    <span class="tab-count" id="workerTabPausedCount">0</span>
+                                </button>
                                 <button type="button" class="tab-button" id="workerSubtabDisabled" onclick="switchWorkerSubtab('disabled')">Stopped</button>
                             </div>
 
@@ -454,6 +459,12 @@
                                 <div id="workersPendingToolbar" class="workers-toolbar" style="display:none;">
                                     <button type="button" class="workers-btn workers-btn--cancel" onclick="cancelWorkerCommand('all')">
                                         <i class="fas fa-undo"></i> Cancel all pending
+                                    </button>
+                                </div>
+
+                                <div id="workersPausedToolbar" class="workers-toolbar" style="display:none;">
+                                    <button type="button" class="workers-btn workers-btn--run" onclick="workerCommand('run','all')">
+                                        <i class="fas fa-play"></i> Resume all
                                     </button>
                                 </div>
 

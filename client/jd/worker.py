@@ -384,9 +384,24 @@ def _apply_server_control(
         if registry:
             registry.set_drained(True)
         logger.info(f"Server control: stop (v{desired_version})")
-        return desired_version, True, True
+        return desired_version, True, False
 
     return desired_version, False, False
+
+
+def _kill_worker_proc(proc_ref: list, logger: logging.Logger) -> None:
+    """Terminate the running job subprocess (used when stop arrives mid-job)."""
+    p = proc_ref[0] if proc_ref else None
+    if not p or p.poll() is not None:
+        return
+    logger.info(f"Stop command — terminating job subprocess PID {p.pid}…")
+    try:
+        if IS_WINDOWS:
+            p.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+    except Exception as exc:
+        logger.warning(f"Failed to kill job subprocess: {exc}")
 
 
 def _heartbeat_loop(
@@ -398,6 +413,7 @@ def _heartbeat_loop(
     stop_event: threading.Event,
     control: dict,
     logger: logging.Logger,
+    proc_ref: Optional[list] = None,
     token_mgr: Optional[WorkerTokenManager] = None,
     registry: Optional[WorkerRegistry] = None,
 ) -> None:
@@ -422,7 +438,9 @@ def _heartbeat_loop(
             if stop_after:
                 control["stop_after_job"] = True
             if exit_now:
-                control["stop_after_job"] = True
+                control["exit_now"] = True
+                if proc_ref is not None:
+                    _kill_worker_proc(proc_ref, logger)
         except Exception as exc:
             logger.warning(f"Heartbeat error (job {job_id}): {exc}")
 
@@ -597,7 +615,12 @@ def _run_worker(cfg: dict) -> None:
             )
             control["applied_version"] = applied_version
             if exit_now:
-                logger.info("Stop command applied — exiting.")
+                logger.info("Stop command applied — acknowledging and exiting.")
+                _worker_heartbeat(
+                    urls['heartbeat'], worker_id, host, cfg['machine_type'],
+                    "idle", None, applied_version, metrics, logger,
+                    token_mgr=token_mgr,
+                )
                 break
             if hb_resp.get("job"):
                 job = hb_resp["job"]
@@ -644,7 +667,7 @@ def _run_worker(cfg: dict) -> None:
                 target=_heartbeat_loop,
                 args=(
                     urls["heartbeat"], worker_id, host, cfg["machine_type"],
-                    job_id, stop_heartbeat, control, logger,
+                    job_id, stop_heartbeat, control, logger, _proc,
                 ),
                 kwargs={"token_mgr": token_mgr, "registry": registry},
                 daemon=True,
@@ -685,6 +708,23 @@ def _run_worker(cfg: dict) -> None:
 
             stdout, stderr = _proc[0].communicate()
             rc             = _proc[0].returncode
+
+            if control.get("exit_now") and job_id is not None:
+                logger.info(f"Job {job_id} aborted — dashboard stop command.")
+                _update_status(
+                    urls['update'], job_id, 'ABORTED',
+                    f"Job aborted on {worker_id}: dashboard stop command.",
+                    logger, token_mgr=token_mgr,
+                )
+                _worker_heartbeat(
+                    urls['heartbeat'], worker_id, host, cfg['machine_type'],
+                    "idle", None, control["applied_version"], metrics, logger,
+                    token_mgr=token_mgr,
+                )
+                _proc[0] = None
+                if registry:
+                    registry.set_job(worker_id, None)
+                break
 
             if rc == 0:
                 logger.info(f"Job {job_id} finished successfully.")

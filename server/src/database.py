@@ -30,6 +30,8 @@ WORKER_POLL_INTERVAL = WORKER_POLL_INTERVAL_IDLE  # backward-compatible alias
 WORKER_LIFECYCLE_ACTIVE = "active"
 WORKER_LIFECYCLE_DISABLED = "disabled"
 WORKER_LIST_PENDING = "pending"  # dashboard list filter (queued commands)
+WORKER_LIST_PAUSED = "paused"  # dashboard list filter (applied pause)
+WORKER_STOP_SLA_SECONDS = WORKER_POLL_INTERVAL_IDLE  # finalize stop if no poll within ~3 min
 _WORKER_INSTANCE_RE = re.compile(r"^(?:[a-z]{1,6}|[0-9A-Za-z]{6})$")
 
 
@@ -1370,6 +1372,164 @@ class JobDatabase:
                 )
                 conn.commit()
 
+    def _abort_served_job_locked(
+        self,
+        conn: sqlite3.Connection,
+        job_id: int,
+        message: str,
+        worker_id: str = "",
+    ) -> bool:
+        """Abort a SERVED job without acquiring the DB lock again."""
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM jobs WHERE id = ? AND status = ?",
+            (int(job_id), STATUS_SERVED),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        job = dict(row)
+        now = time.time()
+        required_time = now - job["request_timestamp"]
+        try:
+            messages = json.loads(job["message"])
+        except json.JSONDecodeError:
+            messages = []
+        messages.append({
+            "reason": message if message else "No reason provided",
+            "timestamp": now,
+        })
+        cur.execute(
+            """
+            UPDATE jobs
+            SET status = ?, completion_timestamp = ?, required_time = ?, message = ?
+            WHERE id = ?
+            """,
+            (STATUS_ABORTED, now, required_time, json.dumps(messages), int(job_id)),
+        )
+        wid = worker_id or job_worker_id(job)
+        if wid:
+            self._touch_worker_presence_locked(
+                conn, wid,
+                current_job_id=None,
+                reported_status=WORKER_REPORTED_IDLE,
+            )
+        return True
+
+    def _finalize_worker_stop_locked(
+        self,
+        conn: sqlite3.Connection,
+        row: Dict[str, Any],
+        reason: str,
+    ) -> None:
+        """Apply pending stop server-side: clear pending, disable, abort active job."""
+        wid = row["worker_id"]
+        desired_v = int(row.get("desired_version") or 0)
+        now = time.time()
+        job_id = row.get("current_job_id")
+        if job_id is not None:
+            self._abort_served_job_locked(
+                conn,
+                int(job_id),
+                f"Job aborted: {reason} (worker {wid}).",
+                wid,
+            )
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE workers SET
+                applied_version = ?,
+                desired_state = ?,
+                lifecycle_status = ?,
+                disabled_at = ?,
+                reported_status = ?,
+                current_job_id = NULL
+            WHERE worker_id = ?
+            """,
+            (
+                desired_v,
+                WORKER_STATE_STOP,
+                WORKER_LIFECYCLE_DISABLED,
+                now,
+                WORKER_REPORTED_IDLE,
+                wid,
+            ),
+        )
+        self._append_worker_history(
+            conn, wid, reason, event="stop_finalized",
+        )
+
+    def _cancel_pending_locked(
+        self,
+        conn: sqlite3.Connection,
+        row: Dict[str, Any],
+        reason: str,
+    ) -> None:
+        """Revert a queued command without requiring a recent poll."""
+        applied = int(row.get("applied_version") or 0)
+        desired_v = int(row.get("desired_version") or 0)
+        if desired_v <= applied:
+            return
+        wid = row["worker_id"]
+        prev = row.get("previous_desired_state") or WORKER_STATE_RUN
+        cancelled = row.get("desired_state") or WORKER_STATE_RUN
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE workers SET
+                desired_state = ?,
+                desired_version = desired_version + 1,
+                previous_desired_state = ?
+            WHERE worker_id = ?
+            """,
+            (prev, cancelled, wid),
+        )
+        self._append_worker_history(
+            conn, wid, reason, event="command_cancelled",
+        )
+
+    def _reconcile_worker_commands(self, conn: sqlite3.Connection) -> None:
+        """Finalize overdue stop commands and clear orphan pending on stopped workers."""
+        now = time.time()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM workers")
+        for raw in cur.fetchall():
+            row = dict(raw)
+            applied = int(row.get("applied_version") or 0)
+            desired_v = int(row.get("desired_version") or 0)
+            if desired_v <= applied:
+                continue
+            desired_state = row.get("desired_state") or WORKER_STATE_RUN
+            lifecycle = row.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE
+            last_poll = float(row.get("last_poll_at") or 0)
+            poll_age = (now - last_poll) if last_poll > 0 else float("inf")
+
+            if desired_state == WORKER_STATE_STOP:
+                if lifecycle == WORKER_LIFECYCLE_DISABLED:
+                    self._finalize_worker_stop_locked(
+                        conn,
+                        row,
+                        "Stop command finalized — worker already stopped.",
+                    )
+                elif poll_age > WORKER_STOP_SLA_SECONDS:
+                    self._finalize_worker_stop_locked(
+                        conn,
+                        row,
+                        "Stop command finalized — no worker poll within ~3 minutes "
+                        "after dashboard stop.",
+                    )
+            elif lifecycle == WORKER_LIFECYCLE_DISABLED:
+                self._cancel_pending_locked(
+                    conn,
+                    row,
+                    "Pending command cleared — worker already stopped.",
+                )
+
+    def _sync_worker_lifecycle(self, conn: sqlite3.Connection) -> None:
+        """Reconcile commands, then disable active workers with no recent poll."""
+        self._reconcile_worker_commands(conn)
+        self._disable_stale_workers(conn)
+
     def _disable_stale_workers(self, conn: sqlite3.Connection) -> None:
         """Move active workers with no recent poll to disabled lifecycle."""
         now = time.time()
@@ -1380,11 +1540,24 @@ class JobDatabase:
         )
         for row in cur.fetchall():
             row = dict(row)
+            applied = int(row.get("applied_version") or 0)
+            desired_v = int(row.get("desired_version") or 0)
+            if desired_v > applied and (row.get("desired_state") or "") == WORKER_STATE_STOP:
+                continue
             last_poll = float(row.get("last_poll_at") or 0)
             if last_poll <= 0 or (now - last_poll) <= WORKER_STALE_SECONDS:
                 continue
             wid = row["worker_id"]
             mins = max(1, round((now - last_poll) / 60))
+            job_id = row.get("current_job_id")
+            if job_id is not None:
+                self._abort_served_job_locked(
+                    conn,
+                    int(job_id),
+                    f"Job aborted: worker disabled after {mins} minutes with no poll "
+                    f"(worker {wid}).",
+                    wid,
+                )
             self._append_worker_history(
                 conn,
                 wid,
@@ -1394,10 +1567,11 @@ class JobDatabase:
             )
             cur.execute(
                 """
-                UPDATE workers SET lifecycle_status = ?, disabled_at = ?
+                UPDATE workers SET lifecycle_status = ?, disabled_at = ?,
+                    reported_status = ?, current_job_id = NULL
                 WHERE worker_id = ?
                 """,
-                (WORKER_LIFECYCLE_DISABLED, now, wid),
+                (WORKER_LIFECYCLE_DISABLED, now, WORKER_REPORTED_IDLE, wid),
             )
 
     @staticmethod
@@ -1465,7 +1639,7 @@ class JobDatabase:
         with self.lock:
             with self.get_connection() as conn:
                 self._backfill_worker_identity_columns(conn)
-                self._disable_stale_workers(conn)
+                self._sync_worker_lifecycle(conn)
                 conn.commit()
                 cur = conn.execute("SELECT * FROM workers ORDER BY host, instance, slot, worker_id")
                 rows = [
@@ -1474,11 +1648,22 @@ class JobDatabase:
                 ]
         if lifecycle == WORKER_LIST_PENDING:
             rows = [r for r in rows if r.get("pending")]
+        elif lifecycle == WORKER_LIST_PAUSED:
+            rows = [
+                r for r in rows
+                if r.get("lifecycle_status") == WORKER_LIFECYCLE_ACTIVE
+                and not r.get("pending")
+                and (r.get("desired_state") or WORKER_STATE_RUN) == WORKER_STATE_PAUSE
+            ]
         elif lifecycle == WORKER_LIFECYCLE_ACTIVE:
             rows = [
                 r for r in rows
                 if r.get("lifecycle_status") == WORKER_LIFECYCLE_ACTIVE
                 and not r.get("pending")
+                and (r.get("desired_state") or WORKER_STATE_RUN) in (
+                    WORKER_STATE_RUN,
+                    WORKER_STATE_DRAIN,
+                )
             ]
         elif lifecycle:
             rows = [r for r in rows if r.get("lifecycle_status") == lifecycle]
@@ -1493,6 +1678,7 @@ class JobDatabase:
     def get_worker_summary(self) -> Dict[str, int]:
         rows = self._list_worker_rows(lifecycle=WORKER_LIFECYCLE_ACTIVE)
         pending = len(self._list_worker_rows(lifecycle=WORKER_LIST_PENDING))
+        paused = len(self._list_worker_rows(lifecycle=WORKER_LIST_PAUSED))
         busy = sum(1 for r in rows if r["reported_status"] == WORKER_REPORTED_BUSY)
         idle = sum(1 for r in rows if r["reported_status"] == WORKER_REPORTED_IDLE)
         disabled = len(self._list_worker_rows(lifecycle=WORKER_LIFECYCLE_DISABLED))
@@ -1500,6 +1686,7 @@ class JobDatabase:
             "total": len(rows),
             "busy": busy,
             "idle": idle,
+            "paused": paused,
             "pending_commands": pending,
             "disabled": disabled,
         }
@@ -1547,10 +1734,18 @@ class JobDatabase:
         params: List[Any] = []
         if lifecycle == WORKER_LIST_PENDING:
             clauses.append("desired_version > applied_version")
+        elif lifecycle == WORKER_LIST_PAUSED:
+            clauses.append("lifecycle_status = ?")
+            params.append(WORKER_LIFECYCLE_ACTIVE)
+            clauses.append("desired_version <= applied_version")
+            clauses.append("desired_state = ?")
+            params.append(WORKER_STATE_PAUSE)
         elif lifecycle == WORKER_LIFECYCLE_ACTIVE:
             clauses.append("lifecycle_status = ?")
             params.append(WORKER_LIFECYCLE_ACTIVE)
             clauses.append("desired_version <= applied_version")
+            clauses.append(f"desired_state IN (?, ?)")
+            params.extend([WORKER_STATE_RUN, WORKER_STATE_DRAIN])
         elif lifecycle == WORKER_LIFECYCLE_DISABLED:
             clauses.append("lifecycle_status = ?")
             params.append(WORKER_LIFECYCLE_DISABLED)
@@ -1586,7 +1781,7 @@ class JobDatabase:
         with self.lock:
             with self.get_connection() as conn:
                 self._backfill_worker_identity_columns(conn)
-                self._disable_stale_workers(conn)
+                self._sync_worker_lifecycle(conn)
                 conn.commit()
                 cur = conn.execute(
                     f"SELECT COUNT(*) FROM workers{where}", params,
@@ -1662,7 +1857,7 @@ class JobDatabase:
         with self.lock:
             with self.get_connection() as conn:
                 self._backfill_worker_identity_columns(conn)
-                self._disable_stale_workers(conn)
+                self._sync_worker_lifecycle(conn)
                 conn.commit()
                 cur = conn.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
                 row = cur.fetchone()
@@ -1744,7 +1939,7 @@ class JobDatabase:
         job_payload = None
         with self.lock:
             with self.get_connection() as conn:
-                self._disable_stale_workers(conn)
+                self._sync_worker_lifecycle(conn)
                 cur = conn.cursor()
                 cur.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
                 row = cur.fetchone()
@@ -1895,11 +2090,16 @@ class JobDatabase:
             WORKER_STATE_STOP: 3,
         }.get(state, 0)
 
-    def _worker_is_actionable(self, row: Dict[str, Any], now: float) -> bool:
-        if (row.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE) != WORKER_LIFECYCLE_ACTIVE:
+    def _worker_is_active_target(self, row: Dict[str, Any]) -> bool:
+        return (row.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE) == WORKER_LIFECYCLE_ACTIVE
+
+    def _worker_eligible_for_stop(self, row: Dict[str, Any]) -> bool:
+        if not self._worker_is_active_target(row):
             return False
-        last_poll = float(row.get("last_poll_at") or 0)
-        return last_poll > 0 and (now - last_poll) <= WORKER_STALE_SECONDS
+        return (row.get("reported_status") or WORKER_REPORTED_IDLE) in (
+            WORKER_REPORTED_IDLE,
+            WORKER_REPORTED_BUSY,
+        )
 
     def set_workers_command(
         self,
@@ -1926,13 +2126,15 @@ class JobDatabase:
 
         with self.lock:
             with self.get_connection() as conn:
-                self._disable_stale_workers(conn)
+                self._sync_worker_lifecycle(conn)
                 cur = conn.cursor()
                 cur.execute("SELECT * FROM workers")
                 rows = [dict(r) for r in cur.fetchall()]
-                now = time.time()
                 for row in rows:
-                    if not self._worker_is_actionable(row, now):
+                    if action == WORKER_STATE_STOP:
+                        if not self._worker_eligible_for_stop(row):
+                            continue
+                    elif not self._worker_is_active_target(row):
                         continue
                     wid = row["worker_id"]
                     host = row.get("host") or ""
@@ -2006,12 +2208,12 @@ class JobDatabase:
         reverted = 0
         with self.lock:
             with self.get_connection() as conn:
-                self._disable_stale_workers(conn)
+                self._sync_worker_lifecycle(conn)
                 cur = conn.cursor()
                 cur.execute("SELECT * FROM workers")
                 for row in cur.fetchall():
                     row = dict(row)
-                    if not self._worker_is_actionable(row, time.time()):
+                    if not self._worker_is_active_target(row):
                         continue
                     applied = int(row.get("applied_version") or 0)
                     desired_v = int(row.get("desired_version") or 0)
@@ -2078,19 +2280,24 @@ class JobDatabase:
                 cur.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
                 row = cur.fetchone()
                 if row:
+                    row_d = dict(row)
+                    desired_v = int(row_d.get("desired_version") or 0) + 1
                     cur.execute(
                         """
                         UPDATE workers SET
                             host = ?, instance = ?, slot = ?,
                             lifecycle_status = ?, disabled_at = ?,
                             reported_status = ?, current_job_id = NULL,
-                            desired_state = ?
+                            desired_state = ?,
+                            desired_version = ?,
+                            applied_version = ?
                         WHERE worker_id = ?
                         """,
                         (
                             host, instance, slot,
                             WORKER_LIFECYCLE_DISABLED, now,
                             WORKER_REPORTED_IDLE, WORKER_STATE_STOP,
+                            desired_v, desired_v,
                             worker_id,
                         ),
                     )

@@ -2335,6 +2335,7 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
             .worker-badge--busy { background: #fff3e0; color: #e65100; }
             .worker-badge--pending { background: #e3f2fd; color: #1565c0; }
             .worker-badge--pause { background: #e3f2fd; color: #1565c0; }
+            .workers-btn-sm.workers-btn--pause { border-color: #90caf9; color: #1565c0; background: #e3f2fd; }
             .worker-badge--drain { background: #fff8e1; color: #f57f17; }
             .worker-badge--stop { background: #ffebee; color: #c62828; }
             .worker-badge--applied { background: #eceff1; color: #546e7a; }

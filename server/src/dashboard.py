@@ -791,7 +791,7 @@ def workers_filters():
     """Host / instance / slot options for worker filter dropdowns."""
     db.track_api_request("Worker Filters", "GET")
     lifecycle = request.args.get("lifecycle", "active").strip().lower()
-    if lifecycle not in ("active", "disabled", "pending", "all"):
+    if lifecycle not in ("active", "disabled", "pending", "paused", "all"):
         lifecycle = "active"
     lc = None if lifecycle == "all" else lifecycle
     return jsonify(db.get_worker_filters(lifecycle=lc))
@@ -802,7 +802,7 @@ def workers_list():
     """Paginated worker list with lifecycle and host/instance/slot filters."""
     db.track_api_request("Worker List", "GET")
     lifecycle = request.args.get("lifecycle", "active").strip().lower()
-    if lifecycle not in ("active", "disabled", "pending", "all"):
+    if lifecycle not in ("active", "disabled", "pending", "paused", "all"):
         lifecycle = "active"
     host = request.args.get("host", "").strip() or None
     instance = request.args.get("instance", "").strip() or None
