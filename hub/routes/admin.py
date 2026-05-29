@@ -237,7 +237,7 @@ def extensions():
         LimitExtensionRequest.reviewed_at,
         LimitExtensionRequest.requested_at,
     )
-    q = LimitExtensionRequest.query.join(User).order_by(
+    q = LimitExtensionRequest.query.join(LimitExtensionRequest.user).order_by(
         desc(activity_at),
         desc(LimitExtensionRequest.id),
     )
