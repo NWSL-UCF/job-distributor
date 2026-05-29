@@ -4,7 +4,15 @@ Admin portal routes. All require @require_admin.
 from datetime import date, datetime, timezone
 
 from flask import Blueprint, g, redirect, render_template, request, url_for
+from sqlalchemy import desc, func
 
+from ..admin_pagination import (
+    DEFAULT_ADMIN_PAGE_SIZE,
+    MAX_ADMIN_PAGE_SIZE,
+    like_pattern,
+    paginate_query,
+    search_term,
+)
 from ..db import db
 from ..decorators import require_admin
 from ..models import (
@@ -21,8 +29,45 @@ from ..email_service import send_extension_result
 admin_bp = Blueprint("admin", __name__)
 
 
+@admin_bp.context_processor
+def _admin_template_context():
+    pending = LimitExtensionRequest.query.filter_by(status="PENDING").count()
+    return {"pending_ext_count": pending}
+
+
+def _get_default_limits() -> DefaultLimits:
+    defaults = db.session.get(DefaultLimits, 1)
+    if not defaults:
+        defaults = DefaultLimits(id=1)
+        db.session.add(defaults)
+        db.session.commit()
+    return defaults
+
+
+def _ext_alloc_defaults() -> tuple[int, int]:
+    """Last-used GB allocation for extension approvals (default 50/50)."""
+    defaults = _get_default_limits()
+    return defaults.ext_default_in_gb, defaults.ext_default_out_gb
+
+
+def _save_ext_alloc_defaults(in_gb: int, out_gb: int) -> None:
+    defaults = _get_default_limits()
+    defaults.ext_default_in_gb  = max(0, in_gb)
+    defaults.ext_default_out_gb = max(0, out_gb)
+
+
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _page_args() -> tuple[int, int]:
+    page = request.args.get("page", 0, type=int)
+    page_size = request.args.get("page_size", DEFAULT_ADMIN_PAGE_SIZE, type=int)
+    return max(0, page), max(1, min(page_size, MAX_ADMIN_PAGE_SIZE))
+
+
+def _search_q() -> str:
+    return search_term(request.args.get("q"))
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -36,10 +81,15 @@ def index():
 @admin_bp.route("/users")
 @require_admin
 def users():
-    all_users = User.query.order_by(User.created_at.desc()).all()
-    now = _now()
+    page, page_size = _page_args()
+    q_str = _search_q()
+    q = User.query.order_by(User.updated_at.desc(), User.id.desc())
+    pattern = like_pattern(q_str)
+    if pattern:
+        q = q.filter(User.email.ilike(pattern))
+    pagination = paginate_query(q, page=page, page_size=page_size)
     rows = []
-    for u in all_users:
+    for u in pagination["items"]:
         usage = _current_usage(u)
         lim_in, lim_out = _get_limits(u)
         rows.append({
@@ -49,7 +99,13 @@ def users():
             "limit_out": lim_out,
             "exp_count": u.experiments.filter(Experiment.status != "DELETED").count(),
         })
-    return render_template("admin/users.html", user=g.current_user, rows=rows)
+    return render_template(
+        "admin/users.html",
+        user=g.current_user,
+        rows=rows,
+        pagination=pagination,
+        search_q=q_str,
+    )
 
 
 @admin_bp.route("/users/<int:uid>")
@@ -140,13 +196,24 @@ def set_user_limit(uid: int):
 @admin_bp.route("/experiments")
 @require_admin
 def experiments():
-    exps = (
+    page, page_size = _page_args()
+    q_str = _search_q()
+    q = (
         Experiment.query
         .filter(Experiment.status != "DELETED")
-        .order_by(Experiment.created_at.desc())
-        .all()
+        .order_by(Experiment.updated_at.desc(), Experiment.id.desc())
     )
-    return render_template("admin/experiments.html", user=g.current_user, exps=exps)
+    pattern = like_pattern(q_str)
+    if pattern:
+        q = q.filter(Experiment.name.ilike(pattern))
+    pagination = paginate_query(q, page=page, page_size=page_size)
+    return render_template(
+        "admin/experiments.html",
+        user=g.current_user,
+        exps=pagination["items"],
+        pagination=pagination,
+        search_q=q_str,
+    )
 
 
 @admin_bp.route("/experiments/<name>/expire", methods=["POST"])
@@ -164,12 +231,30 @@ def expire_experiment(name: str):
 @admin_bp.route("/extensions")
 @require_admin
 def extensions():
-    reqs = (
-        LimitExtensionRequest.query
-        .order_by(LimitExtensionRequest.requested_at.desc())
-        .all()
+    page, page_size = _page_args()
+    q_str = _search_q()
+    activity_at = func.coalesce(
+        LimitExtensionRequest.reviewed_at,
+        LimitExtensionRequest.requested_at,
     )
-    return render_template("admin/extensions.html", user=g.current_user, reqs=reqs)
+    q = LimitExtensionRequest.query.join(User).order_by(
+        desc(activity_at),
+        desc(LimitExtensionRequest.id),
+    )
+    pattern = like_pattern(q_str)
+    if pattern:
+        q = q.filter(User.email.ilike(pattern))
+    pagination = paginate_query(q, page=page, page_size=page_size)
+    default_in_gb, default_out_gb = _ext_alloc_defaults()
+    return render_template(
+        "admin/extensions.html",
+        user=g.current_user,
+        reqs=pagination["items"],
+        pagination=pagination,
+        default_in_gb=default_in_gb,
+        default_out_gb=default_out_gb,
+        search_q=q_str,
+    )
 
 
 @admin_bp.route("/extensions/<int:req_id>/approve", methods=["POST"])
@@ -189,6 +274,10 @@ def approve_extension(req_id: int):
     extra_in  = _parse_gb("extra_in_gb")
     extra_out = _parse_gb("extra_out_gb")
     note      = request.form.get("admin_note", "").strip()
+
+    in_gb  = max(0, round((extra_in  or 0) / (1024 ** 3)))
+    out_gb = max(0, round((extra_out or 0) / (1024 ** 3)))
+    _save_ext_alloc_defaults(in_gb, out_gb)
 
     # Update the request
     req.status               = "APPROVED"
@@ -245,12 +334,7 @@ def decline_extension(req_id: int):
 @admin_bp.route("/settings", methods=["GET", "POST"])
 @require_admin
 def settings():
-    defaults = db.session.get(DefaultLimits, 1)
-    if not defaults:
-        defaults = DefaultLimits(id=1)
-        db.session.add(defaults)
-        db.session.commit()
-
+    defaults = _get_default_limits()
     saved = False
     if request.method == "POST":
         def _parse_gb(field):

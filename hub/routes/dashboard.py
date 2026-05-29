@@ -613,11 +613,18 @@ def submit_extension():
     db.session.add(req)
     db.session.commit()
     from ..event_log import log_event
+    from ..email_service import send_extension_request_admin_alert
     log_event(
         g.current_user.id,
         "extension_submitted",
         "Data limit extension request submitted.",
         metadata={"request_id": req.id},
+    )
+    send_extension_request_admin_alert(
+        g.current_user.email,
+        req.id,
+        desc,
+        affil,
     )
     reqs = (g.current_user.ext_requests
             .order_by(LimitExtensionRequest.requested_at.desc()).all())

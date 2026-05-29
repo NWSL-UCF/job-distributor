@@ -295,6 +295,7 @@ openssl rand -hex 24   # use this for FRPS_TOKEN
 | `BREVO_API_KEY` | Brevo transactional email API key |
 | `BREVO_FROM_EMAIL` | e.g. `info@yourdomain.com` |
 | `BREVO_FROM_NAME` | e.g. `YourApp Team` |
+| `HUB_ADMIN_EMAIL` | Admin inbox for extension-request alerts (comma-separated). Falls back to all `is_admin=1` users if unset. |
 
 > **Never commit `hub.env` to git.** It is already in `.gitignore`.
 

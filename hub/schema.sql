@@ -217,6 +217,8 @@ CREATE TABLE IF NOT EXISTS default_limits (
     id                      INT         NOT NULL DEFAULT 1,
     bytes_in_per_month      BIGINT      NOT NULL DEFAULT 10737418240,   -- 10 GB
     bytes_out_per_month     BIGINT      NOT NULL DEFAULT 10737418240,   -- 10 GB
+    ext_default_in_gb       INT         NOT NULL DEFAULT 50,
+    ext_default_out_gb      INT         NOT NULL DEFAULT 50,
     updated_at              DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
                                                  ON UPDATE CURRENT_TIMESTAMP,
     updated_by              BIGINT      NULL,    -- admin user id

@@ -1,10 +1,16 @@
 {% extends "admin/base.html" %}
+{% from "admin/_pagination.html" import render_pagination %}
+{% from "admin/_search.html" import render_search %}
 {% block title %}Hub | Experiments{% endblock %}
+{% block admin_topbar %}Experiments{% endblock %}
 
 {% block content %}
-<div class="page-header">
+<div class="page-header page-header--with-search">
   <h1 class="page-title">All Experiments</h1>
+  {{ render_search('Search by experiment name…', search_q) }}
 </div>
+
+{{ render_pagination(pagination, 'admin.experiments', search_q) }}
 
 <table class="data-table">
   <thead>
@@ -14,6 +20,7 @@
       <th>Status</th>
       <th>Created</th>
       <th>Last active</th>
+      <th>Updated</th>
       <th>Expires</th>
       <th>Actions</th>
     </tr>
@@ -25,7 +32,8 @@
     <td>{{ exp.user.email }}</td>
     <td><span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span></td>
     <td>{{ exp.created_at.strftime('%Y-%m-%d') if exp.created_at else '—' }}</td>
-    <td>{{ exp.last_activity_at.strftime('%Y-%m-%d') if exp.last_activity_at else '—' }}</td>
+    <td>{{ exp.last_activity_at.strftime('%Y-%m-%d %H:%M') if exp.last_activity_at else '—' }}</td>
+    <td>{{ exp.updated_at.strftime('%Y-%m-%d %H:%M') if exp.updated_at else '—' }}</td>
     <td>{{ exp.expires_at.strftime('%Y-%m-%d') if exp.expires_at else '—' }}</td>
     <td>
       {% if exp.status not in ('EXPIRED', 'DELETED') %}
@@ -36,7 +44,11 @@
       {% endif %}
     </td>
   </tr>
+  {% else %}
+  <tr><td colspan="8" class="text--muted">{% if search_q %}No experiments match “{{ search_q }}”.{% else %}No experiments found.{% endif %}</td></tr>
   {% endfor %}
   </tbody>
 </table>
+
+{{ render_pagination(pagination, 'admin.experiments', search_q) }}
 {% endblock %}

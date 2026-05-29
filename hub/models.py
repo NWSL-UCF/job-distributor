@@ -147,6 +147,8 @@ class DefaultLimits(db.Model):
                                      default=10 * 1024 * 1024 * 1024)
     bytes_out_per_month  = db.Column(db.BigInteger, nullable=False,
                                      default=10 * 1024 * 1024 * 1024)
+    ext_default_in_gb    = db.Column(db.Integer, nullable=False, default=50)
+    ext_default_out_gb   = db.Column(db.Integer, nullable=False, default=50)
     updated_at           = db.Column(db.DateTime, default=_now, onupdate=_now)
     updated_by           = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="SET NULL"))
 

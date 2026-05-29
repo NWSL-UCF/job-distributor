@@ -1,17 +1,26 @@
 {% extends "admin/base.html" %}
+{% from "admin/_pagination.html" import render_pagination %}
+{% from "admin/_search.html" import render_search %}
 {% block title %}Hub | Extensions{% endblock %}
+{% block admin_topbar %}Extensions{% endblock %}
 
 {% block content %}
-<div class="page-header">
+<div class="page-header page-header--with-search">
   <h1 class="page-title">Limit Extension Requests</h1>
+  {{ render_search('Search by user email…', search_q) }}
 </div>
+
+{{ render_pagination(pagination, 'admin.extensions', search_q) }}
 
 {% for req in reqs %}
 <div class="ext-card ext-card--{{ req.status|lower }}">
   <div class="ext-card__header">
     <div>
       <strong>{{ req.user.email }}</strong>
-      <span class="text--muted">&nbsp;·&nbsp;{{ req.requested_at.strftime('%Y-%m-%d') if req.requested_at else '' }}</span>
+      <span class="text--muted">&nbsp;·&nbsp;Submitted {{ req.requested_at.strftime('%Y-%m-%d %H:%M') if req.requested_at else '—' }}</span>
+      {% if req.reviewed_at %}
+      <span class="text--muted">&nbsp;·&nbsp;Reviewed {{ req.reviewed_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      {% endif %}
     </div>
     <span class="badge badge--{{ req.status|lower }}">{{ req.status }}</span>
   </div>
@@ -24,11 +33,11 @@
       <div class="field-row">
         <div class="field">
           <label class="field__label">Extra upload (GB)</label>
-          <input class="field__input" type="number" name="extra_in_gb" step="1" min="0" value="50">
+          <input class="field__input" type="number" name="extra_in_gb" step="1" min="0" value="{{ default_in_gb }}">
         </div>
         <div class="field">
           <label class="field__label">Extra download (GB)</label>
-          <input class="field__input" type="number" name="extra_out_gb" step="1" min="0" value="50">
+          <input class="field__input" type="number" name="extra_out_gb" step="1" min="0" value="{{ default_out_gb }}">
         </div>
         <div class="field">
           <label class="field__label">Note (optional)</label>
@@ -51,7 +60,9 @@
 </div>
 {% else %}
 <div class="empty-state">
-  <p class="empty-state__text">No extension requests.</p>
+  <p class="empty-state__text">{% if search_q %}No extension requests match “{{ search_q }}”.{% else %}No extension requests.{% endif %}</p>
 </div>
 {% endfor %}
+
+{{ render_pagination(pagination, 'admin.extensions', search_q) }}
 {% endblock %}

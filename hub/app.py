@@ -79,6 +79,15 @@ def create_app() -> Flask:
         db.create_all()
         _apply_migrations()
         _seed_defaults()
+        from .email_service import get_admin_notify_emails
+        admin_emails = get_admin_notify_emails()
+        if config.BREVO_API_KEY and not admin_emails:
+            log.warning(
+                "HUB_ADMIN_EMAIL is not set and no admin users found — "
+                "extension request alerts will not be sent."
+            )
+        elif admin_emails:
+            log.info("Admin notify emails: %s", ", ".join(admin_emails))
 
     # ── Background threads ────────────────────────────────────────────────────
     # Only start in the main process to avoid duplicate threads under Gunicorn.
@@ -167,6 +176,10 @@ def _apply_migrations() -> None:
             "frpc_token",
             "ALTER TABLE experiments ADD COLUMN frpc_token VARCHAR(64) NULL AFTER admin_token",
         ),
+        ("default_limits", "ext_default_in_gb",
+         "ALTER TABLE default_limits ADD COLUMN ext_default_in_gb INT NOT NULL DEFAULT 50"),
+        ("default_limits", "ext_default_out_gb",
+         "ALTER TABLE default_limits ADD COLUMN ext_default_out_gb INT NOT NULL DEFAULT 50"),
     ]
 
     for table, column, stmt in migrations:

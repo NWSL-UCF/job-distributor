@@ -47,6 +47,9 @@ SESSION_COOKIE_SECURE = _env("SESSION_COOKIE_SECURE")
 BREVO_API_KEY    = _env("BREVO_API_KEY")
 BREVO_FROM_EMAIL = _env("BREVO_FROM_EMAIL", "info@jobdistributor.net")
 BREVO_FROM_NAME  = _env("BREVO_FROM_NAME",  "JobDistributor Team")
+# Comma-separated admin inboxes for operational alerts (extension requests, etc.).
+# Falls back to all active is_admin=1 users when unset.
+HUB_ADMIN_EMAIL  = _env("HUB_ADMIN_EMAIL")
 
 # ── OTP (email verification & password reset) ─────────────────────────────────
 OTP_VERIFY_EXPIRE_MINUTES = int(_env("OTP_VERIFY_EXPIRE_MINUTES", "30"))

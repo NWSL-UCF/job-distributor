@@ -1,0 +1,27 @@
+{% macro render_pagination(pagination, endpoint, search_q='') %}
+{% if pagination.total_pages > 1 %}
+<div class="admin-pagination">
+  {% if pagination.page > 0 %}
+  <a href="{{ url_for(endpoint, page=pagination.page - 1, page_size=pagination.page_size, q=search_q or none) }}"
+     class="btn btn--outline btn--sm">← Previous</a>
+  {% else %}
+  <span class="btn btn--outline btn--sm admin-pagination__btn--disabled">← Previous</span>
+  {% endif %}
+  <span class="admin-pagination__info">
+    Page {{ pagination.page + 1 }} of {{ pagination.total_pages }}
+    · {{ pagination.total }} total
+    {% if search_q %}<span class="admin-pagination__filter">matching “{{ search_q }}”</span>{% endif %}
+  </span>
+  {% if pagination.page + 1 < pagination.total_pages %}
+  <a href="{{ url_for(endpoint, page=pagination.page + 1, page_size=pagination.page_size, q=search_q or none) }}"
+     class="btn btn--outline btn--sm">Next →</a>
+  {% else %}
+  <span class="btn btn--outline btn--sm admin-pagination__btn--disabled">Next →</span>
+  {% endif %}
+</div>
+{% elif pagination.total > 0 %}
+<p class="admin-pagination__info admin-pagination__info--solo">
+  {{ pagination.total }} total{% if search_q %} matching “{{ search_q }}”{% endif %}
+</p>
+{% endif %}
+{% endmacro %}

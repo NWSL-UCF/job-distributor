@@ -14,25 +14,30 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
 </head>
 <body class="admin-body">
-  <div class="admin-layout">
+  <div class="admin-sidebar-overlay" id="admin-sidebar-overlay" aria-hidden="true"></div>
 
-    <aside class="admin-sidebar">
+  <div class="admin-layout">
+    <aside class="admin-sidebar" id="admin-sidebar" aria-label="Admin navigation">
       <div class="admin-sidebar__brand">
         <a href="{{ url_for('dashboard.index') }}" class="admin-sidebar__brand-link">
           <img class="jd-logo" style="--jd-logo-size:24px" src="{{ url_for('static', filename='jd-icon-black.svg') }}" alt="">
-          JobDistributor Hub
+          <span class="admin-sidebar__brand-text">JobDistributor Hub</span>
         </a>
         <span class="admin-badge">Admin</span>
       </div>
       <nav class="admin-nav">
-        <a href="{{ url_for('admin.users') }}"      class="admin-nav__link {% if 'user' in request.endpoint %}active{% endif %}">Users</a>
-        <a href="{{ url_for('admin.experiments') }}" class="admin-nav__link {% if 'experiment' in request.endpoint %}active{% endif %}">Experiments</a>
-        <a href="{{ url_for('admin.extensions') }}"  class="admin-nav__link {% if 'extension' in request.endpoint %}active{% endif %}">
+        {% set ep = request.endpoint or '' %}
+        <a href="{{ url_for('admin.users') }}"
+           class="admin-nav__link {% if ep in ('admin.users', 'admin.user_detail') %}active{% endif %}">Users</a>
+        <a href="{{ url_for('admin.experiments') }}"
+           class="admin-nav__link {% if ep in ('admin.experiments', 'admin.expire_experiment') %}active{% endif %}">Experiments</a>
+        <a href="{{ url_for('admin.extensions') }}"
+           class="admin-nav__link {% if ep in ('admin.extensions', 'admin.approve_extension', 'admin.decline_extension') %}active{% endif %}">
           Extensions
-          {% set pending = pending_ext_count if pending_ext_count is defined else 0 %}
-          {% if pending > 0 %}<span class="badge badge--warning">{{ pending }}</span>{% endif %}
+          {% if pending_ext_count > 0 %}<span class="badge badge--warning">{{ pending_ext_count }}</span>{% endif %}
         </a>
-        <a href="{{ url_for('admin.settings') }}"   class="admin-nav__link {% if 'settings' in request.endpoint %}active{% endif %}">Settings</a>
+        <a href="{{ url_for('admin.settings') }}"
+           class="admin-nav__link {% if ep == 'admin.settings' %}active{% endif %}">Settings</a>
       </nav>
       <div class="admin-sidebar__footer">
         <a href="{{ url_for('dashboard.index') }}" class="admin-nav__link">← User view</a>
@@ -42,9 +47,21 @@
       </div>
     </aside>
 
-    <main class="admin-main">
-      {% block content %}{% endblock %}
-    </main>
+    <div class="admin-content">
+      <header class="admin-topbar">
+        <button type="button" class="admin-topbar__menu" id="admin-sidebar-toggle"
+                aria-label="Open admin menu" aria-expanded="false" aria-controls="admin-sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+        <span class="admin-topbar__title">{% block admin_topbar %}Admin{% endblock %}</span>
+      </header>
+
+      <main class="admin-main">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
   </div>
   <script src="{{ url_for('static', filename='hub.js') }}"></script>
   <script src="{{ url_for('static', filename='admin.js') }}"></script>

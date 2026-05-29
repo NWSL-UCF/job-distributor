@@ -1,0 +1,10 @@
+{% macro render_search(placeholder, search_q='') %}
+<form class="admin-search" method="get" action="">
+  <input type="search" name="q" value="{{ search_q }}" placeholder="{{ placeholder }}"
+         class="field__input admin-search__input" autocomplete="off">
+  <button type="submit" class="btn btn--outline btn--sm">Search</button>
+  {% if search_q %}
+  <a href="{{ request.path }}" class="btn btn--ghost btn--sm">Clear</a>
+  {% endif %}
+</form>
+{% endmacro %}

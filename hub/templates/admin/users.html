@@ -1,10 +1,16 @@
 {% extends "admin/base.html" %}
+{% from "admin/_pagination.html" import render_pagination %}
+{% from "admin/_search.html" import render_search %}
 {% block title %}Hub | Users{% endblock %}
+{% block admin_topbar %}Users{% endblock %}
 
 {% block content %}
-<div class="page-header">
+<div class="page-header page-header--with-search">
   <h1 class="page-title">Users</h1>
+  {{ render_search('Search by email…', search_q) }}
 </div>
+
+{{ render_pagination(pagination, 'admin.users', search_q) }}
 
 <table class="data-table">
   <thead>
@@ -15,7 +21,7 @@
       <th>Experiments</th>
       <th>Upload used</th>
       <th>Download used</th>
-      <th>Joined</th>
+      <th>Updated</th>
       <th>Actions</th>
     </tr>
   </thead>
@@ -46,12 +52,16 @@
       </div>
       {{ (row.usage.total_bytes_out if row.usage else 0)|fmt_bytes }}
     </td>
-    <td>{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+    <td>{{ u.updated_at.strftime('%Y-%m-%d %H:%M') if u.updated_at else '—' }}</td>
     <td>
       <a href="{{ url_for('admin.user_detail', uid=u.id) }}" class="btn btn--xs btn--outline">View</a>
     </td>
   </tr>
+  {% else %}
+  <tr><td colspan="8" class="text--muted">{% if search_q %}No users match “{{ search_q }}”.{% else %}No users found.{% endif %}</td></tr>
   {% endfor %}
   </tbody>
 </table>
+
+{{ render_pagination(pagination, 'admin.users', search_q) }}
 {% endblock %}

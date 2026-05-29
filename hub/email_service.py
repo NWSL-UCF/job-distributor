@@ -1,6 +1,7 @@
 """
 Email sending via Brevo REST API with deduplication and user preference checks.
 """
+import html as html_module
 import logging
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -10,7 +11,7 @@ import requests
 from . import config
 from .db import db
 from .event_log import log_event
-from .models import EmailNotification
+from .models import EmailNotification, User
 from .notification_prefs import user_wants_email
 
 log = logging.getLogger(__name__)
@@ -79,6 +80,61 @@ def send_email(to_email: str, subject: str, html: str) -> bool:
     except Exception as exc:
         log.exception("Email send error: %s", exc)
         return False
+
+
+def get_admin_notify_emails() -> list[str]:
+    """Inboxes that receive operational admin alerts."""
+    if config.HUB_ADMIN_EMAIL:
+        return [e.strip() for e in config.HUB_ADMIN_EMAIL.split(",") if e.strip()]
+    return [
+        u.email for u in User.query.filter_by(is_admin=1, is_active=1).all()
+        if u.email
+    ]
+
+
+def send_extension_request_admin_alert(
+    user_email: str,
+    request_id: int,
+    description: str,
+    affiliation: str,
+) -> bool:
+    """Email hub admin(s) when a user submits a limit extension request."""
+    recipients = get_admin_notify_emails()
+    if not recipients:
+        log.warning(
+            "No admin notify emails configured (set HUB_ADMIN_EMAIL or promote an admin user)"
+        )
+        return False
+
+    admin_url = f"{config.HUB_BASE_URL}/admin/extensions"
+    safe_user = html_module.escape(user_email)
+    safe_affil = html_module.escape(affiliation)
+    safe_desc = html_module.escape(description).replace("\n", "<br>")
+    subject = f"[JobDistributor] New limit extension request — {user_email}"
+    html = _email_header() + f"""
+    <h2>New limit extension request</h2>
+    <p>A user has submitted a data limit extension request that needs review.</p>
+    <table style="border-collapse:collapse; margin:16px 0;">
+      <tr><td style="padding:4px 12px 4px 0; color:#737373;">User</td>
+          <td><strong>{safe_user}</strong></td></tr>
+      <tr><td style="padding:4px 12px 4px 0; color:#737373;">Affiliation</td>
+          <td>{safe_affil}</td></tr>
+      <tr><td style="padding:4px 12px 4px 0; color:#737373;">Request</td>
+          <td>#{request_id}</td></tr>
+    </table>
+    <p><strong>Message:</strong></p>
+    <p style="background:#f4f4f4; padding:12px; border-radius:6px;">{safe_desc}</p>
+    <p><a href="{admin_url}">Review in admin portal →</a></p>
+    """ + _email_footer()
+
+    sent_any = False
+    for addr in recipients:
+        if send_email(addr, subject, html):
+            log.info("Extension request alert sent to admin %s (request #%s)", addr, request_id)
+            sent_any = True
+        else:
+            log.warning("Extension request alert failed for admin %s (request #%s)", addr, request_id)
+    return sent_any
 
 
 def send_once(user_id: int, notification_type: str,
