@@ -8,6 +8,7 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 import pytz
 from database import JobDatabase, job_worker_id
