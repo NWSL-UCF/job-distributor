@@ -327,14 +327,29 @@
                                             <button type="button" id="jobsSelectAllMatchingBtn-{{ status }}" class="workers-link-btn" style="display:none;" onclick="selectAllMatchingJobs('{{ status }}')"></button>
                                         </div>
                                         <div class="search-section">
-                                            <div class="search-input-group">
-                                                <input type="text" id="jobSearch-{{ status }}" placeholder="Job ID, host, host_instance, worker ID" class="search-input" oninput="onJobSearchInput('{{ status }}')">
-                                                <button onclick="searchJobs('{{ status }}')" class="search-btn" title="Search">
-                                                    <i class="fas fa-search"></i>
-                                                </button>
-                                                <button onclick="clearSearch('{{ status }}')" class="clear-btn" title="Clear">
-                                                    <i class="fas fa-times"></i>
-                                                </button>
+                                            <div class="search-wrap">
+                                                <div class="search-input-group">
+                                                    <input type="text" id="jobSearch-{{ status }}" placeholder="Job ID, host, host_instance, worker ID" class="search-input" oninput="onJobSearchInput('{{ status }}')">
+                                                    <button type="button" class="search-info-btn" onclick="toggleSearchHelp(this, event)" aria-label="Search help" aria-expanded="false" title="How to search">
+                                                        <i class="fas fa-info-circle"></i>
+                                                    </button>
+                                                    <button type="button" onclick="searchJobs('{{ status }}')" class="search-btn" title="Search">
+                                                        <i class="fas fa-search"></i>
+                                                    </button>
+                                                    <button type="button" onclick="clearSearch('{{ status }}')" class="clear-btn" title="Clear">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                                <div class="search-help-popover" role="dialog" aria-label="Job search help" hidden>
+                                                    <p class="search-help-title">How to search jobs</p>
+                                                    <ul class="search-help-list">
+                                                        <li><strong>Job ID</strong> — enter a number, e.g. <code>42</code></li>
+                                                        <li><strong>Host</strong> — e.g. <code>ec56</code></li>
+                                                        <li><strong>Host + instance</strong> — e.g. <code>ec56_icing</code></li>
+                                                        <li><strong>Full worker ID</strong> — e.g. <code>ec56_icing_0</code></li>
+                                                    </ul>
+                                                    <p class="search-help-note">Prefix match: <code>ec56</code> matches all workers on that host. Results filter as you type. Selected jobs stay selected while searching.</p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -504,16 +519,30 @@
                                         <button type="button" id="workersSelectAllMatchingBtn" class="workers-link-btn" style="display:none;" onclick="selectAllMatchingWorkers()"></button>
                                     </div>
                                     <div class="search-section">
-                                        <div class="search-input-group">
-                                            <input type="search" id="workerSearchInput" class="search-input"
-                                                placeholder="Search worker ID (keep selection)"
-                                                autocomplete="off" oninput="onWorkerSearchInput()">
-                                            <button type="button" onclick="searchWorkers()" class="search-btn" title="Search">
-                                                <i class="fas fa-search"></i>
-                                            </button>
-                                            <button type="button" onclick="clearWorkerSearch()" class="clear-btn" title="Clear">
-                                                <i class="fas fa-times"></i>
-                                            </button>
+                                        <div class="search-wrap">
+                                            <div class="search-input-group">
+                                                <input type="search" id="workerSearchInput" class="search-input"
+                                                    placeholder="Search worker ID (keep selection)"
+                                                    autocomplete="off" oninput="onWorkerSearchInput()">
+                                                <button type="button" class="search-info-btn" onclick="toggleSearchHelp(this, event)" aria-label="Search help" aria-expanded="false" title="How to search">
+                                                    <i class="fas fa-info-circle"></i>
+                                                </button>
+                                                <button type="button" onclick="searchWorkers()" class="search-btn" title="Search">
+                                                    <i class="fas fa-search"></i>
+                                                </button>
+                                                <button type="button" onclick="clearWorkerSearch()" class="clear-btn" title="Clear">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                            <div class="search-help-popover" role="dialog" aria-label="Worker search help" hidden>
+                                                <p class="search-help-title">How to search workers</p>
+                                                <ul class="search-help-list">
+                                                    <li><strong>Host</strong> — e.g. <code>ec56</code></li>
+                                                    <li><strong>Host + instance</strong> — e.g. <code>ec56_icing</code></li>
+                                                    <li><strong>Full worker ID</strong> — e.g. <code>ec56_icing_0</code></li>
+                                                </ul>
+                                                <p class="search-help-note">Prefix match: <code>ec56</code> matches every worker on that host. Results filter as you type. Selected workers stay selected while searching.</p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

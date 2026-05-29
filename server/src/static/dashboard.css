@@ -869,6 +869,10 @@
                 display: flex;
                 align-items: center;
             }
+
+            .search-wrap {
+                position: relative;
+            }
             
             .search-input-group {
                 display: flex;
@@ -894,7 +898,7 @@
                 background: #f8f9fa;
             }
             
-            .search-btn, .clear-btn {
+            .search-btn, .clear-btn, .search-info-btn {
                 padding: 8px 12px;
                 border: none;
                 background: transparent;
@@ -905,6 +909,67 @@
                 justify-content: center;
                 transition: all 0.2s;
                 border-left: 1px solid #e9ecef;
+            }
+
+            .search-info-btn {
+                padding: 8px 10px;
+                font-size: 0.9rem;
+            }
+
+            .search-info-btn:hover,
+            .search-info-btn.is-active {
+                color: #1976d2;
+                background: #e3f2fd;
+            }
+
+            .search-help-popover {
+                position: absolute;
+                top: calc(100% + 6px);
+                right: 0;
+                z-index: 200;
+                width: min(320px, 90vw);
+                padding: 12px 14px;
+                background: #fff;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+                font-size: 0.82rem;
+                line-height: 1.45;
+                color: #495057;
+            }
+
+            .search-help-popover[hidden] {
+                display: none;
+            }
+
+            .search-help-title {
+                font-weight: 700;
+                margin: 0 0 8px;
+                color: #333;
+                font-size: 0.85rem;
+            }
+
+            .search-help-list {
+                margin: 0 0 8px;
+                padding-left: 18px;
+            }
+
+            .search-help-list li {
+                margin-bottom: 4px;
+            }
+
+            .search-help-note {
+                margin: 0;
+                font-size: 0.78rem;
+                color: #6c757d;
+            }
+
+            .search-help-popover code {
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                font-size: 0.9em;
+                background: #f1f3f5;
+                padding: 1px 4px;
+                border-radius: 3px;
             }
 
             .clear-btn {

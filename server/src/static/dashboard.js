@@ -422,6 +422,37 @@ function openModal() {
                 clearBtn.classList.toggle('is-visible', (inputEl.value || '').length > 0);
             }
 
+            function closeAllSearchHelp() {
+                document.querySelectorAll('.search-help-popover').forEach(p => { p.hidden = true; });
+                document.querySelectorAll('.search-info-btn').forEach(b => {
+                    b.setAttribute('aria-expanded', 'false');
+                    b.classList.remove('is-active');
+                });
+            }
+
+            function toggleSearchHelp(btn, ev) {
+                if (ev) ev.stopPropagation();
+                const wrap = btn.closest('.search-wrap');
+                const popover = wrap?.querySelector('.search-help-popover');
+                if (!popover) return;
+                const willOpen = popover.hidden;
+                closeAllSearchHelp();
+                if (willOpen) {
+                    popover.hidden = false;
+                    btn.setAttribute('aria-expanded', 'true');
+                    btn.classList.add('is-active');
+                }
+            }
+
+            document.addEventListener('click', (ev) => {
+                if (ev.target.closest('.search-info-btn') || ev.target.closest('.search-help-popover')) return;
+                closeAllSearchHelp();
+            });
+
+            document.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Escape') closeAllSearchHelp();
+            });
+
             function _updateWorkersSelectAllMatchingBtn() {
                 const btn = document.getElementById('workersSelectAllMatchingBtn');
                 if (!btn) return;
