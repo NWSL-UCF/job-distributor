@@ -84,6 +84,16 @@ def jobs_search_sql(search: Optional[str]) -> tuple:
     )
 
 
+# Columns fetched on hot paths (heartbeat, list pages, command preview/set).
+# Excludes the legacy 'history' TEXT blob which is now in worker_history table.
+_WORKER_HOT_COLS = (
+    "worker_id, host, instance, slot, machine_type, reported_status, "
+    "current_job_id, jd_worker_version, last_poll_at, applied_version, "
+    "desired_state, desired_version, previous_desired_state, pending_batch_id, "
+    "lifecycle_status, disabled_at, first_poll_at, system_metrics"
+)
+
+
 class JobDatabase:
     """SQLite database handler for job distribution system."""
     
@@ -238,7 +248,65 @@ class JobDatabase:
             cursor.execute(
                 'CREATE INDEX IF NOT EXISTS idx_workers_lifecycle ON workers(lifecycle_status)'
             )
-            
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_workers_lifecycle_poll '
+                'ON workers(lifecycle_status, last_poll_at)'
+            )
+
+            # ── worker_history — separate audit-log table (Phase 3) ──────────────
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS worker_history (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    worker_id TEXT    NOT NULL,
+                    timestamp REAL    NOT NULL DEFAULT 0,
+                    event     TEXT    NOT NULL DEFAULT '',
+                    reason    TEXT    NOT NULL DEFAULT '',
+                    metrics   TEXT
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_worker_history_worker '
+                'ON worker_history(worker_id)'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_worker_history_worker_ts '
+                'ON worker_history(worker_id, timestamp DESC)'
+            )
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_worker_history_metrics '
+                'ON worker_history(worker_id, metrics)'
+            )
+
+            # One-time backfill: migrate workers.history JSON blobs → worker_history rows.
+            # Guarded by a config flag so it runs exactly once per DB.
+            cursor.execute(
+                "SELECT value FROM server_config WHERE key = 'worker_history_migrated'"
+            )
+            if not cursor.fetchone():
+                cursor.execute("SELECT worker_id, history FROM workers")
+                for wrow in cursor.fetchall():
+                    wid = wrow["worker_id"]
+                    entries = JobDatabase._parse_worker_history(wrow["history"])
+                    for entry in entries:
+                        ts = float(entry.get("timestamp") or 0)
+                        ev = str(entry.get("event") or "")
+                        rs = str(entry.get("reason") or "")
+                        m = entry.get("metrics")
+                        mj = json.dumps(m) if m else None
+                        cursor.execute(
+                            "INSERT INTO worker_history "
+                            "(worker_id, timestamp, event, reason, metrics) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (wid, ts, ev, rs, mj),
+                        )
+                # Clear the legacy blob column — data is now in worker_history.
+                cursor.execute("UPDATE workers SET history = '[]'")
+                cursor.execute(
+                    "INSERT OR IGNORE INTO server_config (key, value) "
+                    "VALUES ('worker_history_migrated', '1')"
+                )
+                logging.info("worker_history migration complete.")
+
             # Create indexes for optimal query performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status_id ON jobs(status, id)')
@@ -1443,23 +1511,12 @@ class JobDatabase:
         event: str = "",
         metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
-        cur = conn.cursor()
-        cur.execute("SELECT history FROM workers WHERE worker_id = ?", (worker_id,))
-        row = cur.fetchone()
-        if not row:
-            return
-        entries = self._parse_worker_history(row["history"])
-        entry: Dict[str, Any] = {
-            "reason": reason,
-            "timestamp": time.time(),
-            "event": event or "info",
-        }
-        if metrics:
-            entry["metrics"] = metrics
-        entries.append(entry)
-        cur.execute(
-            "UPDATE workers SET history = ? WHERE worker_id = ?",
-            (json.dumps(entries), worker_id),
+        """Append one event to the worker_history table (O(1), no blob rewrite)."""
+        metrics_json = json.dumps(metrics) if metrics else None
+        conn.execute(
+            "INSERT INTO worker_history (worker_id, timestamp, event, reason, metrics) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (worker_id, time.time(), event or "info", reason, metrics_json),
         )
 
     def _touch_worker_presence_locked(
@@ -1508,8 +1565,8 @@ class JobDatabase:
                 (worker_id, host, instance, slot, machine_type, reported_status,
                  current_job_id, last_poll_at, applied_version, desired_state,
                  desired_version, previous_desired_state, system_metrics,
-                 lifecycle_status, disabled_at, history, first_poll_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'run', 0, 'run', ?, ?, 0, '[]', ?)
+                 lifecycle_status, disabled_at, first_poll_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'run', 0, 'run', ?, ?, 0, ?)
                 """,
                 (
                     worker_id, host, instance, slot, mtype, status, current_job_id,
@@ -1655,10 +1712,18 @@ class JobDatabase:
         )
 
     def _reconcile_worker_commands(self, conn: sqlite3.Connection) -> None:
-        """Finalize overdue stop commands and clear orphan pending on stopped workers."""
+        """Finalize overdue stop commands and clear orphan pending on stopped workers.
+
+        Only fetches workers that actually have a pending command (desired_version >
+        applied_version), so the scan is O(pending workers) not O(all workers).
+        """
         now = time.time()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM workers")
+        cur.execute(
+            "SELECT worker_id, current_job_id, applied_version, desired_version, "
+            "desired_state, previous_desired_state, lifecycle_status, last_poll_at "
+            "FROM workers WHERE desired_version > applied_version"
+        )
         for raw in cur.fetchall():
             row = dict(raw)
             applied = int(row.get("applied_version") or 0)
@@ -1696,23 +1761,41 @@ class JobDatabase:
         self._reconcile_worker_commands(conn)
         self._disable_stale_workers(conn)
 
+    def sync_worker_lifecycle(self) -> None:
+        """Public entry point for the background timer (job_cleaner).
+
+        Acquires the lock, runs reconcile + stale-disable in one transaction,
+        and also runs the identity backfill for any new legacy rows.
+        """
+        with self.lock:
+            with self.get_connection() as conn:
+                self._backfill_worker_identity_columns(conn)
+                self._sync_worker_lifecycle(conn)
+                conn.commit()
+        logging.debug("sync_worker_lifecycle: reconcile + stale-disable pass complete.")
+
     def _disable_stale_workers(self, conn: sqlite3.Connection) -> None:
-        """Move active workers with no recent poll to disabled lifecycle."""
+        """Move active workers with no recent poll to disabled lifecycle.
+
+        Uses a targeted SQL query — only fetches workers that are actually stale.
+        Workers with a pending stop command are skipped in SQL (they'll be finalized
+        by _reconcile_worker_commands instead).
+        """
         now = time.time()
+        stale_threshold = now - WORKER_STALE_SECONDS
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM workers WHERE lifecycle_status = ?",
-            (WORKER_LIFECYCLE_ACTIVE,),
+            "SELECT worker_id, current_job_id, last_poll_at "
+            "FROM workers "
+            "WHERE lifecycle_status = ? "
+            "  AND last_poll_at > 0 "
+            "  AND last_poll_at < ? "
+            "  AND NOT (desired_version > applied_version AND desired_state = ?)",
+            (WORKER_LIFECYCLE_ACTIVE, stale_threshold, WORKER_STATE_STOP),
         )
         for row in cur.fetchall():
             row = dict(row)
-            applied = int(row.get("applied_version") or 0)
-            desired_v = int(row.get("desired_version") or 0)
-            if desired_v > applied and (row.get("desired_state") or "") == WORKER_STATE_STOP:
-                continue
             last_poll = float(row.get("last_poll_at") or 0)
-            if last_poll <= 0 or (now - last_poll) <= WORKER_STALE_SECONDS:
-                continue
             wid = row["worker_id"]
             mins = max(1, round((now - last_poll) / 60))
             job_id = row.get("current_job_id")
@@ -1740,26 +1823,16 @@ class JobDatabase:
                 (WORKER_LIFECYCLE_DISABLED, now, WORKER_REPORTED_IDLE, wid),
             )
 
-    @staticmethod
-    def _history_entry_for_list(entry: Dict[str, Any]) -> Dict[str, Any]:
-        """History row for the dashboard timeline (omit large metrics blobs)."""
-        return {
-            "reason": entry.get("reason"),
-            "timestamp": entry.get("timestamp"),
-            "event": entry.get("event"),
-        }
-
-    def _sorted_worker_history(self, raw: Any) -> List[Dict[str, Any]]:
-        history = self._parse_worker_history(raw)
-        return sorted(
-            history,
-            key=lambda e: float(e.get("timestamp") or 0),
-            reverse=True,
-        )
-
     def _worker_row_to_dict(
-        self, row: sqlite3.Row, *, include_history: bool = True,
+        self, row: sqlite3.Row, *, include_history: bool = False,
     ) -> Dict[str, Any]:
+        """Convert a worker DB row to a dict.
+
+        History is no longer embedded in the row — it lives in the worker_history
+        table.  ``history_total`` is always 0 here; callers that need the real
+        count should call ``_count_worker_history(conn, worker_id)`` separately.
+        ``include_history`` is kept for API compatibility but has no effect.
+        """
         d = dict(row)
         now = time.time()
         d["stale"] = (now - float(d.get("last_poll_at") or 0)) > WORKER_STALE_SECONDS
@@ -1769,10 +1842,8 @@ class JobDatabase:
             d["system_metrics"] = json.loads(d.get("system_metrics") or "{}")
         except json.JSONDecodeError:
             d["system_metrics"] = {}
-        sorted_history = self._sorted_worker_history(d.get("history"))
-        d["history_total"] = len(sorted_history)
-        if include_history:
-            d["history"] = sorted_history
+        d.pop("history", None)   # drop legacy blob if the SELECT happened to include it
+        d["history_total"] = 0   # populated by callers that need it
         h, inst, slot = self.parse_worker_id_parts(d.get("worker_id", ""))
         if not d.get("host"):
             d["host"] = h
@@ -1781,6 +1852,15 @@ class JobDatabase:
         if d.get("slot") in (None, ""):
             d["slot"] = slot
         return d
+
+    @staticmethod
+    def _count_worker_history(conn: sqlite3.Connection, worker_id: str) -> int:
+        """Return the total number of history entries for one worker (O(1) index lookup)."""
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM worker_history WHERE worker_id = ?", (worker_id,)
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
 
     def _backfill_worker_identity_columns(self, conn: sqlite3.Connection) -> None:
         cur = conn.cursor()
@@ -1804,10 +1884,10 @@ class JobDatabase:
     ) -> List[Dict[str, Any]]:
         with self.lock:
             with self.get_connection() as conn:
-                self._backfill_worker_identity_columns(conn)
-                self._sync_worker_lifecycle(conn)
-                conn.commit()
-                cur = conn.execute("SELECT * FROM workers ORDER BY host, instance, slot, worker_id")
+                cur = conn.execute(
+                    f"SELECT {_WORKER_HOT_COLS} FROM workers "
+                    "ORDER BY host, instance, slot, worker_id"
+                )
                 rows = [
                     self._worker_row_to_dict(r, include_history=False)
                     for r in cur.fetchall()
@@ -1842,18 +1922,42 @@ class JobDatabase:
         return rows
 
     def get_worker_summary(self) -> Dict[str, int]:
-        rows = self._list_worker_rows(lifecycle=WORKER_LIFECYCLE_ACTIVE)
-        pending = len(self._list_worker_rows(lifecycle=WORKER_LIST_PENDING))
-        paused = len(self._list_worker_rows(lifecycle=WORKER_LIST_PAUSED))
-        busy = sum(1 for r in rows if r["reported_status"] == WORKER_REPORTED_BUSY)
-        idle = sum(1 for r in rows if r["reported_status"] == WORKER_REPORTED_IDLE)
-        disabled = len(self._list_worker_rows(lifecycle=WORKER_LIFECYCLE_DISABLED))
+        """Single-pass worker summary — one query, no per-request lifecycle sync."""
+        with self.lock:
+            with self.get_connection() as conn:
+                cur = conn.execute(
+                    "SELECT lifecycle_status, reported_status, desired_state, "
+                    "       desired_version, applied_version "
+                    "FROM workers"
+                )
+                all_rows = [dict(r) for r in cur.fetchall()]
+
+        total = busy = idle = pending_cmds = paused = disabled = 0
+        for r in all_rows:
+            lc = r.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE
+            ds = r.get("desired_state") or WORKER_STATE_RUN
+            has_pending = int(r.get("desired_version") or 0) > int(r.get("applied_version") or 0)
+            rs = r.get("reported_status") or WORKER_REPORTED_IDLE
+
+            if lc == WORKER_LIFECYCLE_DISABLED:
+                disabled += 1
+                continue
+            total += 1
+            if has_pending:
+                pending_cmds += 1
+            elif ds == WORKER_STATE_PAUSE:
+                paused += 1
+            if rs == WORKER_REPORTED_BUSY:
+                busy += 1
+            elif rs == WORKER_REPORTED_IDLE:
+                idle += 1
+
         return {
-            "total": len(rows),
+            "total": total,
             "busy": busy,
             "idle": idle,
             "paused": paused,
-            "pending_commands": pending,
+            "pending_commands": pending_cmds,
             "disabled": disabled,
         }
 
@@ -1952,9 +2056,6 @@ class JobDatabase:
         )
         with self.lock:
             with self.get_connection() as conn:
-                self._backfill_worker_identity_columns(conn)
-                self._sync_worker_lifecycle(conn)
-                conn.commit()
                 cur = conn.execute(
                     f"SELECT COUNT(*) FROM workers{where}", params,
                 )
@@ -1973,7 +2074,7 @@ class JobDatabase:
                 page = min(page, total_pages)
                 offset = (page - 1) * per_page
                 cur = conn.execute(
-                    f"SELECT * FROM workers{where} "
+                    f"SELECT {_WORKER_HOT_COLS} FROM workers{where} "
                     "ORDER BY host, instance, slot, worker_id "
                     "LIMIT ? OFFSET ?",
                     params + [per_page, offset],
@@ -2024,18 +2125,21 @@ class JobDatabase:
                 return {row[0]: int(row[1]) for row in cur.fetchall()}
 
     def get_worker(
-        self, worker_id: str, *, include_history: bool = True,
+        self, worker_id: str, *, include_history: bool = False,
     ) -> Optional[Dict[str, Any]]:
         with self.lock:
             with self.get_connection() as conn:
-                self._backfill_worker_identity_columns(conn)
-                self._sync_worker_lifecycle(conn)
-                conn.commit()
-                cur = conn.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
+                cur = conn.execute(
+                    f"SELECT {_WORKER_HOT_COLS} FROM workers WHERE worker_id = ?",
+                    (worker_id,),
+                )
                 row = cur.fetchone()
-        if not row:
-            return None
-        return self._worker_row_to_dict(row, include_history=include_history)
+                if not row:
+                    return None
+                history_total = self._count_worker_history(conn, worker_id)
+        d = self._worker_row_to_dict(row, include_history=False)
+        d["history_total"] = history_total
+        return d
 
     def get_worker_history_page(
         self,
@@ -2044,31 +2148,60 @@ class JobDatabase:
         page_size: int = 10,
         metrics_only: bool = False,
     ) -> Optional[Dict[str, Any]]:
-        """Paginated worker history (newest first)."""
+        """Paginated worker history (newest first), backed by worker_history table."""
+        page = max(0, int(page))
+        page_size = max(1, min(int(page_size), 100))
+        offset = page * page_size
+
+        metrics_filter = "AND metrics IS NOT NULL" if metrics_only else ""
+
         with self.lock:
             with self.get_connection() as conn:
+                # Verify the worker exists.
                 cur = conn.execute(
-                    "SELECT history FROM workers WHERE worker_id = ?",
+                    "SELECT 1 FROM workers WHERE worker_id = ?", (worker_id,)
+                )
+                if not cur.fetchone():
+                    return None
+
+                cur = conn.execute(
+                    f"SELECT COUNT(*) FROM worker_history WHERE worker_id = ? {metrics_filter}",
                     (worker_id,),
                 )
-                row = cur.fetchone()
-        if not row:
-            return None
-        entries = self._sorted_worker_history(row["history"])
-        if metrics_only:
-            entries = [
-                e for e in entries
-                if isinstance(e.get("metrics"), dict) and e["metrics"]
-            ]
-        total = len(entries)
-        page = max(0, page)
-        page_size = max(1, min(int(page_size), 100))
-        start = page * page_size
-        slice_entries = entries[start:start + page_size]
-        if metrics_only:
-            out_entries = slice_entries
-        else:
-            out_entries = [self._history_entry_for_list(e) for e in slice_entries]
+                total = int(cur.fetchone()[0])
+
+                if metrics_only:
+                    cur = conn.execute(
+                        "SELECT reason, timestamp, event, metrics "
+                        "FROM worker_history "
+                        "WHERE worker_id = ? AND metrics IS NOT NULL "
+                        "ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                        (worker_id, page_size, offset),
+                    )
+                else:
+                    cur = conn.execute(
+                        "SELECT reason, timestamp, event "
+                        "FROM worker_history "
+                        "WHERE worker_id = ? "
+                        "ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                        (worker_id, page_size, offset),
+                    )
+                rows = cur.fetchall()
+
+        out_entries = []
+        for r in rows:
+            entry: Dict[str, Any] = {
+                "reason": r["reason"],
+                "timestamp": r["timestamp"],
+                "event": r["event"],
+            }
+            if metrics_only:
+                try:
+                    entry["metrics"] = json.loads(r["metrics"]) if r["metrics"] else {}
+                except (json.JSONDecodeError, TypeError):
+                    entry["metrics"] = {}
+            out_entries.append(entry)
+
         total_pages = max(1, (total + page_size - 1) // page_size) if total else 0
         return {
             "entries": out_entries,
@@ -2111,9 +2244,11 @@ class JobDatabase:
         job_payload = None
         with self.lock:
             with self.get_connection() as conn:
-                self._sync_worker_lifecycle(conn)
                 cur = conn.cursor()
-                cur.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
+                cur.execute(
+                    f"SELECT {_WORKER_HOT_COLS} FROM workers WHERE worker_id = ?",
+                    (worker_id,),
+                )
                 row = cur.fetchone()
                 prev = dict(row) if row else None
                 prev_applied = int(prev.get("applied_version") or 0) if prev else 0
@@ -2172,8 +2307,8 @@ class JobDatabase:
                         (worker_id, host, instance, slot, machine_type, reported_status,
                          current_job_id, jd_worker_version, last_poll_at, applied_version,
                          desired_state, desired_version, previous_desired_state,
-                         system_metrics, lifecycle_status, history, first_poll_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'run', ?, ?, '[]', ?)
+                         system_metrics, lifecycle_status, first_poll_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'run', ?, ?, ?)
                         """,
                         (
                             worker_id, host, instance, slot, machine_type, status,
@@ -2198,8 +2333,11 @@ class JobDatabase:
                     )
 
                 conn.commit()
-                cur.execute("SELECT * FROM workers WHERE worker_id = ?", (worker_id,))
-                worker = self._worker_row_to_dict(cur.fetchone())
+                cur.execute(
+                    f"SELECT {_WORKER_HOT_COLS} FROM workers WHERE worker_id = ?",
+                    (worker_id,),
+                )
+                worker = self._worker_row_to_dict(cur.fetchone(), include_history=False)
 
         job_payload = None
         if (
@@ -2232,9 +2370,10 @@ class JobDatabase:
                         )
                         conn.commit()
                         cur = conn.execute(
-                            "SELECT * FROM workers WHERE worker_id = ?", (worker_id,)
+                            f"SELECT {_WORKER_HOT_COLS} FROM workers WHERE worker_id = ?",
+                            (worker_id,),
                         )
-                        worker = self._worker_row_to_dict(cur.fetchone())
+                        worker = self._worker_row_to_dict(cur.fetchone(), include_history=False)
 
         return {
             "desired_state": worker["desired_state"],
@@ -2432,12 +2571,16 @@ class JobDatabase:
         search: Optional[str] = None,
     ) -> Dict[str, Any]:
         """List workers that would be affected by a command or cancel."""
+        sql_where, sql_params = self._worker_list_filters_sql(
+            lifecycle, host, instance, slot, search,
+        )
         with self.lock:
             with self.get_connection() as conn:
-                self._sync_worker_lifecycle(conn)
-                conn.commit()
                 cur = conn.cursor()
-                cur.execute("SELECT * FROM workers")
+                cur.execute(
+                    f"SELECT {_WORKER_HOT_COLS} FROM workers{sql_where}",
+                    sql_params,
+                )
                 rows = [dict(r) for r in cur.fetchall()]
         targets = self._command_target_rows(
             rows,
@@ -2500,11 +2643,16 @@ class JobDatabase:
             "stop": "stop",
         }
 
+        sql_where, sql_params = self._worker_list_filters_sql(
+            lifecycle, host, instance, slot, search,
+        )
         with self.lock:
             with self.get_connection() as conn:
-                self._sync_worker_lifecycle(conn)
                 cur = conn.cursor()
-                cur.execute("SELECT * FROM workers")
+                cur.execute(
+                    f"SELECT {_WORKER_HOT_COLS} FROM workers{sql_where}",
+                    sql_params,
+                )
                 rows = [dict(r) for r in cur.fetchall()]
                 targets = self._command_target_rows(
                     rows,
@@ -2570,11 +2718,16 @@ class JobDatabase:
     ) -> int:
         """Revert queued (not yet applied) commands to previous_desired_state."""
         reverted = 0
+        sql_where, sql_params = self._worker_list_filters_sql(
+            lifecycle, host, instance, slot, search,
+        )
         with self.lock:
             with self.get_connection() as conn:
-                self._sync_worker_lifecycle(conn)
                 cur = conn.cursor()
-                cur.execute("SELECT * FROM workers")
+                cur.execute(
+                    f"SELECT {_WORKER_HOT_COLS} FROM workers{sql_where}",
+                    sql_params,
+                )
                 rows = [dict(r) for r in cur.fetchall()]
                 targets = self._command_target_rows(
                     rows,
@@ -2664,8 +2817,8 @@ class JobDatabase:
                         (worker_id, host, instance, slot, machine_type, reported_status,
                          last_poll_at, applied_version, desired_state, desired_version,
                          previous_desired_state, lifecycle_status, disabled_at,
-                         history, first_poll_at)
-                        VALUES (?, ?, ?, ?, 'worker', 'idle', ?, 0, 'stop', 0, 'run', ?, ?, '[]', ?)
+                         first_poll_at)
+                        VALUES (?, ?, ?, ?, 'worker', 'idle', ?, 0, 'stop', 0, 'run', ?, ?, ?)
                         """,
                         (
                             worker_id, host, instance, slot, now,

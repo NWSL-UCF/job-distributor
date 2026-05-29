@@ -62,6 +62,9 @@ def reset_stale_served_jobs(base_url, idle_timeout):
         logging.error(f"Error calling reset_stale_served_jobs: {e}")
 
 
+WORKER_LIFECYCLE_SYNC_INTERVAL = 60  # seconds between worker reconcile+stale passes
+
+
 def cleanup_loop(server_url, server_port, db):
     # Give the job server a moment to finish binding its port before the
     # first cleanup request goes out.
@@ -69,6 +72,7 @@ def cleanup_loop(server_url, server_port, db):
 
     last_aborted_reset_time = 0
     last_idle_check_time = 0
+    last_worker_sync_time = 0
 
     base_url = f"http://{server_url}:{server_port}"
     logging.info(f"Job cleaner connected to {base_url}")
@@ -81,6 +85,15 @@ def cleanup_loop(server_url, server_port, db):
         aborted_reset_timeout = int(
             db.get_config_value("aborted_job_reset_timeout", str(DEFAULT_ABORTED_RESET_TIMEOUT))
         )
+
+        # ── Worker lifecycle reconcile (replaces per-heartbeat full scan) ──────
+        if now - last_worker_sync_time >= WORKER_LIFECYCLE_SYNC_INTERVAL:
+            try:
+                db.sync_worker_lifecycle()
+                logging.debug("Worker lifecycle sync complete.")
+            except Exception as exc:
+                logging.error(f"Worker lifecycle sync failed: {exc}")
+            last_worker_sync_time = now
 
         if now - last_aborted_reset_time >= aborted_reset_timeout:
             logging.info(f"Running aborted job cleanup (timeout={aborted_reset_timeout}s)...")
