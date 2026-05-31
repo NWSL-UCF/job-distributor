@@ -369,6 +369,27 @@ After updating `deploy/landing/`, restart nginx only:
 For native nginx (non-Docker), copy the folder to `/var/www/jobdistributor-landing/`
 as configured in `nginx/jobdistributor.net.conf`.
 
+**DNS:** point an **A record** for `jobdistributor.net` (and optionally `www`) to the
+same VPS IP as `hub.jobdistributor.net`.
+
+**If every URL stops loading after a config update**, nginx is probably crash-looping
+because the TLS cert path is wrong or missing. On the VPS:
+
+```bash
+cd /path/to/job-distributor/deploy
+sudo certbot certificates
+# Must list jobdistributor.net and *.jobdistributor.net
+ls -l /etc/letsencrypt/live/jobdistributor.net/fullchain.pem
+
+./run.sh nginx-test    # validates config + cert files before restart
+./run.sh restart nginx
+docker logs hub_nginx --tail 30   # look for "cannot load certificate"
+```
+
+All three HTTPS server blocks in `nginx/hub-docker.conf` use the **same**
+`/etc/letsencrypt/live/jobdistributor.net/` cert (not a separate
+`hub.jobdistributor.net` directory).
+
 ---
 
 ## Step 10 — Start the Stack

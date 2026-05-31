@@ -8,7 +8,8 @@
 # Commands:
 #   start   Pull the latest images and start (or restart) the full stack
 #   stop    Stop and remove all hub containers
-#   restart Restart only the hub app container (e.g. after hub.env change)
+#   restart Restart hub app, or pass a service name (e.g. nginx, frps)
+#   nginx-test  Validate nginx config + TLS cert paths (before restart)
 #   build    Build hub image from local source (needs ../hub or HUB_SRC)
 #   logs    Tail logs from all containers  (or pass a service name)
 #   status  Show running containers
@@ -42,6 +43,36 @@ check_env() {
     [ -f hub.env ] || die "hub.env not found.\n  cp hub.env.example hub.env  and fill in the values."
 }
 
+check_certs() {
+    CERT="/etc/letsencrypt/live/jobdistributor.net/fullchain.pem"
+    KEY="/etc/letsencrypt/live/jobdistributor.net/privkey.pem"
+    DHP="/etc/letsencrypt/ssl-dhparams.pem"
+    if [ ! -r "$CERT" ] || [ ! -r "$KEY" ]; then
+        die "TLS cert not found at $CERT
+
+  Nginx needs a cert for jobdistributor.net AND *.jobdistributor.net (DNS-01).
+  See how_to_run/hub.md §4, then:
+    sudo certbot certificates
+    ./run.sh start"
+    fi
+    if [ ! -r "$DHP" ]; then
+        die "DH params not found at $DHP
+  Run: sudo openssl dhparam -out $DHP 2048"
+    fi
+}
+
+check_landing() {
+    [ -f landing/index.html ] || die "landing/index.html not found.
+  Copy the deploy/landing/ folder from the repo before starting nginx."
+}
+
+nginx_test() {
+    check_certs
+    check_landing
+    echo "Testing nginx config…"
+    compose run --rm --no-deps nginx nginx -t
+}
+
 compose() {
     docker compose -f "$COMPOSE_FILE" "$@"
 }
@@ -54,6 +85,8 @@ case "$CMD" in
 
   start)
     check_env
+    check_certs
+    check_landing
     echo "Pulling latest images…"
     compose pull
     echo ""
@@ -73,6 +106,10 @@ case "$CMD" in
   restart)
     check_env
     if [ -n "$SERVICE" ]; then
+      if [ "$SERVICE" = "nginx" ]; then
+        check_certs
+        check_landing
+      fi
       echo "Restarting service: $SERVICE …"
       compose restart "$SERVICE"
     else
@@ -80,6 +117,11 @@ case "$CMD" in
       compose restart hub
     fi
     echo "Done."
+    ;;
+
+  nginx-test)
+    nginx_test
+    echo "Nginx config OK."
     ;;
 
   build)
@@ -122,7 +164,7 @@ case "$CMD" in
 
   *)
     echo "Unknown command: $CMD" >&2
-    echo "Usage: ./run.sh [start|stop|restart|build|logs|status|pull]" >&2
+    echo "Usage: ./run.sh [start|stop|restart|build|logs|status|pull|nginx-test]" >&2
     exit 1
     ;;
 
