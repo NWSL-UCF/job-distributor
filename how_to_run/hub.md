@@ -350,6 +350,25 @@ Also verify the TLS certificate paths inside `nginx/hub-docker.conf` match
 where certbot stored your cert. Look for `ssl_certificate` lines and confirm
 they point to `/etc/letsencrypt/live/yourdomain.com/`.
 
+The apex domain (`yourdomain.com`) needs to be on the certificate — a wildcard
+(`*.yourdomain.com`) alone does **not** cover the bare domain. Request both when
+running certbot.
+
+### Marketing landing page (`yourdomain.com`)
+
+Static files live in `deploy/landing/` (served at `https://jobdistributor.net`).
+The Hub stays at `https://hub.jobdistributor.net`; the landing page links to
+**Log in** and **Create account** there.
+
+After updating `deploy/landing/`, restart nginx only:
+
+```bash
+./run.sh restart   # or: docker compose -f hub-compose.yml restart nginx
+```
+
+For native nginx (non-Docker), copy the folder to `/var/www/jobdistributor-landing/`
+as configured in `nginx/jobdistributor.net.conf`.
+
 ---
 
 ## Step 10 — Start the Stack
