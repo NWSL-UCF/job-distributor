@@ -28,7 +28,7 @@
     <a href="#step5">Step 5 — Run Workers</a>
     <a class="sub" href="#step5-venv">Set up a virtual env</a>
     <a class="sub" href="#step5-install">Install jd-worker</a>
-    <a class="sub" href="#step5-run">Launch with tmux</a>
+    <a class="sub" href="#step5-run">Launch workers</a>
     <a class="sub" href="#step5-multi">Multiple workers</a>
     <a href="#step6">Step 6 — Scale with Slurm</a>
     <a href="#checklist">Checklist</a>
@@ -751,39 +751,40 @@ python -m venv .venv
         <pre><code>pip install jd-worker scikit-learn</code></pre>
       </div>
 
-      <h3 id="step5-run">5c. Launch workers inside a tmux session</h3>
+      <h3 id="step5-run">5c. Launch workers</h3>
 
       <p>
-        <strong>Why tmux?</strong> When you run a worker over an SSH connection
-        and that connection drops (network hiccup, laptop lid close, etc.), the
-        worker process is killed immediately. <code>tmux</code> is a terminal
-        multiplexer that keeps your processes running on the server even after
-        you disconnect. You can reconnect later and see the full output.
+        By default, <code>jd_worker_cli</code> <strong>detaches to the background</strong>
+        and returns immediately — you do not need <code>tmux</code> or
+        <code>screen</code>. The worker keeps polling the job queue even if you
+        close the SSH session or terminal. Process metadata is stored in
+        <code>~/.cache/&lt;expId&gt;/workers.db</code> (or under
+        <code>JD_CACHE_PATH</code> if you set it).
       </p>
 
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code># Install tmux if not already present (Linux)
-sudo apt install -y tmux        # Debian / Ubuntu
-# brew install tmux             # macOS
-
-# Start a named tmux session
-tmux new-session -s jd-workers
-
-# Inside the tmux session — activate venv and run the worker
-source .venv/bin/activate
+        <pre><code>source .venv/bin/activate
 export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 jd_worker_cli expId=digits-tune entry_script=train.py machine_type=cpu</code></pre>
       </div>
 
-      <p>
-        To detach from tmux without stopping the worker press
-        <kbd>Ctrl+B</kbd> then <kbd>D</kbd>. To reattach later:
-      </p>
+      <p>Manage background workers from any terminal (same API key and venv):</p>
       <div class="code-block">
         <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
-        <pre><code>tmux attach -t jd-workers</code></pre>
+        <pre><code>jd_worker_cli expId=digits-tune worker-list
+jd_worker_cli expId=digits-tune worker-logs 0
+jd_worker_cli expId=digits-tune stop all</code></pre>
+      </div>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          Use <code>foreground=true</code> only when you want the worker attached
+          to the current terminal (local debugging). On Slurm, see Step 6 —
+          <code>foreground=true</code> is required there.
+        </span>
       </div>
 
       <h3 id="step5-multi">5d. Spawn multiple workers at once</h3>
@@ -988,7 +989,7 @@ squeue -u $USER</code></pre>
           <li><span class="checklist__icon">✔</span><span><code>train.py</code> accepts <code>argparse</code> arguments and calls <code>jd_job_dir()</code></span></li>
           <li><span class="checklist__icon">✔</span><span>Virtual environment created and <code>pip install jd-worker scikit-learn</code> run</span></li>
           <li><span class="checklist__icon">✔</span><span>Parameter grid submitted from server dashboard → 54 PENDING jobs</span></li>
-          <li><span class="checklist__icon">✔</span><span>Workers launched in tmux: <code>jd_worker_cli expId=digits-tune entry_script=train.py</code></span></li>
+          <li><span class="checklist__icon">✔</span><span>Workers launched: <code>jd_worker_cli expId=digits-tune entry_script=train.py</code></span></li>
           <li><span class="checklist__icon">✔</span><span>(Optional) Slurm array submitted: <code>sbatch submit_jd.slurm</code></span></li>
           <li><span class="checklist__icon">✔</span><span>Results visible in server dashboard and / or <code>~/jd_data/digits-tune/</code></span></li>
         </ul>
