@@ -217,27 +217,34 @@
       padding: 1px 5px;
     }
 
-    /* ── Footer ── */
+    /* ── Footer — matches hub site-footer ── */
     .footer {
-      border-top: 1px solid var(--color-border);
       background: var(--color-surface);
-      padding: 16px 24px;
-      text-align: center;
-      font-size: 0.78rem;
+      border-top: 1px solid var(--color-border);
+      padding: 20px 24px;
+      font-size: 0.82rem;
       color: var(--color-muted);
-      line-height: 1.6;
     }
-    .footer__brand {
-      display: inline-flex;
+    .footer__inner {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 10px;
-      margin-bottom: 6px;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
     }
-    .footer__brand span { text-align: left; }
-    .footer__logo { height: 32px; width: 32px; flex-shrink: 0; }
-    .footer a { color: var(--color-text); text-decoration: underline; text-underline-offset: 3px; }
-    .footer a:hover { color: #000; }
+    .footer__brand { display: flex; align-items: center; gap: 10px; }
+    .footer__logo  { width: 32px; height: 32px; border-radius: 50%; opacity: .85; flex-shrink: 0; }
+    .footer__lab   { display: block; font-weight: 600; color: var(--color-text); font-size: 0.82rem; }
+    .footer__copy  { display: block; font-size: 0.76rem; margin-top: 1px; }
+    .footer__links { display: flex; gap: 16px; }
+    .footer__links a { color: var(--color-muted); text-decoration: none; }
+    .footer__links a:hover { color: var(--color-text); text-decoration: underline; }
+    .footer a { color: inherit; }
+    @media (max-width: 600px) {
+      .footer__inner { flex-direction: column; align-items: flex-start; gap: 12px; }
+    }
 
     @media (max-width: 720px) {
       .header__inner { padding: 0 16px; }
@@ -461,9 +468,20 @@
   </main>
 
   <footer class="footer">
-    <div class="footer__brand">
-      <img class="footer__logo" src="nwsl-logo.png" alt="NWSL — Networking and Wireless Systems Lab">
-      <span>&copy; 2026 Networking and Wireless Systems Lab (NWSL), University of Central Florida&nbsp;&middot;&nbsp;Support: <a href="mailto:info@jobdistributor.net">info@jobdistributor.net</a></span>
+    <div class="footer__inner">
+      <div class="footer__brand">
+        <img class="footer__logo" src="nwsl-logo.png" alt="NWSL" onerror="this.style.display='none'">
+        <div>
+          <span class="footer__lab">University of Central Florida &mdash; Networking and Wireless Systems Lab (NWSL)</span>
+          <span class="footer__copy">&copy; 2026 University of Central Florida &nbsp;&middot;&nbsp; Support: <a href="mailto:info@jobdistributor.net" style="text-decoration:underline;text-underline-offset:2px">info@jobdistributor.net</a></span>
+        </div>
+      </div>
+      <nav class="footer__links">
+        <a href="https://hub.jobdistributor.net/learn/quick-start">Docs</a>
+        <a href="https://github.com/NWSL-UCF/job-distributor" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://pypi.org/project/jd-worker/" target="_blank" rel="noopener">PyPI</a>
+      </nav>
+    </div>
   </footer>
 
 </body>

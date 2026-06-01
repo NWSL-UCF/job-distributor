@@ -55,6 +55,15 @@ def create_app() -> Flask:
     app.register_blueprint(admin_bp,  url_prefix="/admin")
     app.register_blueprint(pages_bp)
 
+    # ── Template globals ──────────────────────────────────────────────────
+    import datetime as _dt
+    @app.context_processor
+    def inject_globals():
+        return {
+            "support_email": config.SUPPORT_EMAIL,
+            "now": _dt.datetime.utcnow(),
+        }
+
     @app.errorhandler(404)
     def not_found(_exc):
         if request.path.startswith("/api/") or _prefers_json():
