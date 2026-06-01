@@ -33,7 +33,7 @@
     <a href="{{ url_for('dashboard.api_keys') }}"   class="topnav__link {% if request.endpoint and 'api_key' in request.endpoint %}active{% endif %}">API Keys</a>
     <a href="{{ url_for('dashboard.profile') }}"    class="topnav__link {% if request.endpoint == 'dashboard.profile' %}active{% endif %}">Profile</a>
     {# ── Learn dropdown ────────────────────────────────────────────────────── #}
-    {% set learn_active = request.endpoint in ['pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.checkpoints_guide','pages.tutorials'] %}
+    {% set learn_active = request.endpoint in ['pages.quick_start','pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.checkpoints_guide','pages.tutorials'] %}
     <div class="topnav__dropdown-wrap">
       <button class="topnav__link topnav__dropdown-btn {% if learn_active %}active{% endif %}"
               id="learn-dd-btn" aria-haspopup="true" aria-expanded="false">
@@ -41,6 +41,7 @@
         <svg class="caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="topnav__dropdown" id="learn-dd">
+        <a href="{{ url_for('pages.quick_start') }}"            class="topnav__dropdown__item {% if request.endpoint == 'pages.quick_start' %}active{% endif %}">Quick Start</a>
         <a href="{{ url_for('pages.getting_started') }}"       class="topnav__dropdown__item {% if request.endpoint in ['pages.getting_started','pages.tutorials'] %}active{% endif %}">Getting Started</a>
         <a href="{{ url_for('pages.library_reference') }}"     class="topnav__dropdown__item {% if request.endpoint == 'pages.library_reference' %}active{% endif %}">Library Reference</a>
         <a href="{{ url_for('pages.checkpoints_guide') }}"     class="topnav__dropdown__item {% if request.endpoint == 'pages.checkpoints_guide' %}active{% endif %}">Checkpointing</a>
@@ -117,7 +118,7 @@
   {% else %}
   {# ── Anonymous nav ───────────────────────────────────────────────────── #}
   <div class="topnav__links">
-    {% set learn_active = request.endpoint in ['pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.checkpoints_guide','pages.tutorials'] %}
+    {% set learn_active = request.endpoint in ['pages.quick_start','pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.checkpoints_guide','pages.tutorials'] %}
     <div class="topnav__dropdown-wrap">
       <button class="topnav__link topnav__dropdown-btn {% if learn_active %}active{% endif %}"
               id="learn-dd-btn" aria-haspopup="true" aria-expanded="false">
@@ -125,6 +126,7 @@
         <svg class="caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="topnav__dropdown" id="learn-dd">
+        <a href="{{ url_for('pages.quick_start') }}"             class="topnav__dropdown__item {% if request.endpoint == 'pages.quick_start' %}active{% endif %}">Quick Start</a>
         <a href="{{ url_for('pages.getting_started') }}"        class="topnav__dropdown__item {% if request.endpoint in ['pages.getting_started','pages.tutorials'] %}active{% endif %}">Getting Started</a>
         <a href="{{ url_for('pages.library_reference') }}"      class="topnav__dropdown__item {% if request.endpoint == 'pages.library_reference' %}active{% endif %}">Library Reference</a>
         <a href="{{ url_for('pages.checkpoints_guide') }}"      class="topnav__dropdown__item {% if request.endpoint == 'pages.checkpoints_guide' %}active{% endif %}">Checkpointing</a>
@@ -206,7 +208,7 @@
       Profile
     </a>
     {# ── Learn expandable group ──────────────────────────────────────────── #}
-    {% set learn_active = request.endpoint in ['pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.checkpoints_guide','pages.tutorials'] %}
+    {% set learn_active = request.endpoint in ['pages.quick_start','pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.checkpoints_guide','pages.tutorials'] %}
     <div class="nav-drawer__group">
       <button class="nav-drawer__link nav-drawer__group-btn" id="drawer-learn-btn"
               aria-expanded="{{ 'true' if learn_active else 'false' }}">
@@ -217,6 +219,7 @@
         <svg class="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="nav-drawer__group-body {% if learn_active %}nav-drawer__group-body--open{% endif %}" id="drawer-learn-body">
+        <a href="{{ url_for('pages.quick_start') }}"             class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.quick_start' %}active{% endif %}">Quick Start</a>
         <a href="{{ url_for('pages.getting_started') }}"        class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint in ['pages.getting_started','pages.tutorials'] %}active{% endif %}">Getting Started</a>
         <a href="{{ url_for('pages.library_reference') }}"      class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.library_reference' %}active{% endif %}">Library Reference</a>
         <a href="{{ url_for('pages.checkpoints_guide') }}"      class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.checkpoints_guide' %}active{% endif %}">Checkpointing</a>
@@ -238,7 +241,7 @@
     </form>
     {% else %}
     {# ── Learn expandable group (anonymous) ────────────────────────────── #}
-    {% set learn_active = request.endpoint in ['pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.checkpoints_guide','pages.tutorials'] %}
+    {% set learn_active = request.endpoint in ['pages.quick_start','pages.getting_started','pages.library_reference','pages.server_dashboard_guide','pages.checkpoints_guide','pages.tutorials'] %}
     <div class="nav-drawer__group">
       <button class="nav-drawer__link nav-drawer__group-btn" id="drawer-learn-btn"
               aria-expanded="{{ 'true' if learn_active else 'false' }}">
@@ -249,6 +252,7 @@
         <svg class="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="nav-drawer__group-body {% if learn_active %}nav-drawer__group-body--open{% endif %}" id="drawer-learn-body">
+        <a href="{{ url_for('pages.quick_start') }}"             class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.quick_start' %}active{% endif %}">Quick Start</a>
         <a href="{{ url_for('pages.getting_started') }}"        class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint in ['pages.getting_started','pages.tutorials'] %}active{% endif %}">Getting Started</a>
         <a href="{{ url_for('pages.library_reference') }}"      class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.library_reference' %}active{% endif %}">Library Reference</a>
         <a href="{{ url_for('pages.checkpoints_guide') }}"      class="nav-drawer__link nav-drawer__link--sub {% if request.endpoint == 'pages.checkpoints_guide' %}active{% endif %}">Checkpointing</a>

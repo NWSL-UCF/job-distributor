@@ -12,6 +12,11 @@ def _user():
     return get_current_user()   # None when not logged in
 
 
+@pages_bp.route("/learn/quick-start")
+def quick_start():
+    return render_template("learn_quick_start.html", user=_user())
+
+
 @pages_bp.route("/learn/getting-started")
 def getting_started():
     return render_template("learn_getting_started.html", user=_user())

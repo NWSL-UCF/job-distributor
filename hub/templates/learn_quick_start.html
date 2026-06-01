@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Quick Start — JobDistributor{% endblock %}
+
+{% block extra_head %}{% include '_learn_styles.html' %}{% endblock %}
+
+{% block content %}
+<div class="tut-wrap">
+
+  <nav class="tut-nav" id="tut-toc">
+    <div class="tut-nav__title">Quick Start</div>
+    <a href="#hub">1. Hub</a>
+    <a href="#server">2. Server</a>
+    <a href="#script">3. Script</a>
+    <a href="#jobs">4. Jobs</a>
+    <a href="#workers">5. Workers</a>
+    <a href="#next">Next steps</a>
+  </nav>
+
+  <div class="tut-body">
+
+    <h1>Quick Start</h1>
+    <p class="tut-lead">
+      Five steps from zero to a running sweep. For explanations, examples, and HPC,
+      see the <a href="{{ url_for('pages.getting_started') }}">Getting Started</a> guide.
+    </p>
+
+    <section class="tut-section" id="hub">
+      <h2><span class="step-badge">1</span> Hub — account, experiment, API key</h2>
+      <ol>
+        <li><a href="{{ url_for('auth.signup') }}">Create an account</a> and verify your email.</li>
+        <li>On the Hub dashboard, create an experiment (e.g. <code>my-exp</code>).</li>
+        <li><strong>API Keys</strong> → generate a key → copy it once.</li>
+      </ol>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>export JD_API_KEY=jd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
+      </div>
+    </section>
+
+    <section class="tut-section" id="server">
+      <h2><span class="step-badge step-badge--alt">2</span> Server — Docker + <code>run.sh</code></h2>
+      <p>Install <a href="https://docs.docker.com/get-docker/" target="_blank" rel="noopener">Docker</a>, then start the job server for your experiment:</p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>curl -fsSL https://raw.githubusercontent.com/NWSL-UCF/job-distributor/main/server/run.sh \
+     -o run.sh && chmod +x run.sh
+
+JD_API_KEY=jd_xxx ./run.sh my-exp</code></pre>
+      </div>
+      <p>
+        Open the server dashboard from the Hub experiment page (<strong>Open Server Dashboard</strong>).
+        Note the 6-digit PIN shown on the Hub experiment detail page.
+      </p>
+    </section>
+
+    <section class="tut-section" id="script">
+      <h2><span class="step-badge">3</span> Script — atomic <code>train.py</code></h2>
+      <p>Each job is one run of your script with one parameter set. Requirements:</p>
+      <ul>
+        <li>Parse hyperparameters with <code>argparse</code> (<code>--key value</code>).</li>
+        <li>Write outputs under <code>jd_job_dir()</code>.</li>
+        <li>Call <code>jd_upload()</code> so results appear on the server.</li>
+      </ul>
+      <div class="code-block">
+        <div class="code-block__lang"><span>python</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>from jd import jd_job_dir, jd_upload
+
+# ... train / compute ...
+
+job_dir = jd_job_dir()
+job_dir.mkdir(parents=True, exist_ok=True)
+(job_dir / "result.json").write_text('{"accuracy": 0.97}')
+jd_upload(job_dir)</code></pre>
+      </div>
+      <p>Full working example: <a href="{{ url_for('pages.getting_started') }}#step3-script">Getting Started → train.py</a>.</p>
+    </section>
+
+    <section class="tut-section" id="jobs">
+      <h2><span class="step-badge step-badge--alt">4</span> Jobs — submit the grid</h2>
+      <p>On the <strong>server dashboard</strong>, create jobs (form or JSON). Example grid:</p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>json</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>{
+  "learning_rate_init": [0.001, 0.01, 0.1],
+  "hidden_layer_sizes": ["64", "128"],
+  "max_iter": [100, 200]
+}</code></pre>
+      </div>
+      <p>Jobs stay <em>PENDING</em> until a worker picks them up. Details: <a href="{{ url_for('pages.server_dashboard_guide') }}#jobs">Server Dashboard → Job Management</a>.</p>
+    </section>
+
+    <section class="tut-section" id="workers">
+      <h2><span class="step-badge">5</span> Workers — run <code>jd_worker_cli</code></h2>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>python3 -m venv .venv && source .venv/bin/activate
+pip install jd-worker
+
+jd_worker_cli expId=my-exp entry_script=train.py num_workers=4 machine_type=cpu</code></pre>
+      </div>
+      <p>
+        Workers detach to the background by default (safe over SSH). Manage them anytime:
+      </p>
+      <div class="code-block">
+        <div class="code-block__lang"><span>bash</span><button class="code-block__copy" onclick="copyCode(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+        <pre><code>jd_worker_cli expId=my-exp worker-list
+jd_worker_cli expId=my-exp worker-logs 0
+jd_worker_cli expId=my-exp stop all</code></pre>
+      </div>
+      <p>Logs: <code>~/jd_data/&lt;expId&gt;/jd_worker_logs/</code></p>
+    </section>
+
+    <section class="tut-section" id="next">
+      <h2><span class="step-badge">→</span> Next steps</h2>
+      <ul>
+        <li><a href="{{ url_for('pages.getting_started') }}">Getting Started</a> — full walkthrough, Slurm, checklist</li>
+        <li><a href="{{ url_for('pages.library_reference') }}">Library Reference</a> — <code>jd_worker_cli</code> commands</li>
+        <li><a href="{{ url_for('pages.checkpoints_guide') }}">Checkpointing</a> — long-running jobs</li>
+        <li><a href="{{ url_for('pages.server_dashboard_guide') }}">Server Dashboard Guide</a> — filters, workers, settings</li>
+      </ul>
+    </section>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}{% include '_learn_scripts.html' %}{% endblock %}
