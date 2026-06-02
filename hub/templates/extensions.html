@@ -29,9 +29,19 @@
   </form>
 </div>
 
-{% if requests %}
+{% if pagination and pagination.total > 0 %}
 <div class="form-card">
-  <h2 class="form-card__title">Your requests</h2>
+  <div class="form-card__header-row">
+    <h2 class="form-card__title">Your requests</h2>
+    <label class="events-page-size">
+      <span>Per page</span>
+      <select id="ext-page-size" aria-label="Requests per page">
+        {% for n in page_sizes %}
+        <option value="{{ n }}" {% if pagination.page_size == n %}selected{% endif %}>{{ n }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
   <table class="data-table">
     <thead>
       <tr><th>Date</th><th>Status</th><th>Description</th><th>Admin note</th></tr>
@@ -47,6 +57,47 @@
     {% endfor %}
     </tbody>
   </table>
+  <div class="events-pagination">
+    {% if pagination.total_pages > 1 %}
+    {% if pagination.page > 0 %}
+    <a class="btn btn--outline btn--sm"
+       href="{{ url_for('dashboard.extensions', page=pagination.page - 1, page_size=pagination.page_size) }}">← Previous</a>
+    {% else %}
+    <span class="btn btn--outline btn--sm" aria-disabled="true" style="opacity:.45;pointer-events:none;">← Previous</span>
+    {% endif %}
+    {% else %}
+    <span></span>
+    {% endif %}
+    <span class="events-pagination__info">
+      Showing {{ pagination.page * pagination.page_size + 1 }}–{{ [((pagination.page + 1) * pagination.page_size), pagination.total]|min }}
+      of {{ pagination.total }}
+    </span>
+    {% if pagination.total_pages > 1 %}
+    {% if pagination.page < pagination.total_pages - 1 %}
+    <a class="btn btn--outline btn--sm"
+       href="{{ url_for('dashboard.extensions', page=pagination.page + 1, page_size=pagination.page_size) }}">Next →</a>
+    {% else %}
+    <span class="btn btn--outline btn--sm" aria-disabled="true" style="opacity:.45;pointer-events:none;">Next →</span>
+    {% endif %}
+    {% else %}
+    <span></span>
+    {% endif %}
+  </div>
 </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+{% if pagination and pagination.total > 0 %}
+<script>
+(function () {
+  var sel = document.getElementById('ext-page-size');
+  if (!sel) return;
+  sel.addEventListener('change', function () {
+    var size = sel.value || '5';
+    window.location.href = {{ url_for('dashboard.extensions')|tojson }} + '?page=0&page_size=' + encodeURIComponent(size);
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}

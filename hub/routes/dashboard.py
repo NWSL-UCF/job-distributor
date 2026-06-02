@@ -519,11 +519,73 @@ def regenerate_api_key():
 
 # ── API Keys management ───────────────────────────────────────────────────────
 
+_API_KEY_PAGE_SIZES = (10, 20, 50)
+_API_KEY_DEFAULT_PAGE_SIZE = 10
+
+
+def _api_keys_page_args():
+    page = max(0, request.args.get("page", 0, type=int))
+    page_size = request.args.get("page_size", _API_KEY_DEFAULT_PAGE_SIZE, type=int)
+    sort = request.args.get("sort", "created_at")
+    order = request.args.get("order", "desc")
+    return page, page_size, sort, order
+
+
+def _api_keys_paginated(
+    user: User,
+    page: int = 0,
+    page_size: int = _API_KEY_DEFAULT_PAGE_SIZE,
+    sort: str = "created_at",
+    order: str = "desc",
+):
+    page_size = page_size if page_size in _API_KEY_PAGE_SIZES else _API_KEY_DEFAULT_PAGE_SIZE
+    page = max(0, page)
+    order = order if order in ("asc", "desc") else "desc"
+    if sort != "created_at":
+        sort = "created_at"
+
+    q = user.api_keys
+    if order == "asc":
+        q = q.order_by(ApiKey.created_at.asc())
+    else:
+        q = q.order_by(ApiKey.created_at.desc())
+
+    total = q.count()
+    total_pages = max(1, (total + page_size - 1) // page_size) if total else 1
+    if page >= total_pages and total > 0:
+        page = total_pages - 1
+    rows = q.offset(page * page_size).limit(page_size).all()
+    return rows, {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "sort": sort,
+        "order": order,
+    }
+
+
+def _api_keys_list_context(user: User, page=None, page_size=None, sort=None, order=None, **extra):
+    if page is None or page_size is None or sort is None or order is None:
+        req_page, req_page_size, req_sort, req_order = _api_keys_page_args()
+        page = req_page if page is None else page
+        page_size = req_page_size if page_size is None else page_size
+        sort = req_sort if sort is None else sort
+        order = req_order if order is None else order
+    keys, pagination = _api_keys_paginated(user, page, page_size, sort, order)
+    return {
+        "user": user,
+        "keys": keys,
+        "pagination": pagination,
+        "page_sizes": _API_KEY_PAGE_SIZES,
+        **extra,
+    }
+
+
 @dashboard_bp.route("/api-keys")
 @require_login
 def api_keys():
-    keys = g.current_user.api_keys.order_by(ApiKey.created_at.desc()).all()
-    return render_template("api_keys.html", user=g.current_user, keys=keys)
+    return render_template("api_keys.html", **_api_keys_list_context(g.current_user))
 
 
 @dashboard_bp.route("/api-keys/create", methods=["POST"])
@@ -532,13 +594,15 @@ def create_api_key():
     user = g.current_user
     name = request.form.get("name", "").strip()
     if not name:
-        keys = user.api_keys.order_by(ApiKey.created_at.desc()).all()
-        return render_template("api_keys.html", user=user, keys=keys,
-                               error="Key name is required.")
+        return render_template(
+            "api_keys.html",
+            **_api_keys_list_context(user, error="Key name is required."),
+        )
     if len(name) > 100:
-        keys = user.api_keys.order_by(ApiKey.created_at.desc()).all()
-        return render_template("api_keys.html", user=user, keys=keys,
-                               error="Key name must be 100 characters or fewer.")
+        return render_template(
+            "api_keys.html",
+            **_api_keys_list_context(user, error="Key name must be 100 characters or fewer."),
+        )
 
     raw       = "jd_" + secrets.token_urlsafe(38)
     key_hash  = hashlib.sha256(raw.encode()).hexdigest()
@@ -560,9 +624,18 @@ def create_api_key():
         metadata={"key_prefix": key_prefix},
     )
 
-    keys = user.api_keys.order_by(ApiKey.created_at.desc()).all()
-    return render_template("api_keys.html", user=user, keys=keys,
-                           new_key_name=name, new_key_value=raw)
+    return render_template(
+        "api_keys.html",
+        **_api_keys_list_context(
+            user,
+            page=0,
+            page_size=_API_KEY_DEFAULT_PAGE_SIZE,
+            sort="created_at",
+            order="desc",
+            new_key_name=name,
+            new_key_value=raw,
+        ),
+    )
 
 
 @dashboard_bp.route("/api-keys/<int:key_id>/delete", methods=["POST"])
@@ -578,20 +651,57 @@ def delete_api_key(key_id: int):
         "api_key_deleted",
         f"API key '{key_name}' was deleted.",
     )
-    return redirect(url_for("dashboard.api_keys"))
+    page, page_size, sort, order = _api_keys_page_args()
+    return redirect(url_for(
+        "dashboard.api_keys",
+        page=page,
+        page_size=page_size,
+        sort=sort,
+        order=order,
+    ))
 
 
 # ── Limit extensions ──────────────────────────────────────────────────────────
 
+_EXT_PAGE_SIZES = (5, 10, 20)
+_EXT_DEFAULT_PAGE_SIZE = 5
+
+
+def _extension_requests_paginated(user: User, page: int = 0, page_size: int = _EXT_DEFAULT_PAGE_SIZE):
+    page_size = page_size if page_size in _EXT_PAGE_SIZES else _EXT_DEFAULT_PAGE_SIZE
+    page = max(0, page)
+    q = user.ext_requests.order_by(LimitExtensionRequest.requested_at.desc())
+    total = q.count()
+    total_pages = max(1, (total + page_size - 1) // page_size) if total else 1
+    if page >= total_pages and total > 0:
+        page = total_pages - 1
+    rows = q.offset(page * page_size).limit(page_size).all()
+    return rows, {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+    }
+
+
+def _extensions_page_args():
+    page = request.args.get("page", 0, type=int)
+    page_size = request.args.get("page_size", _EXT_DEFAULT_PAGE_SIZE, type=int)
+    return max(0, page), page_size
+
+
 @dashboard_bp.route("/extensions")
 @require_login
 def extensions():
-    reqs = (
-        g.current_user.ext_requests
-        .order_by(LimitExtensionRequest.requested_at.desc())
-        .all()
+    page, page_size = _extensions_page_args()
+    requests, pagination = _extension_requests_paginated(g.current_user, page, page_size)
+    return render_template(
+        "extensions.html",
+        user=g.current_user,
+        requests=requests,
+        pagination=pagination,
+        page_sizes=_EXT_PAGE_SIZES,
     )
-    return render_template("extensions.html", user=g.current_user, requests=reqs)
 
 
 @dashboard_bp.route("/extensions", methods=["POST"])
@@ -600,10 +710,16 @@ def submit_extension():
     desc  = request.form.get("description", "").strip()
     affil = request.form.get("affiliation", "").strip()
     if not desc or not affil:
-        reqs = (g.current_user.ext_requests
-                .order_by(LimitExtensionRequest.requested_at.desc()).all())
-        return render_template("extensions.html", user=g.current_user,
-                               requests=reqs, error="All fields are required.")
+        page, page_size = _extensions_page_args()
+        requests, pagination = _extension_requests_paginated(g.current_user, page, page_size)
+        return render_template(
+            "extensions.html",
+            user=g.current_user,
+            requests=requests,
+            pagination=pagination,
+            page_sizes=_EXT_PAGE_SIZES,
+            error="All fields are required.",
+        )
     today    = date.today()
     import calendar
     last_day = calendar.monthrange(today.year, today.month)[1]
@@ -629,10 +745,15 @@ def submit_extension():
         desc,
         affil,
     )
-    reqs = (g.current_user.ext_requests
-            .order_by(LimitExtensionRequest.requested_at.desc()).all())
-    return render_template("extensions.html", user=g.current_user,
-                           requests=reqs, success="Request submitted.")
+    requests, pagination = _extension_requests_paginated(g.current_user, 0, _EXT_DEFAULT_PAGE_SIZE)
+    return render_template(
+        "extensions.html",
+        user=g.current_user,
+        requests=requests,
+        pagination=pagination,
+        page_sizes=_EXT_PAGE_SIZES,
+        success="Request submitted.",
+    )
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
