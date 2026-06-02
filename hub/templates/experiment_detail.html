@@ -12,14 +12,18 @@
       <div class="exp-detail__title-row">
         <h1 class="exp-detail__title">{{ exp.name }}</h1>
         <span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span>
+        {% if exp.status != 'DELETED' %}
         {% if exp.server_is_online %}
         <span class="server-dot server-dot--online" title="Server is online"></span>
         {% else %}
         <span class="server-dot server-dot--offline" title="Server is offline or has not connected yet"></span>
         {% endif %}
+        {% endif %}
       </div>
       <p class="exp-detail__lead">
-        {% if exp.status == 'EXPIRED' %}
+        {% if exp.status == 'DELETED' %}
+        This experiment has been deleted.
+        {% elif exp.status == 'EXPIRED' %}
         This experiment has expired. Create a new one to continue your work.
         {% else %}
         Open your experiment dashboard below. Start Docker with a key from the
@@ -47,6 +51,8 @@
 
   {% if pin_error %}<div class="alert alert--error">{{ pin_error }}</div>{% endif %}
   {% if pin_success %}<div class="alert alert--success">{{ pin_success }}</div>{% endif %}
+
+  {% if exp.status != 'DELETED' %}
 
   <section class="exp-panel exp-panel--endpoints">
     <div class="exp-panel__head">
@@ -170,6 +176,8 @@
       </form>
     </section>
   </div>
+
+  {% endif %}
 
 </article>
 {% endblock %}
