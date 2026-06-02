@@ -3839,11 +3839,11 @@ let chart;
                 .then(r => r.json().then(d => ({ok: r.ok, data: d})))
                 .then(({ok, data}) => {
                     if (ok && data.success) {
-                        showNotification('PIN updated successfully.', 'success');
-                        currentEl.value = '';
-                        newEl.value     = '';
-                        errEl.textContent = '';
-                        closeSettingsModal();
+                        showNotification(
+                            data.message || 'PIN updated. Sign in again with your new PIN.',
+                            'success'
+                        );
+                        window.location.href = '/auth';
                     } else {
                         errEl.textContent = data.error || 'Failed to update PIN.';
                         if (data.error && data.error.includes('Current')) currentEl.focus();

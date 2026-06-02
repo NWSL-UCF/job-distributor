@@ -645,15 +645,21 @@ def update_pin():
         return jsonify({'success': False, 'error': 'Current PIN is incorrect.'}), 400
 
     db.set_pin(new_pin)
-    logging.info("Dashboard PIN changed via Settings.")
-    return jsonify({'success': True, 'message': 'PIN updated successfully.'})
+    db.clear_all_sessions()
+    logging.info("Dashboard PIN changed via Settings. All sessions invalidated.")
+    resp = make_response(jsonify({
+        'success': True,
+        'message': 'PIN updated. All sessions have been signed out — log in again with your new PIN.',
+        'reauth_required': True,
+    }))
+    resp.delete_cookie(SESSION_COOKIE)
+    return resp
 
 
 @app.route("/admin/override_pin", methods=["POST"])
 def admin_override_pin():
     """Override PIN without knowing the current one. Requires the admin token.
     This endpoint is intentionally excluded from session auth (before_request exempt).
-    The dashboard /update_pin route does NOT have this capability.
     """
     data           = request.get_json(silent=True) or {}
     provided_token = (request.headers.get('X-Admin-Token') or data.get('admin_token', '')).strip()

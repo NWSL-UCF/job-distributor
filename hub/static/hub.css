@@ -384,6 +384,84 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   margin: 8px 0 0;
   line-height: 1.45;
 }
+
+/* Server start instructions (experiment detail, offline only) */
+.server-start-steps {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+.server-start-steps__lead {
+  font-size: .875rem;
+  color: var(--color-text);
+  margin: 0 0 14px;
+  font-weight: 500;
+}
+.server-start-steps--expired .server-start-steps__lead {
+  margin-bottom: 8px;
+}
+.server-start-steps__text {
+  font-size: .875rem;
+  color: var(--color-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+.server-start-steps__list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: .875rem;
+  color: var(--color-text);
+  line-height: 1.5;
+}
+.server-start-steps__item {
+  margin-bottom: 14px;
+}
+.server-start-steps__item:last-child {
+  margin-bottom: 0;
+}
+.server-start-steps__cmd {
+  position: relative;
+  margin-top: 8px;
+  margin-left: -1.25rem;
+}
+.server-start-steps__pre {
+  margin: 0;
+  padding: 10px 40px 10px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.server-start-steps__pre code {
+  font-size: .78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.server-start-steps__copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.server-start-steps__copy:hover {
+  background: #f0f0f0;
+  border-color: #a3a3a3;
+  color: var(--color-text);
+}
 .dash-toolbar__copy {
   flex-shrink: 0;
   display: inline-flex;

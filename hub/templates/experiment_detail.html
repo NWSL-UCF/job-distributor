@@ -19,8 +19,12 @@
         {% endif %}
       </div>
       <p class="exp-detail__lead">
+        {% if exp.status == 'EXPIRED' %}
+        This experiment has expired. Create a new one to continue your work.
+        {% else %}
         Open your experiment dashboard below. Start Docker with your
         <a href="{{ url_for('dashboard.profile') }}">API key</a> — workers connect automatically.
+        {% endif %}
       </p>
       <ul class="exp-detail__meta">
         <li>
@@ -59,6 +63,14 @@
         </svg>
         Open dashboard
       </a>
+      {% elif exp.status == 'EXPIRED' %}
+      <span class="dash-toolbar__open dash-toolbar__open--disabled" title="Experiment expired">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        Experiment expired
+      </span>
       {% else %}
       <span class="dash-toolbar__open dash-toolbar__open--disabled" title="Server is not running">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -74,10 +86,54 @@
         </svg>
       </button>
     </div>
-    {% if not exp.server_is_online %}
-    <p class="dash-toolbar__offline-note">Start your Docker container with Hub credentials to access the dashboard.</p>
+    {% if exp.status == 'EXPIRED' %}
+    <div class="server-start-steps server-start-steps--expired">
+      <p class="server-start-steps__lead">This experiment has expired and can no longer be started.</p>
+      <p class="server-start-steps__text">
+        <a href="{{ url_for('dashboard.new_experiment') }}">Create a new experiment</a>
+        to continue, then delete this one below when you no longer need it.
+      </p>
+    </div>
+    {% elif not exp.server_is_online %}
+    <div class="server-start-steps">
+      <p class="server-start-steps__lead">Start your experiment server to open the dashboard.</p>
+      <ol class="server-start-steps__list">
+        <li class="server-start-steps__item">
+          Install <a href="https://docs.docker.com/get-docker/" target="_blank" rel="noopener">Docker</a>
+          on the machine where you want to run the server.
+        </li>
+        <li class="server-start-steps__item">
+          Download <code>run.sh</code> (one-time):
+          <div class="server-start-steps__cmd">
+            <input type="hidden" id="start-cmd-download" value="curl -fsSL https://raw.githubusercontent.com/NWSL-UCF/job-distributor/main/server/run.sh -o run.sh && chmod +x run.sh">
+            <pre class="server-start-steps__pre"><code>curl -fsSL https://raw.githubusercontent.com/NWSL-UCF/job-distributor/main/server/run.sh \
+     -o run.sh && chmod +x run.sh</code></pre>
+            <button type="button" class="server-start-steps__copy" title="Copy command" onclick="copyText('start-cmd-download')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
+          </div>
+        </li>
+        <li class="server-start-steps__item">
+          Start the server with your
+          <a href="{{ url_for('dashboard.api_keys') }}">API key</a>:
+          <div class="server-start-steps__cmd">
+            <input type="hidden" id="start-cmd-run" value="JD_API_KEY=<your-key> ./run.sh {{ exp.name }}">
+            <pre class="server-start-steps__pre"><code>JD_API_KEY=&lt;your-key&gt; ./run.sh {{ exp.name }}</code></pre>
+            <button type="button" class="server-start-steps__copy" title="Copy command" onclick="copyText('start-cmd-run')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
+          </div>
+        </li>
+      </ol>
+    </div>
     {% endif %}
+    {% if exp.status != 'EXPIRED' %}
     <p class="exp-panel__foot">Default PIN is <code>000000</code> until you change it below.</p>
+    {% endif %}
   </section>
 
   <div class="exp-detail__grid">
@@ -91,11 +147,13 @@
           <label class="field__label" for="new_pin">New 6-digit PIN</label>
           <input class="field__input field__input--pin" id="new_pin" type="password" name="new_pin"
                  maxlength="6" minlength="6" pattern="\d{6}" placeholder="000000" autocomplete="off"
-                 {% if not exp.server_is_online %}disabled{% endif %}>
+                 {% if not exp.server_is_online or exp.status == 'EXPIRED' %}disabled{% endif %}>
         </div>
-        <button type="submit" class="btn btn--primary" {% if not exp.server_is_online %}disabled{% endif %}>Update PIN</button>
+        <button type="submit" class="btn btn--primary" {% if not exp.server_is_online or exp.status == 'EXPIRED' %}disabled{% endif %}>Update PIN</button>
       </form>
-      {% if not exp.server_is_online %}
+      {% if exp.status == 'EXPIRED' %}
+      <p class="dash-toolbar__offline-note">PIN reset is not available for expired experiments.</p>
+      {% elif not exp.server_is_online %}
       <p class="dash-toolbar__offline-note">PIN reset requires a running server container.</p>
       {% endif %}
     </section>

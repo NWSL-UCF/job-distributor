@@ -286,7 +286,10 @@ def reset_pin(name: str):
                 experiment_id=exp.id,
                 experiment_name=exp.name,
             )
-            return _render_experiment_detail(exp, pin_success="Dashboard PIN updated successfully.")
+            return _render_experiment_detail(
+                exp,
+                pin_success="Dashboard PIN updated. All dashboard sessions have been signed out.",
+            )
         return _render_experiment_detail(exp, pin_error=f"Dashboard returned: {r.text[:200]}")
     except Exception as exc:
         return _render_experiment_detail(exp, pin_error=f"Could not reach dashboard: {exc}")
