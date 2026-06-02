@@ -22,8 +22,8 @@
         {% if exp.status == 'EXPIRED' %}
         This experiment has expired. Create a new one to continue your work.
         {% else %}
-        Open your experiment dashboard below. Start Docker with your
-        <a href="{{ url_for('dashboard.profile') }}">API key</a> — workers connect automatically.
+        Open your experiment dashboard below. Start Docker with a key from the
+        <a href="{{ url_for('dashboard.api_keys') }}">API Keys</a> tab — workers connect automatically.
         {% endif %}
       </p>
       <ul class="exp-detail__meta">
@@ -116,8 +116,9 @@
           </div>
         </li>
         <li class="server-start-steps__item">
-          Start the server with your
-          <a href="{{ url_for('dashboard.api_keys') }}">API key</a>:
+          Start the server — get your key from the
+          <a href="{{ url_for('dashboard.api_keys') }}">API Keys</a> tab
+          (<a href="{{ url_for('dashboard.api_keys') }}">+ New key</a> to create one, or reuse a key you saved earlier):
           <div class="server-start-steps__cmd">
             <input type="hidden" id="start-cmd-run" value="JD_API_KEY=<your-key> ./run.sh {{ exp.name }}">
             <pre class="server-start-steps__pre"><code>JD_API_KEY=&lt;your-key&gt; ./run.sh {{ exp.name }}</code></pre>

@@ -408,6 +408,11 @@ code, pre { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-siz
   margin: 0;
   line-height: 1.5;
 }
+.server-start-steps__item a {
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .server-start-steps__list {
   margin: 0;
   padding-left: 1.25rem;

@@ -133,7 +133,10 @@
         to continue, then delete this one from Details.
       </p>
       {% elif not exp.server_is_online %}
-      <p class="dash-toolbar__offline-note">Start your Docker container with Hub credentials to access the dashboard.</p>
+      <p class="dash-toolbar__offline-note">
+        Open <strong>Details</strong> for setup steps. Get your key from the
+        <a href="{{ url_for('dashboard.api_keys') }}">API Keys</a> tab.
+      </p>
       {% endif %}
     </div>
     <div class="exp-card__meta">
