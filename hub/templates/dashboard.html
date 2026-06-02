@@ -94,8 +94,8 @@
     </div>
     <div class="exp-card__dash">
       <input type="hidden" id="dash-url-{{ exp.name }}" value="https://{{ exp.frpc_subdomain_dashboard }}">
+      {% if exp.server_is_online %}
       <div class="dash-toolbar">
-        {% if exp.server_is_online %}
         <a href="https://{{ exp.frpc_subdomain_dashboard }}" target="_blank" rel="noopener" class="dash-toolbar__open">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
@@ -103,23 +103,6 @@
           </svg>
           Open dashboard
         </a>
-        {% elif exp.status == 'EXPIRED' %}
-        <span class="dash-toolbar__open dash-toolbar__open--disabled" title="Experiment expired">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-          </svg>
-          Experiment expired
-        </span>
-        {% else %}
-        <span class="dash-toolbar__open dash-toolbar__open--disabled" title="Server is not running">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-          </svg>
-          Server not running
-        </span>
-        {% endif %}
         <button type="button" class="dash-toolbar__copy" title="Copy dashboard URL"
                 onclick="copyText('dash-url-{{ exp.name }}')">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -127,28 +110,40 @@
           </svg>
         </button>
       </div>
-      {% if exp.status == 'EXPIRED' %}
-      <p class="dash-toolbar__offline-note">
-        <a href="{{ url_for('dashboard.new_experiment') }}">Create a new experiment</a>
-        to continue, then delete this one from Details.
-      </p>
-      {% elif not exp.server_is_online %}
-      <p class="dash-toolbar__offline-note">
-        Open <strong>Details</strong> for setup steps. Get your key from the
-        <a href="{{ url_for('dashboard.api_keys') }}">API Keys</a> tab.
-      </p>
+      {% elif exp.status == 'EXPIRED' %}
+      <div class="exp-card__status exp-card__status--expired">
+        <p class="exp-card__status-label">Experiment expired</p>
+        <p class="exp-card__status-hint">
+          <a href="{{ url_for('dashboard.new_experiment') }}">New experiment</a>
+          <span class="exp-card__status-sep" aria-hidden="true">·</span>
+          <a href="{{ url_for('dashboard.experiment_detail', name=exp.name) }}">Delete in Details</a>
+        </p>
+      </div>
+      {% else %}
+      <div class="exp-card__status exp-card__status--offline">
+        <div class="exp-card__status-row">
+          <p class="exp-card__status-label">Server not running</p>
+          <button type="button" class="dash-toolbar__copy" title="Copy dashboard URL"
+                  onclick="copyText('dash-url-{{ exp.name }}')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
+        </div>
+        <p class="exp-card__status-hint">
+          <a href="{{ url_for('dashboard.experiment_detail', name=exp.name) }}">Setup in Details</a>
+          <span class="exp-card__status-sep" aria-hidden="true">·</span>
+          <a href="{{ url_for('dashboard.api_keys') }}">API Keys</a>
+        </p>
+      </div>
       {% endif %}
     </div>
     <div class="exp-card__meta">
       <span>Created {{ local_time(exp.created_at, 'date-med') }}</span>
-      {% if exp.server_last_ping_at %}
-      <span title="Last server ping">
-        {% if exp.server_is_online %}
-        <span style="color:#16a34a;font-weight:600;">Online</span>
-        {% else %}
-        Offline since {{ local_time(exp.server_last_ping_at, 'datetime-short') }}
-        {% endif %}
-      </span>
+      {% if exp.server_is_online %}
+      <span class="exp-card__meta-online">Online</span>
+      {% elif exp.server_last_ping_at %}
+      <span>Offline {{ local_time(exp.server_last_ping_at, 'datetime-short') }}</span>
       {% elif exp.last_activity_at %}
       <span>Last active {{ local_time(exp.last_activity_at, 'date-short') }}</span>
       {% endif %}
