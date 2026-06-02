@@ -30,7 +30,7 @@ EVENT_CSS_CLASS: dict[str, str] = {
     "api_key_deleted": "tl-deleted",
 }
 
-DEFAULT_PAGE_SIZE = 20
+DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
 
 

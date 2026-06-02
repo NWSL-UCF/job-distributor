@@ -15,8 +15,8 @@
       <label class="events-page-size">
         <span>Per page</span>
         <select id="events-page-size">
-          <option value="10">10</option>
-          <option value="20" selected>20</option>
+          <option value="10" selected>10</option>
+          <option value="20">20</option>
           <option value="50">50</option>
         </select>
       </label>
@@ -37,7 +37,7 @@
 <script>
 (function () {
   var eventsPage = 0;
-  var eventsPageSize = 20;
+  var eventsPageSize = 10;
   var eventsLoading = false;
 
   var timelineEl = document.getElementById('events-timeline');
@@ -120,7 +120,7 @@
   if (nextBtn) nextBtn.addEventListener('click', function () { loadEventsPage(eventsPage + 1); });
   if (pageSizeSel) {
     pageSizeSel.addEventListener('change', function () {
-      eventsPageSize = parseInt(pageSizeSel.value, 10) || 20;
+      eventsPageSize = parseInt(pageSizeSel.value, 10) || 10;
       eventsPage = 0;
       loadEventsPage(0);
     });
