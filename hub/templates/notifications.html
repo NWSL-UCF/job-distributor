@@ -48,6 +48,9 @@
   var pageSizeSel = document.getElementById('events-page-size');
 
   function formatLocalTime(isoUtc) {
+    if (typeof window.hubFormatUtcLocal === 'function') {
+      return window.hubFormatUtcLocal(isoUtc, 'datetime-full');
+    }
     if (!isoUtc) return '—';
     var s = isoUtc.endsWith('Z') ? isoUtc : isoUtc + 'Z';
     var d = new Date(s);

@@ -1,5 +1,51 @@
 /* Hub shared JavaScript */
 
+// ── Local time (UTC stored on server → browser timezone) ─────────────────────
+(function () {
+  const FMTS = {
+    "date-med":       { year: "numeric", month: "short", day: "numeric" },
+    "date-long":      { year: "numeric", month: "long", day: "numeric" },
+    "date-short":     { month: "short", day: "numeric" },
+    "date-iso":       { year: "numeric", month: "2-digit", day: "2-digit" },
+    "datetime-med":   { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
+    "datetime-short": { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
+    "datetime-full":  { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" },
+    "datetime-iso":   { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false },
+    "month-year":     { month: "long", year: "numeric" },
+  };
+
+  function parseUtc(isoUtc) {
+    if (!isoUtc) return null;
+    const s = isoUtc.endsWith("Z") || isoUtc.includes("+") ? isoUtc : isoUtc + "Z";
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  window.hubFormatUtcLocal = function (isoUtc, fmt) {
+    const d = parseUtc(isoUtc);
+    if (!d) return isoUtc || "—";
+    const opts = FMTS[fmt] || FMTS["datetime-med"];
+    if (fmt === "date-iso" || fmt === "datetime-iso") {
+      return d.toLocaleString(undefined, opts);
+    }
+    return d.toLocaleString(undefined, { ...opts, hour12: undefined });
+  };
+
+  window.applyHubLocalTimes = function (root) {
+    (root || document).querySelectorAll("time.local-time[datetime]").forEach((el) => {
+      const fmt = el.dataset.fmt || "datetime-med";
+      el.textContent = hubFormatUtcLocal(el.getAttribute("datetime"), fmt);
+      el.title = hubFormatUtcLocal(el.getAttribute("datetime"), "datetime-full");
+    });
+    (root || document).querySelectorAll(".local-time-input[data-utc]").forEach((el) => {
+      const fmt = el.dataset.fmt || "date-med";
+      el.value = hubFormatUtcLocal(el.dataset.utc, fmt);
+    });
+  };
+
+  document.addEventListener("DOMContentLoaded", () => applyHubLocalTimes());
+})();
+
 // ── Toast notifications ──────────────────────────────────────────────────────
 (function () {
   const el = document.createElement('div');

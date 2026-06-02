@@ -1,3 +1,24 @@
+/* Local time — Unix epoch seconds (UTC) rendered in the browser timezone. */
+function formatLocalUnix(ts, style) {
+    if (ts == null || ts === '' || ts === 'N/A') return '—';
+    const n = typeof ts === 'number' ? ts : parseFloat(ts);
+    if (!Number.isFinite(n) || n <= 0) return '—';
+    const presets = {
+        short: { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: undefined },
+        med: { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: undefined },
+        full: {
+            weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: undefined,
+        },
+    };
+    const opts = presets[style] || presets.full;
+    try {
+        return new Date(n * 1000).toLocaleString(undefined, opts);
+    } catch (e) {
+        return '—';
+    }
+}
+
 function openModal() {
                 document.getElementById("statsModal").style.display = "block";
             }
@@ -1175,11 +1196,7 @@ function openModal() {
                             item.className = 'timeline-item ' + getTimelineClass(entry.reason || '');
                             let tsLabel = 'Time unknown';
                             if (entry.timestamp != null) {
-                                tsLabel = new Date(entry.timestamp * 1000).toLocaleString('en-US', {
-                                    weekday: 'short', year: 'numeric', month: 'short',
-                                    day: 'numeric', hour: '2-digit', minute: '2-digit',
-                                    second: '2-digit', hour12: true,
-                                });
+                                tsLabel = formatLocalUnix(entry.timestamp, 'full');
                             }
                             item.innerHTML =
                                 `<div class="tl-msg">${formatMessageForDisplay(entry.reason)}</div>` +
@@ -1220,32 +1237,12 @@ function openModal() {
             }
 
             function _formatWorkerPollTime(ts) {
-                if (ts == null || ts === '' || ts === 'N/A') return '—';
-                const n = typeof ts === 'number' ? ts : parseFloat(ts);
-                if (!Number.isFinite(n) || n <= 0) return '—';
-                try {
-                    return new Date(n * 1000).toLocaleString(undefined, {
-                        weekday: 'short',
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                        hour12: true,
-                    });
-                } catch (e) {
-                    return '—';
-                }
+                return formatLocalUnix(ts, 'full');
             }
 
             function _formatWorkerHistoryEventLabel(entry) {
                 const ts = entry.timestamp
-                    ? new Date(entry.timestamp * 1000).toLocaleString('en-US', {
-                        weekday: 'short', year: 'numeric', month: 'short',
-                        day: 'numeric', hour: '2-digit', minute: '2-digit',
-                        second: '2-digit', hour12: true,
-                    })
+                    ? formatLocalUnix(entry.timestamp, 'full')
                     : 'unknown time';
                 const event = entry.event || 'event';
                 const reason = (entry.reason || '').trim();
@@ -2084,11 +2081,7 @@ function openModal() {
 
                     let tsLabel = 'Time unknown';
                     if (entry.timestamp != null) {
-                        tsLabel = new Date(entry.timestamp * 1000).toLocaleString('en-US', {
-                            weekday: 'short', year: 'numeric', month: 'short',
-                            day: 'numeric', hour: '2-digit', minute: '2-digit',
-                            second: '2-digit', hour12: true
-                        });
+                        tsLabel = formatLocalUnix(entry.timestamp, 'full');
                     }
 
                     item.innerHTML =
@@ -2162,8 +2155,8 @@ function openModal() {
                             const workerId       = job.worker_id || 'Unassigned';
                             const reqTs          = job.request_timestamp    || 0;
                             const compTs         = job.completion_timestamp || 0;
-                            const reqTime        = reqTs  ? new Date(reqTs  * 1000).toLocaleString() : '';
-                            const compTime       = compTs ? new Date(compTs * 1000).toLocaleString() : '';
+                            const reqTime        = reqTs  ? formatLocalUnix(reqTs, 'med') : '';
+                            const compTime       = compTs ? formatLocalUnix(compTs, 'med') : '';
                             const durationSec    = job.required_time || 0;
                             const durationFmt    = durationSec ? formatTime(durationSec) : '';
                             const jid = parseInt(job.id, 10);
@@ -2336,11 +2329,7 @@ function openModal() {
 
             function _formatUploadTime(ts) {
                 if (!ts) return '';
-                try {
-                    return new Date(ts * 1000).toLocaleString();
-                } catch (e) {
-                    return String(ts);
-                }
+                return formatLocalUnix(ts, 'med');
             }
 
             function _resetUploadsTab() {
@@ -3701,9 +3690,7 @@ let chart;
 
 // Function to convert Unix timestamp to local time
             function formatTimestamp(timestamp) {
-                if (!timestamp || timestamp === 'N/A') return 'N/A';
-                const date = new Date(timestamp * 1000); // Convert Unix timestamp to milliseconds
-                return date.toLocaleString(); // Use browser's local timezone
+                return formatLocalUnix(timestamp, 'med');
             }
             
             // Function to convert all timestamps in the table to local time

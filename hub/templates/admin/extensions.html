@@ -17,9 +17,9 @@
   <div class="ext-card__header">
     <div>
       <strong>{{ req.user.email }}</strong>
-      <span class="text--muted">&nbsp;·&nbsp;Submitted {{ req.requested_at.strftime('%Y-%m-%d %H:%M') if req.requested_at else '—' }}</span>
+      <span class="text--muted">&nbsp;·&nbsp;Submitted {{ local_time(req.requested_at, 'datetime-iso') }}</span>
       {% if req.reviewed_at %}
-      <span class="text--muted">&nbsp;·&nbsp;Reviewed {{ req.reviewed_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      <span class="text--muted">&nbsp;·&nbsp;Reviewed {{ local_time(req.reviewed_at, 'datetime-iso') }}</span>
       {% endif %}
     </div>
     <span class="badge badge--{{ req.status|lower }}">{{ req.status }}</span>

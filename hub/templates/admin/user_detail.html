@@ -91,7 +91,7 @@
       <tr>
         <td>{{ exp.name }}</td>
         <td><span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span></td>
-        <td>{{ exp.last_activity_at.strftime('%Y-%m-%d') if exp.last_activity_at else '—' }}</td>
+        <td>{{ local_time(exp.last_activity_at, 'date-iso') }}</td>
       </tr>
       {% endfor %}
       </tbody>

@@ -60,7 +60,7 @@
       <tr>
         <td class="keys-table__name">{{ key.name }}</td>
         <td><code class="keys-table__prefix">{{ key.key_prefix }}…</code></td>
-        <td class="keys-table__date">{{ key.created_at.strftime('%Y-%m-%d') if key.created_at else '—' }}</td>
+        <td class="keys-table__date">{{ local_time(key.created_at, 'date-iso') }}</td>
         <td>
           <form method="post"
                 action="{{ url_for('dashboard.delete_api_key', key_id=key.id) }}"

@@ -39,7 +39,7 @@
     <tbody>
     {% for req in requests %}
     <tr>
-      <td>{{ req.requested_at.strftime('%Y-%m-%d') if req.requested_at else '—' }}</td>
+      <td>{{ local_time(req.requested_at, 'date-iso') }}</td>
       <td><span class="badge badge--{{ req.status|lower }}">{{ req.status }}</span></td>
       <td>{{ req.description }}</td>
       <td class="text--muted">{{ req.admin_note or '—' }}</td>

@@ -115,7 +115,8 @@
     </div>
     <div class="field">
       <label class="field__label">Member since</label>
-      <input class="field__input" type="text"
+      <input class="field__input local-time-input" type="text"
+             data-utc="{{ user.created_at.isoformat() }}Z" data-fmt="date-long"
              value="{{ user.created_at.strftime('%B %d, %Y') if user.created_at else '—' }}" disabled>
     </div>
     <div class="form-actions">

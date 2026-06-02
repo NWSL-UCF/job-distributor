@@ -29,16 +29,16 @@
       <ul class="exp-detail__meta">
         <li>
           <span class="exp-detail__meta-label">Created</span>
-          <span>{{ exp.created_at.strftime('%b %d, %Y') if exp.created_at else '—' }}</span>
+          <span>{{ local_time(exp.created_at, 'date-med') }}</span>
         </li>
         <li>
           <span class="exp-detail__meta-label">Last active</span>
-          <span>{{ exp.last_activity_at.strftime('%b %d, %Y') if exp.last_activity_at else '—' }}</span>
+          <span>{{ local_time(exp.last_activity_at, 'date-med') }}</span>
         </li>
         {% if exp.expires_at %}
         <li>
           <span class="exp-detail__meta-label">Expires</span>
-          <span class="text--warning">{{ exp.expires_at.strftime('%b %d, %Y') }}</span>
+          <span class="text--warning">{{ local_time(exp.expires_at, 'date-med') }}</span>
         </li>
         {% endif %}
       </ul>

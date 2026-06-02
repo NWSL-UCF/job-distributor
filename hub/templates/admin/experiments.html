@@ -31,10 +31,10 @@
     <td><strong>{{ exp.name }}</strong></td>
     <td>{{ exp.user.email }}</td>
     <td><span class="badge badge--{{ exp.status|lower }}">{{ exp.status }}</span></td>
-    <td>{{ exp.created_at.strftime('%Y-%m-%d') if exp.created_at else '—' }}</td>
-    <td>{{ exp.last_activity_at.strftime('%Y-%m-%d %H:%M') if exp.last_activity_at else '—' }}</td>
-    <td>{{ exp.updated_at.strftime('%Y-%m-%d %H:%M') if exp.updated_at else '—' }}</td>
-    <td>{{ exp.expires_at.strftime('%Y-%m-%d') if exp.expires_at else '—' }}</td>
+    <td>{{ local_time(exp.created_at, 'date-iso') }}</td>
+    <td>{{ local_time(exp.last_activity_at, 'datetime-iso') }}</td>
+    <td>{{ local_time(exp.updated_at, 'datetime-iso') }}</td>
+    <td>{{ local_time(exp.expires_at, 'date-iso') }}</td>
     <td>
       {% if exp.status not in ('EXPIRED', 'DELETED') %}
       <form method="post" action="{{ url_for('admin.expire_experiment', name=exp.name) }}"

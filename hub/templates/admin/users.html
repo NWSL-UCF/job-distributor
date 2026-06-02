@@ -52,7 +52,7 @@
       </div>
       {{ (row.usage.total_bytes_out if row.usage else 0)|fmt_bytes }}
     </td>
-    <td>{{ u.updated_at.strftime('%Y-%m-%d %H:%M') if u.updated_at else '—' }}</td>
+    <td>{{ local_time(u.updated_at, 'datetime-iso') }}</td>
     <td>
       <a href="{{ url_for('admin.user_detail', uid=u.id) }}" class="btn btn--xs btn--outline">View</a>
     </td>

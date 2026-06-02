@@ -14,7 +14,7 @@
 <div class="usage-card">
   <div class="usage-card__header">
     <span class="usage-card__title">Monthly Data Usage</span>
-    <span class="usage-card__month">{{ now.strftime('%B %Y') if now else '' }}</span>
+    <span class="usage-card__month">{{ local_time(now, 'month-year') if now else '' }}</span>
   </div>
   <div class="usage-row">
     <span class="usage-label">↑ Upload</span>
@@ -54,7 +54,7 @@
     <div class="heatmap-loading">Loading…</div>
   </div>
   <div class="heatmap-footer">
-    <span class="heatmap-note">Data shown up to yesterday (UTC). Today's activity will appear tomorrow.</span>
+    <span class="heatmap-note">Daily totals shown in your local timezone. Today&apos;s activity updates throughout the day.</span>
     <div class="heatmap-legend">
       <span class="heatmap-legend__label">Less</span>
       <span class="heatmap-cell heatmap-cell--0"></span>
@@ -137,17 +137,17 @@
       {% endif %}
     </div>
     <div class="exp-card__meta">
-      <span>Created {{ exp.created_at.strftime('%b %d, %Y') if exp.created_at else '—' }}</span>
+      <span>Created {{ local_time(exp.created_at, 'date-med') }}</span>
       {% if exp.server_last_ping_at %}
       <span title="Last server ping">
         {% if exp.server_is_online %}
         <span style="color:#16a34a;font-weight:600;">Online</span>
         {% else %}
-        Offline since {{ exp.server_last_ping_at.strftime('%b %d %H:%M') }}
+        Offline since {{ local_time(exp.server_last_ping_at, 'datetime-short') }}
         {% endif %}
       </span>
       {% elif exp.last_activity_at %}
-      <span>Last active {{ exp.last_activity_at.strftime('%b %d') }}</span>
+      <span>Last active {{ local_time(exp.last_activity_at, 'date-short') }}</span>
       {% endif %}
     </div>
     <div class="exp-card__actions">
@@ -173,12 +173,6 @@
 
 {% block extra_scripts %}
 <script>
-const _now = new Date();
-document.querySelector('.usage-card__month') && (
-  document.querySelector('.usage-card__month').textContent =
-    _now.toLocaleString('default', { month: 'long', year: 'numeric' })
-);
-
 // ── Data Transfer Heatmap ────────────────────────────────────────────────────
 (function () {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -202,8 +196,8 @@ document.querySelector('.usage-card__month') && (
   }
 
   function fmtDate(dateStr) {
-    var d = new Date(dateStr + 'T00:00:00');
-    return d.toLocaleDateString('default', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+    var d = new Date(dateStr + 'T12:00:00Z');
+    return d.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric'});
   }
 
   var tooltip = document.getElementById('heatmap-tooltip');

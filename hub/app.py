@@ -57,6 +57,19 @@ def create_app() -> Flask:
 
     # ── Template globals ──────────────────────────────────────────────────
     import datetime as _dt
+    from markupsafe import Markup
+
+    @app.template_global("local_time")
+    def local_time(dt, fmt: str = "datetime-med"):
+        """Render a UTC datetime for client-side conversion to browser local time."""
+        if not dt:
+            return Markup("—")
+        iso = f"{dt.isoformat()}Z"
+        fallback = dt.strftime("%Y-%m-%d %H:%M")
+        return Markup(
+            f'<time class="local-time" datetime="{iso}" data-fmt="{fmt}">{fallback}</time>'
+        )
+
     @app.context_processor
     def inject_globals():
         return {
