@@ -1832,6 +1832,16 @@ class JobDatabase:
             self._append_worker_history(
                 conn, wid, reason, event="auto_stop_all_jobs_complete",
             )
+            cur.execute(
+                f"SELECT {_WORKER_HOT_COLS} FROM workers WHERE worker_id = ?",
+                (wid,),
+            )
+            updated = dict(cur.fetchone())
+            job_id = updated.get("current_job_id")
+            if job_id is None and (
+                updated.get("reported_status") or WORKER_REPORTED_IDLE
+            ) == WORKER_REPORTED_IDLE:
+                self._finalize_worker_stop_locked(conn, updated, reason)
             affected += 1
         return affected
 
@@ -2021,7 +2031,11 @@ class JobDatabase:
                     for r in cur.fetchall()
                 ]
         if lifecycle == WORKER_LIST_PENDING:
-            rows = [r for r in rows if r.get("pending")]
+            rows = [
+                r for r in rows
+                if r.get("pending")
+                and (r.get("desired_state") or WORKER_STATE_RUN) != WORKER_STATE_STOP
+            ]
         elif lifecycle == WORKER_LIST_PAUSED:
             rows = [
                 r for r in rows
@@ -2038,6 +2052,13 @@ class JobDatabase:
                     WORKER_STATE_RUN,
                     WORKER_STATE_DRAIN,
                 )
+            ]
+        elif lifecycle == WORKER_LIFECYCLE_DISABLED:
+            rows = [
+                r for r in rows
+                if (r.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE)
+                == WORKER_LIFECYCLE_DISABLED
+                or (r.get("desired_state") or WORKER_STATE_RUN) == WORKER_STATE_STOP
             ]
         elif lifecycle:
             rows = [r for r in rows if r.get("lifecycle_status") == lifecycle]
@@ -2067,11 +2088,11 @@ class JobDatabase:
             has_pending = int(r.get("desired_version") or 0) > int(r.get("applied_version") or 0)
             rs = r.get("reported_status") or WORKER_REPORTED_IDLE
 
-            if lc == WORKER_LIFECYCLE_DISABLED:
+            if lc == WORKER_LIFECYCLE_DISABLED or ds == WORKER_STATE_STOP:
                 disabled += 1
                 continue
             total += 1
-            if has_pending:
+            if has_pending and ds != WORKER_STATE_STOP:
                 pending_cmds += 1
             elif ds == WORKER_STATE_PAUSE:
                 paused += 1
@@ -2133,6 +2154,8 @@ class JobDatabase:
         params: List[Any] = []
         if lifecycle == WORKER_LIST_PENDING:
             clauses.append("desired_version > applied_version")
+            clauses.append("desired_state != ?")
+            params.append(WORKER_STATE_STOP)
         elif lifecycle == WORKER_LIST_PAUSED:
             clauses.append("lifecycle_status = ?")
             params.append(WORKER_LIFECYCLE_ACTIVE)
@@ -2146,8 +2169,8 @@ class JobDatabase:
             clauses.append(f"desired_state IN (?, ?)")
             params.extend([WORKER_STATE_RUN, WORKER_STATE_DRAIN])
         elif lifecycle == WORKER_LIFECYCLE_DISABLED:
-            clauses.append("lifecycle_status = ?")
-            params.append(WORKER_LIFECYCLE_DISABLED)
+            clauses.append("(lifecycle_status = ? OR desired_state = ?)")
+            params.extend([WORKER_LIFECYCLE_DISABLED, WORKER_STATE_STOP])
         elif lifecycle:
             clauses.append("lifecycle_status = ?")
             params.append(lifecycle)
@@ -2689,7 +2712,7 @@ class JobDatabase:
         lc = row.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE
         ds = row.get("desired_state") or WORKER_STATE_RUN
         if lifecycle == WORKER_LIST_PENDING:
-            return pending
+            return pending and ds != WORKER_STATE_STOP
         if lifecycle == WORKER_LIST_PAUSED:
             return (
                 lc == WORKER_LIFECYCLE_ACTIVE
@@ -2703,7 +2726,7 @@ class JobDatabase:
                 and ds in (WORKER_STATE_RUN, WORKER_STATE_DRAIN)
             )
         if lifecycle == WORKER_LIFECYCLE_DISABLED:
-            return lc == WORKER_LIFECYCLE_DISABLED
+            return lc == WORKER_LIFECYCLE_DISABLED or ds == WORKER_STATE_STOP
         return True
 
     def preview_workers_action(
