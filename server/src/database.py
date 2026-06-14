@@ -1362,6 +1362,17 @@ class JobDatabase:
             
             return counts
     
+    def next_upload_version(self, job_id: int) -> int:
+        """Return the next monotonic upload version number for a job."""
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT MAX(version) AS mx FROM uploads WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            if row and row["mx"] is not None:
+                return int(row["mx"]) + 1
+            return 0
+
     def record_upload(
         self,
         job_id: int,

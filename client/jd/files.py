@@ -110,11 +110,8 @@ def jd_upload(
     """
     Upload a result file (≤ 100 MB) to the server.
 
-    The file is stored in the experiment's job directory as::
-
-        result_v{N}_{timestamp}.<original_ext>
-
-    where N auto-increments across calls so every upload is preserved.
+    The file is stored in the experiment's job directory under its original name.
+    Re-uploading the same basename adds a version suffix (``name_v1.ext``, …).
 
     On transient HTTP or network errors the upload is retried with a random
     1–20 second delay between attempts (default 5 attempts; override with
@@ -134,7 +131,7 @@ def jd_upload(
     Returns
     -------
     dict
-        ``{"success": True, "filename": "result_v0_…", "version": 0, "size_bytes": …}``
+        ``{"success": True, "filename": "metrics.csv", "version": 0, "size_bytes": …}``
     """
     job_id, server = _ctx(job_id, server)
 

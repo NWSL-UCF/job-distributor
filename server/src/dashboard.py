@@ -20,7 +20,7 @@ from job_files import (
     read_upload_preview,
     resolve_result_file,
     scan_uploads_from_disk,
-    validate_result_filename,
+    validate_upload_filename,
 )
 
 app = Flask(__name__)
@@ -895,7 +895,7 @@ def job_upload_content():
         filename = request.args.get("filename", "")
         if not job_id or not filename:
             return jsonify({"error": "job_id and filename are required"}), 400
-        if not validate_result_filename(filename):
+        if not validate_upload_filename(filename):
             return jsonify({"error": "Invalid filename"}), 400
 
         job_id = int(job_id)
@@ -923,7 +923,7 @@ def job_upload_download():
         filename = request.args.get("filename", "")
         if not job_id or not filename:
             return jsonify({"error": "job_id and filename are required"}), 400
-        if not validate_result_filename(filename):
+        if not validate_upload_filename(filename):
             return jsonify({"error": "Invalid filename"}), 400
 
         job_id = int(job_id)

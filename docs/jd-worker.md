@@ -313,9 +313,7 @@ All upload/checkpoint helpers resolve **`job_id`** and **`server`** from `JD_JOB
 
 Uploads a local file to the server.
 
-- **Server path:** `result_v{N}_{unix_timestamp}<ext>`  
-  - `<ext>` from the original filename (lower-case; default `.bin` if none).  
-  - `N` increments per job directory so nothing is overwritten.
+- **Server path:** original basename (e.g. `metrics.csv`). Re-uploading the same name stores `metrics_v1.csv`, `metrics_v2.csv`, …
 
 **Returns:** JSON dict, e.g. `success`, `filename`, `version`, `size_bytes`.
 

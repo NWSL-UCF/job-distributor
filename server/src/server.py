@@ -11,6 +11,7 @@ import jwt
 import requests as _requests
 from database import JobDatabase
 from flask import Flask, jsonify, request, send_file
+from job_files import resolve_upload_filename, sanitize_upload_basename
 from workspace_layout import (
     ensure_exp_layout,
     exp_meta_dir,
@@ -440,20 +441,17 @@ def upload_file():
     if len(data) > MAX_UPLOAD_BYTES:
         return jsonify({"error": "File exceeds the 100 MB limit"}), 413
 
-    original_name = f.filename or "upload"
-    _, ext = os.path.splitext(original_name)
-    ext = ext.lower() or ".bin"
-
+    original_name = sanitize_upload_basename(f.filename or "upload")
     job_directory = _job_dir(job_id)
-    version       = _next_version(job_directory, "result_v")
-    timestamp     = int(time.time())
-    filename      = f"result_v{version}_{timestamp}{ext}"
-    save_path     = os.path.join(job_directory, filename)
+    filename, _file_version = resolve_upload_filename(job_directory, original_name)
+    save_path = os.path.join(job_directory, filename)
+    version = db.next_upload_version(int(job_id))
+    timestamp = time.time()
 
     with open(save_path, "wb") as out:
         out.write(data)
 
-    db.record_upload(int(job_id), version, filename, len(data), float(timestamp))
+    db.record_upload(int(job_id), version, filename, len(data), timestamp)
 
     logging.info(f"Upload saved: job={job_id}  file={filename}  bytes={len(data)}")
     return jsonify({"success": True, "filename": filename, "version": version,
