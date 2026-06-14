@@ -488,21 +488,33 @@ def create_jobs():
     try:
         data = request.get_json()
         parameters = data.get('parameters')
+        jobs = data.get('jobs')
         idle_timeout = data.get('idle_timeout', 600)
         aborted_job_reset_timeout = data.get('aborted_job_reset_timeout', 1200)
         replace = data.get('replace', False)
 
-        if not parameters or not isinstance(parameters, dict):
-            return jsonify({"success": False, "error": "Missing or invalid 'parameters'. Must be a non-empty object."}), 400
+        if jobs is not None:
+            if parameters:
+                return jsonify({"success": False, "error": "Provide either 'parameters' or 'jobs', not both."}), 400
+            if not isinstance(jobs, list) or len(jobs) == 0:
+                return jsonify({"success": False, "error": "Missing or invalid 'jobs'. Must be a non-empty array."}), 400
+            for i, job in enumerate(jobs):
+                if not isinstance(job, dict) or len(job) == 0:
+                    return jsonify({"success": False, "error": f"Job at index {i} must be a non-empty object."}), 400
+            parameters_list = [json.dumps(job) for job in jobs]
+            keys = list(jobs[0].keys()) if jobs else []
+        else:
+            if not parameters or not isinstance(parameters, dict):
+                return jsonify({"success": False, "error": "Missing or invalid 'parameters'. Must be a non-empty object."}), 400
 
-        for key, vals in parameters.items():
-            if not isinstance(vals, list) or len(vals) == 0:
-                return jsonify({"success": False, "error": f"Values for '{key}' must be a non-empty array."}), 400
+            for key, vals in parameters.items():
+                if not isinstance(vals, list) or len(vals) == 0:
+                    return jsonify({"success": False, "error": f"Values for '{key}' must be a non-empty array."}), 400
 
-        keys = list(parameters.keys())
-        values = list(parameters.values())
-        combos = list(itertools.product(*values))
-        parameters_list = [json.dumps(dict(zip(keys, combo))) for combo in combos]
+            keys = list(parameters.keys())
+            values = list(parameters.values())
+            combos = list(itertools.product(*values))
+            parameters_list = [json.dumps(dict(zip(keys, combo))) for combo in combos]
 
         if replace:
             total_jobs = db.create_jobs(parameters_list)
@@ -514,7 +526,8 @@ def create_jobs():
         db.set_config_value("idle_timeout", str(int(idle_timeout)))
         db.set_config_value("aborted_job_reset_timeout", str(int(aborted_job_reset_timeout)))
 
-        logging.info(f"{action} {total_jobs} jobs from {len(keys)} parameters (replace={replace}).")
+        source = f"{len(jobs)} explicit jobs" if jobs is not None else f"{len(keys)} parameters"
+        logging.info(f"{action} {total_jobs} jobs from {source} (replace={replace}).")
         return jsonify({"success": True, "message": f"{action} {total_jobs} jobs", "total_jobs": total_jobs, "action": action})
 
     except Exception as e:

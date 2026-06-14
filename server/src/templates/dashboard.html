@@ -669,6 +669,9 @@
                     <button class="addjobs-tab" id="addjobs-tab-json" onclick="switchAddJobsTab('json')">
                         <i class="fas fa-code"></i> JSON
                     </button>
+                    <button class="addjobs-tab" id="addjobs-tab-csv" onclick="switchAddJobsTab('csv')">
+                        <i class="fas fa-file-csv"></i> CSV / TSV
+                    </button>
                 </div>
 
                 <!-- ── Form panel ── -->
@@ -728,6 +731,44 @@
                                 <table class="json-preview-table">
                                     <thead id="jsonPreviewHead"></thead>
                                     <tbody id="jsonPreviewBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── CSV / TSV panel ── -->
+                <div id="addjobs-panel-csv" class="addjobs-panel" style="display:none;">
+                    <div class="setup-section">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <h4 style="margin:0;"><i class="fas fa-file-csv"></i> Upload File</h4>
+                            <button class="addjobs-validate-btn" onclick="validateCsvInput()" title="Check for errors">
+                                <i class="fas fa-check-circle"></i> Validate
+                            </button>
+                        </div>
+                        <p style="margin:0 0 10px 0; font-size:0.8em; color:#6c757d;">
+                            Upload a CSV or TSV file. The header row defines parameter names; each data row becomes one job.
+                            Values are auto-typed (numbers, booleans) when possible.
+                        </p>
+                        <div class="csv-upload-wrap">
+                            <input type="file" id="csvFileInput" accept=".csv,.tsv,text/csv,text/tab-separated-values" style="display:none;">
+                            <label for="csvFileInput" class="csv-upload-label" id="csvUploadLabel">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <span id="csvUploadText">Choose a .csv or .tsv file</span>
+                            </label>
+                        </div>
+                        <div id="csvValidationMsg" class="json-validation-msg"></div>
+
+                        <!-- Job preview -->
+                        <div id="csvPreviewSection" style="display:none; margin-top:14px;">
+                            <div class="json-preview-header">
+                                <span id="csvJobCountBadge" class="json-job-count-badge"></span>
+                                <span style="font-size:0.78em; color:#6c757d;">Showing first <strong id="csvPreviewShowing"></strong> jobs</span>
+                            </div>
+                            <div class="json-preview-scroll">
+                                <table class="json-preview-table">
+                                    <thead id="csvPreviewHead"></thead>
+                                    <tbody id="csvPreviewBody"></tbody>
                                 </table>
                             </div>
                         </div>

@@ -3260,6 +3260,7 @@ function openModal() {
                 document.getElementById("jsonValidationMsg").textContent = "";
                 document.getElementById("jsonValidationMsg").className = "json-validation-msg";
                 document.getElementById("jsonPreviewSection").style.display = "none";
+                _resetCsvPanel();
             }
 
             function closeSetupOverlay() {
@@ -3318,12 +3319,17 @@ function openModal() {
                 errEl.textContent = "";
 
                 let parameters = {};
+                let jobs = null;
 
                 if (_addJobsActiveTab === "json") {
                     // JSON mode
                     const res = _parseJsonParams();
                     if (!res.ok) { errEl.textContent = res.err; return; }
                     parameters = res.params;
+                } else if (_addJobsActiveTab === "csv") {
+                    const res = _parseCsvFile();
+                    if (!res.ok) { errEl.textContent = res.err; return; }
+                    jobs = res.jobs;
                 } else {
                     // Form mode
                     const rows = document.querySelectorAll("#parameterRows .param-row");
@@ -3360,7 +3366,7 @@ function openModal() {
                 fetch('/create_jobs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ parameters: parameters, replace: replace })
+                    body: JSON.stringify(jobs ? { jobs: jobs, replace: replace } : { parameters: parameters, replace: replace })
                 })
                 .then(r => r.json())
                 .then(data => {
@@ -3383,8 +3389,10 @@ function openModal() {
                 _addJobsActiveTab = tab;
                 document.getElementById("addjobs-tab-form").classList.toggle("active", tab === "form");
                 document.getElementById("addjobs-tab-json").classList.toggle("active", tab === "json");
+                document.getElementById("addjobs-tab-csv").classList.toggle("active", tab === "csv");
                 document.getElementById("addjobs-panel-form").style.display = tab === "form" ? "" : "none";
                 document.getElementById("addjobs-panel-json").style.display = tab === "json" ? "" : "none";
+                document.getElementById("addjobs-panel-csv").style.display = tab === "csv" ? "" : "none";
                 document.getElementById("setupError").textContent = "";
             }
 
@@ -3487,6 +3495,174 @@ function openModal() {
                     msg.textContent = "";
                     msg.className = "json-validation-msg";
                     _renderJsonPreview();
+                });
+
+            // ── CSV / TSV tab helpers ─────────────────────────────────────────
+
+            let _csvFileContent = "";
+            let _csvFileName = "";
+
+            function _resetCsvPanel() {
+                _csvFileContent = "";
+                _csvFileName = "";
+                const input = document.getElementById("csvFileInput");
+                if (input) input.value = "";
+                const label = document.getElementById("csvUploadLabel");
+                if (label) label.classList.remove("has-file");
+                const text = document.getElementById("csvUploadText");
+                if (text) text.textContent = "Choose a .csv or .tsv file";
+                const msg = document.getElementById("csvValidationMsg");
+                if (msg) { msg.textContent = ""; msg.className = "json-validation-msg"; }
+                const section = document.getElementById("csvPreviewSection");
+                if (section) section.style.display = "none";
+            }
+
+            function _detectCsvDelimiter(headerLine, filename) {
+                if (filename && /\.tsv$/i.test(filename)) return "\t";
+                const tabs = (headerLine.match(/\t/g) || []).length;
+                const commas = (headerLine.match(/,/g) || []).length;
+                return tabs > commas ? "\t" : ",";
+            }
+
+            function _parseCsvLine(line, delimiter) {
+                const fields = [];
+                let field = "";
+                let inQuotes = false;
+                for (let i = 0; i < line.length; i++) {
+                    const c = line[i];
+                    if (inQuotes) {
+                        if (c === '"') {
+                            if (line[i + 1] === '"') { field += '"'; i++; continue; }
+                            inQuotes = false;
+                            continue;
+                        }
+                        field += c;
+                        continue;
+                    }
+                    if (c === '"') { inQuotes = true; continue; }
+                    if (c === delimiter) { fields.push(field); field = ""; continue; }
+                    field += c;
+                }
+                fields.push(field);
+                return fields;
+            }
+
+            function _coerceCsvValue(raw) {
+                const s = raw.trim();
+                if (s === "") return "";
+                if (s === "true") return true;
+                if (s === "false") return false;
+                if (s === "null") return null;
+                if (/^-?\d+$/.test(s)) return parseInt(s, 10);
+                if (/^-?\d+\.\d+([eE][+-]?\d+)?$/.test(s) || /^-?\d+[eE][+-]?\d+$/.test(s)) return parseFloat(s);
+                return s;
+            }
+
+            function _parseCsvText(text, filename) {
+                const trimmed = text.replace(/^\uFEFF/, "").trim();
+                if (!trimmed) return { ok: false, err: "File is empty." };
+
+                const lines = trimmed.split(/\r?\n/).filter(line => line.trim() !== "");
+                if (lines.length < 2) return { ok: false, err: "File must have a header row and at least one data row." };
+
+                const delimiter = _detectCsvDelimiter(lines[0], filename);
+                const headers = _parseCsvLine(lines[0], delimiter).map(h => h.trim());
+                if (headers.some(h => !h)) return { ok: false, err: "Every column in the header row must have a name." };
+
+                const seen = new Set();
+                for (const h of headers) {
+                    if (seen.has(h)) return { ok: false, err: `Duplicate column name: "${h}".` };
+                    seen.add(h);
+                }
+
+                const jobs = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const fields = _parseCsvLine(lines[i], delimiter);
+                    if (fields.every(f => f.trim() === "")) continue;
+                    if (fields.length !== headers.length) {
+                        return { ok: false, err: `Row ${i + 1}: expected ${headers.length} columns, got ${fields.length}.` };
+                    }
+                    const job = {};
+                    headers.forEach((key, j) => { job[key] = _coerceCsvValue(fields[j]); });
+                    jobs.push(job);
+                }
+
+                if (jobs.length === 0) return { ok: false, err: "No data rows found." };
+                return { ok: true, jobs, headers };
+            }
+
+            function _parseCsvFile() {
+                if (!_csvFileContent) return { ok: false, err: "Choose a CSV or TSV file first." };
+                return _parseCsvText(_csvFileContent, _csvFileName);
+            }
+
+            function _renderCsvPreview() {
+                const section = document.getElementById("csvPreviewSection");
+                const res = _parseCsvFile();
+                if (!res.ok) { section.style.display = "none"; return; }
+
+                const jobs = res.jobs;
+                const keys = res.headers;
+                const preview = jobs.slice(0, 5);
+                const total = jobs.length;
+
+                document.getElementById("csvJobCountBadge").textContent =
+                    total + " job" + (total !== 1 ? "s" : "") + " will be created";
+                document.getElementById("csvPreviewShowing").textContent =
+                    Math.min(5, total) + " of " + total;
+
+                document.getElementById("csvPreviewHead").innerHTML =
+                    "<tr>" + keys.map(k => `<th>${k}</th>`).join("") + "</tr>";
+                document.getElementById("csvPreviewBody").innerHTML = preview.map(job =>
+                    "<tr>" + keys.map(k => `<td>${JSON.stringify(job[k])}</td>`).join("") + "</tr>"
+                ).join("");
+
+                section.style.display = "";
+            }
+
+            function validateCsvInput() {
+                const msg = document.getElementById("csvValidationMsg");
+                const res = _parseCsvFile();
+                if (res.ok) {
+                    const total = res.jobs.length;
+                    msg.textContent = `Valid — will create ${total} job${total !== 1 ? "s" : ""}.`;
+                    msg.className = "json-validation-msg json-validation-ok";
+                    _renderCsvPreview();
+                } else {
+                    msg.textContent = res.err;
+                    msg.className = "json-validation-msg json-validation-error";
+                    document.getElementById("csvPreviewSection").style.display = "none";
+                }
+            }
+
+            document.getElementById("csvFileInput") && document.getElementById("csvFileInput")
+                .addEventListener("change", (e) => {
+                    const file = e.target.files && e.target.files[0];
+                    const msg = document.getElementById("csvValidationMsg");
+                    msg.textContent = "";
+                    msg.className = "json-validation-msg";
+
+                    if (!file) {
+                        _resetCsvPanel();
+                        return;
+                    }
+
+                    _csvFileName = file.name;
+                    document.getElementById("csvUploadText").textContent = file.name;
+                    document.getElementById("csvUploadLabel").classList.add("has-file");
+
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        _csvFileContent = reader.result;
+                        validateCsvInput();
+                    };
+                    reader.onerror = () => {
+                        _csvFileContent = "";
+                        msg.textContent = "Failed to read file.";
+                        msg.className = "json-validation-msg json-validation-error";
+                        document.getElementById("csvPreviewSection").style.display = "none";
+                    };
+                    reader.readAsText(file);
                 });
 
             // ====================== END SETUP OVERLAY ======================
