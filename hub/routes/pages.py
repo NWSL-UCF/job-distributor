@@ -37,6 +37,11 @@ def checkpoints_guide():
     return render_template("learn_checkpoints.html", user=_user())
 
 
+@pages_bp.route("/learn/job-management-library")
+def job_management_library():
+    return render_template("learn_job_management_library.html", user=_user())
+
+
 # Legacy redirect — keeps old links working
 @pages_bp.route("/tutorials")
 def tutorials():

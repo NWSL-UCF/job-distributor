@@ -1,5 +1,4 @@
 import argparse
-import itertools
 import json
 import logging
 import os
@@ -14,12 +13,11 @@ import pytz
 from database import JobDatabase, job_worker_id
 from flask import Flask, jsonify, make_response, redirect, render_template, request, send_file
 from workspace_layout import ensure_exp_layout, exp_meta_dir, jobs_db_path
+from job_api_helpers import parse_create_jobs_payload, upload_rows_for_job
 from job_files import (
     MAX_PREVIEW_BYTES,
-    file_format,
     read_upload_preview,
     resolve_result_file,
-    scan_uploads_from_disk,
     validate_upload_filename,
 )
 
@@ -487,34 +485,14 @@ def create_jobs():
 
     try:
         data = request.get_json()
-        parameters = data.get('parameters')
-        jobs = data.get('jobs')
         idle_timeout = data.get('idle_timeout', 600)
         aborted_job_reset_timeout = data.get('aborted_job_reset_timeout', 1200)
         replace = data.get('replace', False)
 
-        if jobs is not None:
-            if parameters:
-                return jsonify({"success": False, "error": "Provide either 'parameters' or 'jobs', not both."}), 400
-            if not isinstance(jobs, list) or len(jobs) == 0:
-                return jsonify({"success": False, "error": "Missing or invalid 'jobs'. Must be a non-empty array."}), 400
-            for i, job in enumerate(jobs):
-                if not isinstance(job, dict) or len(job) == 0:
-                    return jsonify({"success": False, "error": f"Job at index {i} must be a non-empty object."}), 400
-            parameters_list = [json.dumps(job) for job in jobs]
-            keys = list(jobs[0].keys()) if jobs else []
-        else:
-            if not parameters or not isinstance(parameters, dict):
-                return jsonify({"success": False, "error": "Missing or invalid 'parameters'. Must be a non-empty object."}), 400
-
-            for key, vals in parameters.items():
-                if not isinstance(vals, list) or len(vals) == 0:
-                    return jsonify({"success": False, "error": f"Values for '{key}' must be a non-empty array."}), 400
-
-            keys = list(parameters.keys())
-            values = list(parameters.values())
-            combos = list(itertools.product(*values))
-            parameters_list = [json.dumps(dict(zip(keys, combo))) for combo in combos]
+        try:
+            parameters, jobs, parameters_list = parse_create_jobs_payload(data)
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
 
         if replace:
             total_jobs = db.create_jobs(parameters_list)
@@ -526,7 +504,10 @@ def create_jobs():
         db.set_config_value("idle_timeout", str(int(idle_timeout)))
         db.set_config_value("aborted_job_reset_timeout", str(int(aborted_job_reset_timeout)))
 
-        source = f"{len(jobs)} explicit jobs" if jobs is not None else f"{len(keys)} parameters"
+        if jobs is not None:
+            source = f"{len(jobs)} explicit jobs"
+        else:
+            source = f"{len(parameters or {})} parameters"
         logging.info(f"{action} {total_jobs} jobs from {source} (replace={replace}).")
         return jsonify({"success": True, "message": f"{action} {total_jobs} jobs", "total_jobs": total_jobs, "action": action})
 
@@ -844,19 +825,7 @@ def get_jobs_paginated():
 
 def _upload_rows_for_job(job_id: int) -> list:
     """List uploads from SQLite, backfilling from disk when the table is empty."""
-    rows = db.list_uploads(job_id)
-    if not rows:
-        disk_rows = scan_uploads_from_disk(BASE_DIR, EXP_ID, str(job_id))
-        if disk_rows:
-            db.backfill_uploads(disk_rows)
-            rows = db.list_uploads(job_id)
-    enriched = []
-    for row in rows:
-        ext = os.path.splitext(row["filename"])[1]
-        item = dict(row)
-        item["format"] = file_format(ext)
-        enriched.append(item)
-    return enriched
+    return upload_rows_for_job(db, BASE_DIR, EXP_ID, job_id)
 
 
 @app.route("/job_uploads", methods=["GET"])

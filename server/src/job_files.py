@@ -173,6 +173,31 @@ def scan_uploads_from_disk(workspace: str, exp_id: str, job_id: str) -> List[Dic
     return uploads
 
 
+def latest_upload_for_basename(
+    upload_filenames: List[str],
+    logical_name: str,
+) -> Optional[str]:
+    """Return the newest on-disk name for a logical basename (``metrics.csv`` → ``metrics_v2.csv``)."""
+    safe = sanitize_upload_basename(logical_name)
+    stem, ext = os.path.splitext(safe)
+    if not stem:
+        return None
+    ext = ext.lower() or ".bin"
+
+    best_name: Optional[str] = None
+    best_version = -1
+    for fname in upload_filenames:
+        if not validate_upload_filename(fname):
+            continue
+        ver = _file_version_suffix(stem, ext, fname)
+        if ver is None:
+            continue
+        if ver > best_version:
+            best_version = ver
+            best_name = fname
+    return best_name
+
+
 def resolve_result_file(workspace: str, exp_id: str, job_id: str, filename: str) -> Optional[str]:
     """Return absolute path if *filename* is a safe result file under the job directory."""
     if not validate_upload_filename(filename):
@@ -186,6 +211,38 @@ def resolve_result_file(workspace: str, exp_id: str, job_id: str, filename: str)
     if not os.path.isfile(real_file):
         return None
     return real_file
+
+
+def resolve_latest_result_file(
+    workspace: str,
+    exp_id: str,
+    job_id: str,
+    logical_name: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Resolve the newest on-disk upload for a logical basename.
+
+    Returns ``(absolute_path, on_disk_filename)`` or ``(None, None)``.
+    """
+    safe = sanitize_upload_basename(logical_name)
+    exact = resolve_result_file(workspace, exp_id, job_id, safe)
+    if exact:
+        return exact, safe
+
+    job_dir = job_worker_data_dir(workspace, exp_id, str(job_id))
+    if not os.path.isdir(job_dir):
+        return None, None
+
+    names = [
+        fname
+        for fname in os.listdir(job_dir)
+        if os.path.isfile(os.path.join(job_dir, fname))
+    ]
+    latest = latest_upload_for_basename(names, logical_name)
+    if not latest:
+        return None, None
+    path = resolve_result_file(workspace, exp_id, job_id, latest)
+    return path, latest if path else (None, None)
 
 
 def read_upload_preview(path: str) -> Dict[str, Any]:

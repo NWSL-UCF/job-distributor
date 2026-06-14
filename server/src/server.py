@@ -11,7 +11,14 @@ import jwt
 import requests as _requests
 from database import JobDatabase
 from flask import Flask, jsonify, request, send_file
-from job_files import resolve_upload_filename, sanitize_upload_basename
+from job_api_helpers import parse_create_jobs_payload, upload_rows_for_job
+from job_files import (
+    MAX_PREVIEW_BYTES,
+    resolve_latest_result_file,
+    resolve_upload_filename,
+    sanitize_upload_basename,
+    validate_upload_filename,
+)
 from workspace_layout import (
     ensure_exp_layout,
     exp_meta_dir,
@@ -525,6 +532,137 @@ def get_latest_checkpoint():
     logging.info(f"Checkpoint served: job={job_id}  file={latest}")
     return send_file(ckpt_path, mimetype="application/octet-stream",
                      as_attachment=True, download_name=latest)
+
+
+@app.route("/api/jobs/create", methods=["POST"])
+def api_create_jobs():
+    """Create or append jobs (JWT auth — for jd job-management library)."""
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("API Create Jobs", "POST")
+
+    try:
+        data = request.get_json() or {}
+        try:
+            parameters, jobs, parameters_list = parse_create_jobs_payload(data)
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
+        replace = bool(data.get("replace", False))
+        if replace:
+            total_jobs = db.create_jobs(parameters_list)
+            action = "Created"
+        else:
+            total_jobs = db.append_jobs(parameters_list)
+            action = "Appended"
+
+        idle_timeout = data.get("idle_timeout")
+        aborted_job_reset_timeout = data.get("aborted_job_reset_timeout")
+        if idle_timeout is not None:
+            db.set_config_value("idle_timeout", str(int(idle_timeout)))
+        if aborted_job_reset_timeout is not None:
+            db.set_config_value(
+                "aborted_job_reset_timeout", str(int(aborted_job_reset_timeout))
+            )
+
+        if jobs is not None:
+            source = f"{len(jobs)} explicit jobs"
+        else:
+            source = f"{len(parameters or {})} parameters"
+        logging.info(f"{action} {total_jobs} jobs from {source} (replace={replace}).")
+        return jsonify(
+            {
+                "success": True,
+                "message": f"{action} {total_jobs} jobs",
+                "total_jobs": total_jobs,
+                "action": action,
+            }
+        )
+    except Exception as exc:
+        logging.error(f"Error creating jobs via API: {exc}")
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@app.route("/api/jobs", methods=["GET"])
+def api_list_jobs():
+    """List jobs with pagination (JWT auth)."""
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("API List Jobs", "GET")
+
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = int(request.args.get("per_page", 50))
+        if per_page < 1 or per_page > 1000:
+            per_page = 50
+        status = request.args.get("status") or None
+        search = request.args.get("search") or request.args.get("search_job_id") or None
+        result = db.get_jobs_paginated(
+            page=page, per_page=per_page, status=status, search=search
+        )
+        return jsonify(result)
+    except Exception as exc:
+        logging.error(f"Error listing jobs via API: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/jobs/<int:job_id>/uploads", methods=["GET"])
+def api_list_job_uploads(job_id: int):
+    """List result uploads for a job (JWT auth)."""
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("API Job Uploads List", "GET")
+
+    try:
+        if db.get_job_by_id(job_id) is None:
+            return jsonify({"error": "Job not found"}), 404
+        uploads = upload_rows_for_job(db, BASE_DIR, EXP_ID, job_id)
+        return jsonify(
+            {
+                "job_id": job_id,
+                "uploads": uploads,
+                "max_preview_bytes": MAX_PREVIEW_BYTES,
+            }
+        )
+    except Exception as exc:
+        logging.error(f"Error listing uploads via API: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/jobs/<int:job_id>/uploads/download", methods=["GET"])
+def api_download_job_upload(job_id: int):
+    """Download a result file; resolves latest version for a logical basename (JWT auth)."""
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("API Job Upload Download", "GET")
+
+    try:
+        logical_name = (
+            request.args.get("filename")
+            or request.args.get("name")
+            or ""
+        ).strip()
+        if not logical_name:
+            return jsonify({"error": "filename is required"}), 400
+        if not validate_upload_filename(sanitize_upload_basename(logical_name)):
+            return jsonify({"error": "Invalid filename"}), 400
+        if db.get_job_by_id(job_id) is None:
+            return jsonify({"error": "Job not found"}), 404
+
+        path, on_disk = resolve_latest_result_file(
+            BASE_DIR, EXP_ID, str(job_id), logical_name
+        )
+        if not path or not on_disk:
+            return jsonify({"error": "File not found"}), 404
+
+        return send_file(path, as_attachment=True, download_name=on_disk)
+    except Exception as exc:
+        logging.error(f"Error downloading upload via API: {exc}")
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/admin/shutdown", methods=["POST"])

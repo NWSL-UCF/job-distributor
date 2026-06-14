@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+{% block title %}Job Management Library — jd-worker{% endblock %}
+
+{% block extra_head %}{% include '_learn_styles.html' %}{% endblock %}
+
+{% block content %}
+<div class="tut-wrap">
+
+  <nav class="tut-nav" id="tut-toc">
+    <div class="tut-nav__title">Job Management</div>
+    <a href="#overview">Overview</a>
+    <a href="#setup">Setup</a>
+    <a class="sub" href="#env-file">.env file</a>
+    <a class="sub" href="#init">jd.init()</a>
+    <a href="#paths">Path helpers</a>
+    <a href="#create-jobs">create_jobs()</a>
+    <a href="#list-jobs">list_jobs()</a>
+    <a href="#download">download_result()</a>
+    <a href="#wait">wait_for_jobs()</a>
+    <a href="#workflow">Iterative workflow</a>
+    <a class="sub" href="#worker-script">Worker entry script</a>
+    <a class="sub" href="#orchestrator">Orchestrator script</a>
+    <a href="#patterns">Patterns &amp; tips</a>
+  </nav>
+
+  <div class="tut-body">
+
+    <h1>Job Management Library</h1>
+    <p class="tut-lead">
+      Run experiments from <strong>your laptop or analysis machine</strong> — create job batches,
+      wait for workers to finish, download results, post-process in Python, and launch the next
+      batch based on what you learned. All without opening the dashboard.
+    </p>
+
+    <section class="tut-section" id="overview">
+      <h2><span class="step-badge">1</span> Overview</h2>
+
+      <p>
+        The <code>jd-worker</code> package exposes two complementary APIs:
+      </p>
+
+      <table class="tut-table">
+        <thead>
+          <tr><th>Context</th><th>Functions</th><th>Auth</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Worker entry script</strong><br><small>runs on each job</small></td>
+            <td><code>jd_job_dir()</code>, <code>jd_upload()</code>, checkpoints</td>
+            <td>Automatic — worker JWT injected by <code>jd_worker_cli</code></td>
+          </tr>
+          <tr>
+            <td><strong>Your orchestrator</strong><br><small>laptop / notebook / CI</small></td>
+            <td><code>init()</code>, <code>create_jobs()</code>, <code>list_jobs()</code>, <code>download_result()</code></td>
+            <td>Hub API key in a <code>.env</code> file</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          Requires <code>jd-worker</code> ≥ 1.20.0 and a running experiment with workers.
+          The orchestrator never runs your training code — it only talks to the job server API.
+        </span>
+      </div>
+    </section>
+
+    <section class="tut-section" id="setup">
+      <h2><span class="step-badge">2</span> Setup</h2>
+
+      <h3 id="env-file">Create a <code>.env</code> file</h3>
+      <p>Keep secrets out of source code. Point <code>jd.init()</code> at this file:</p>
+
+<pre><code class="language-bash"># bloomf.env — do not commit to git
+JD_API_KEY=jd_your_hub_api_key_here
+JD_EXP_ID=bloomf
+JD_WORKSPACE_PATH=/Users/you/projects          # optional; default ~
+# JD_HUB_URL=https://hub.jobdistributor.net    # optional
+</code></pre>
+
+      <p>
+        Create an API key in the Hub under <strong>API Keys</strong>.
+        <code>JD_EXP_ID</code> must match your experiment name exactly.
+        <code>JD_WORKSPACE_PATH</code> is the parent directory where local downloads land
+        (<code>…/jd_data/&lt;expId&gt;/&lt;job_id&gt;/downloaded/</code>).
+      </p>
+
+      <h3 id="init"><code>jd.init()</code></h3>
+      <p>Call once at the start of your orchestrator script or notebook:</p>
+
+<pre><code class="language-python">import jd
+
+jd.init("bloomf.env")   # or jd.init() if .env is in cwd
+
+# Optional overrides:
+# jd.init("bloomf.env", exp_id="other_exp", hub_url="https://hub.jobdistributor.net")
+</code></pre>
+
+      <p>
+        <code>init</code> exchanges your Hub API key for a short-lived worker JWT and discovers
+        the experiment's job-server URL. Tokens refresh automatically for long-running scripts.
+      </p>
+    </section>
+
+    <section class="tut-section" id="paths">
+      <h2><span class="step-badge">3</span> Path helpers</h2>
+
+      <p>These resolve local directories on <em>your</em> machine (not on workers):</p>
+
+<pre><code class="language-python">jd.data_root()              # …/jd_data
+jd.exp_path()               # …/jd_data/&lt;expId&gt;/
+jd.job_path(42)             # …/jd_data/&lt;expId&gt;/42/
+jd.job_download_dir(42)     # …/jd_data/&lt;expId&gt;/42/downloaded/
+</code></pre>
+
+      <p>
+        <code>download_result</code> writes into <code>job_download_dir</code> by default,
+        keeping one folder per job id for easy inspection.
+      </p>
+    </section>
+
+    <section class="tut-section" id="create-jobs">
+      <h2><span class="step-badge">4</span> <code>create_jobs()</code></h2>
+
+      <p>Submit jobs in three equivalent ways:</p>
+
+      <h4>Parameter grid (Cartesian product)</h4>
+<pre><code class="language-python">jd.create_jobs({
+    "lr":     [1e-3, 1e-4],
+    "epochs": [10, 20],
+})
+# → 4 jobs
+</code></pre>
+
+      <h4>Explicit job list</h4>
+<pre><code class="language-python">jd.create_jobs([
+    {"lr": "0.001", "epochs": "10", "seed": "1"},
+    {"lr": "0.0001", "epochs": "20", "seed": "2"},
+])
+</code></pre>
+
+      <h4>File upload</h4>
+<pre><code class="language-python">jd.create_jobs("batch1.csv")    # header row = param names
+jd.create_jobs("batch1.json")   # {"jobs": [...]} or {"parameters": {...}}
+jd.create_jobs("batch1.tsv")
+</code></pre>
+
+      <p>
+        By default jobs are <strong>appended</strong> to the queue.
+        Pass <code>replace=True</code> to wipe existing jobs first (same as dashboard "Replace all").
+      </p>
+
+<pre><code class="language-python">result = jd.create_jobs({"lr": [1e-3]}, replace=True)
+print(result["total_jobs"], result["action"])  # e.g. 1, "Created"
+</code></pre>
+    </section>
+
+    <section class="tut-section" id="list-jobs">
+      <h2><span class="step-badge">5</span> <code>list_jobs()</code></h2>
+
+<pre><code class="language-python">page = jd.list_jobs(status="DONE", page=1, per_page=50)
+for job in page["jobs"]:
+    print(job["id"], job["status"], job["parameters"])
+
+# Fetch every matching job (auto-paginate):
+all_done = jd.list_jobs(status="DONE", fetch_all=True)
+</code></pre>
+    </section>
+
+    <section class="tut-section" id="download">
+      <h2><span class="step-badge">6</span> <code>download_result()</code></h2>
+
+      <p>
+        Download the <strong>latest version</strong> of a logical filename
+        (e.g. <code>metrics.json</code> even if the worker uploaded <code>metrics_v2.json</code>):
+      </p>
+
+<pre><code class="language-python">path = jd.download_result(job_id=42, filename="metrics.json")
+# → …/jd_data/&lt;expId&gt;/42/downloaded/metrics.json
+
+# Custom destination:
+path = jd.download_result(42, "metrics.json", dest="./analysis/run42.json")
+</code></pre>
+    </section>
+
+    <section class="tut-section" id="wait">
+      <h2><span class="step-badge">7</span> <code>wait_for_jobs()</code></h2>
+
+      <p>Poll until specific job ids reach a terminal status:</p>
+
+<pre><code class="language-python">job_ids = [101, 102, 103]
+finished = jd.wait_for_jobs(job_ids, status="DONE", timeout=3600, poll_interval=30)
+for jid, job in finished.items():
+    print(jid, job["status"], job.get("message"))
+</code></pre>
+
+      <p>
+        When waiting for <code>DONE</code>, <code>ABORTED</code> jobs are also treated as finished
+        so your script does not hang on failed runs.
+      </p>
+    </section>
+
+    <section class="tut-section" id="workflow">
+      <h2><span class="step-badge">8</span> Iterative batch workflow</h2>
+
+      <p>
+        The pattern below is the core use case: run a batch on workers, analyze results locally,
+        decide the next hyperparameters, and repeat. This example performs a simple two-round
+        learning-rate search.
+      </p>
+
+      <h3 id="worker-script">Worker entry script (<code>train.py</code>)</h3>
+      <p>Runs on each worker — reads job parameters from the environment, writes a result file:</p>
+
+<pre><code class="language-python">"""train.py — invoked by jd_worker_cli for each job."""
+import json
+import os
+import random
+
+from jd import jd_job_dir, jd_upload
+
+def main():
+    params = json.loads(os.environ.get("JD_JOB_PARAMETERS", "{}"))
+    lr = float(params.get("lr", 1e-3))
+    epochs = int(params.get("epochs", 5))
+    seed = int(params.get("seed", 0))
+
+    random.seed(seed)
+    # … your real training loop here …
+    # Stand-in metric: lower lr → slightly better loss in this toy example
+    loss = abs(lr - 0.0003) + random.uniform(0, 0.01)
+
+    out = jd_job_dir() / "metrics.json"
+    out.write_text(json.dumps({
+        "lr": lr,
+        "epochs": epochs,
+        "seed": seed,
+        "loss": loss,
+    }))
+    jd_upload(str(out))
+
+if __name__ == "__main__":
+    main()
+</code></pre>
+
+      <p>Start workers as usual:</p>
+<pre><code class="language-bash">jd_worker_cli run --expId bloomf --script train.py --workers 4
+</code></pre>
+
+      <h3 id="orchestrator">Orchestrator script (<code>orchestrate.py</code>)</h3>
+      <p>Runs on your machine — drives the experiment in rounds:</p>
+
+<pre><code class="language-python">"""
+orchestrate.py — iterative hyperparameter search using the job-management library.
+
+Round 1: coarse grid → pick best lr
+Round 2: fine grid around winner → pick final config
+"""
+import json
+from pathlib import Path
+
+import jd
+
+jd.init("bloomf.env")
+
+RESULT_FILE = "metrics.json"
+TOP_K = 2
+
+
+def max_job_id() -> int:
+    jobs = jd.list_jobs(fetch_all=True).get("jobs") or []
+    return max((int(j["id"]) for j in jobs), default=0)
+
+
+def new_job_ids(since_id: int, *, status: str = "PENDING") -> list[int]:
+    jobs = jd.list_jobs(status=status, fetch_all=True).get("jobs") or []
+    return sorted(int(j["id"]) for j in jobs if int(j["id"]) > since_id)
+
+
+def collect_results(job_ids: list[int]) -> list[dict]:
+    """Download metrics.json for each job and parse."""
+    rows = []
+    for jid in job_ids:
+        path = jd.download_result(jid, RESULT_FILE)
+        data = json.loads(Path(path).read_text())
+        data["job_id"] = jid
+        rows.append(data)
+    return rows
+
+
+def pick_best_lrs(rows: list[dict], k: int = TOP_K) -> list[float]:
+    rows.sort(key=lambda r: r["loss"])
+    return [r["lr"] for r in rows[:k]]
+
+
+def fine_grid_around(center: float, deltas=(0.5, 0.25, 0.75)) -> list[float]:
+    return sorted({round(center * d, 6) for d in deltas})
+
+
+# ── Round 1: coarse search ───────────────────────────────────────────────
+print("=== Round 1: coarse grid ===")
+before = max_job_id()
+jd.create_jobs({
+    "lr":     [1e-2, 1e-3, 1e-4, 1e-5],
+    "epochs": [5],
+    "seed":   [0, 1],
+}, replace=True)
+
+batch1_ids = new_job_ids(before)
+print(f"Created {len(batch1_ids)} jobs: {batch1_ids}")
+
+jd.wait_for_jobs(batch1_ids, timeout=7200)
+round1 = collect_results(batch1_ids)
+best_lrs = pick_best_lrs(round1)
+print(f"Round 1 best lrs: {best_lrs}")
+
+# ── Round 2: refine around winners ─────────────────────────────────────────
+print("\n=== Round 2: fine grid ===")
+round2_jobs = []
+for lr in best_lrs:
+    for fine_lr in fine_grid_around(lr):
+        round2_jobs.append({
+            "lr": str(fine_lr),
+            "epochs": "10",
+            "seed": "0",
+            "round": "2",
+        })
+
+jd.create_jobs(round2_jobs)  # append — keeps round 1 history in DB
+before2 = max_job_id()
+batch2_ids = new_job_ids(before2)
+print(f"Appended {len(batch2_ids)} jobs: {batch2_ids}")
+
+jd.wait_for_jobs(batch2_ids, timeout=7200)
+round2 = collect_results(batch2_ids)
+round2.sort(key=lambda r: r["loss"])
+
+winner = round2[0]
+print(f"\nWinner: job {winner['job_id']}  lr={winner['lr']}  loss={winner['loss']:.4f}")
+
+# Save summary next to downloaded artifacts
+summary_path = jd.exp_path() / "search_summary.json"
+summary_path.write_text(json.dumps({
+    "round1_best_lrs": best_lrs,
+    "winner": winner,
+    "round2_top3": round2[:3],
+}, indent=2))
+print(f"Summary written to {summary_path}")
+</code></pre>
+
+      <div class="tut-note tut-note--tip">
+        <span class="tut-note__icon">💡</span>
+        <span>
+          <strong>Tracking job ids:</strong> record <code>max_job_id()</code> before
+          <code>create_jobs</code>, then select ids greater than that value afterward
+          (see <code>new_job_ids()</code> in the example above).
+        </span>
+      </div>
+
+      <h4>Flow diagram</h4>
+      <pre class="tut-diagram"><code>┌─────────────┐     create_jobs      ┌──────────────┐
+│ Orchestrator│ ───────────────────► │  Job server  │
+│  (your PC)  │                      │   + queue    │
+└──────┬──────┘                      └──────┬───────┘
+       │                                    │ serve jobs
+       │ wait_for_jobs                      ▼
+       │◄─────────────────────────── ┌──────────────┐
+       │                             │   Workers    │
+       │ download_result             │  (train.py)  │
+       │◄─────────────────────────── │  jd_upload   │
+       │                             └──────────────┘
+       │ post-process (Python)
+       │ decide next batch
+       └──────── create_jobs (append) ──► … repeat …</code></pre>
+    </section>
+
+    <section class="tut-section" id="patterns">
+      <h2><span class="step-badge">9</span> Patterns &amp; tips</h2>
+
+      <ul>
+        <li>
+          <strong>Separate concerns:</strong> workers run <code>train.py</code>; your laptop runs
+          <code>orchestrate.py</code>. Never mix Hub API keys into worker scripts.
+        </li>
+        <li>
+          <strong>Use CSV for large batches:</strong> export a spreadsheet as
+          <code>batch.csv</code> and pass it to <code>create_jobs("batch.csv")</code>.
+        </li>
+        <li>
+          <strong>Inspect downloads:</strong> open <code>jd.exp_path()</code> in your file manager
+          — each job id has its own folder under <code>downloaded/</code>.
+        </li>
+        <li>
+          <strong>Combine with dashboard:</strong> you can still monitor workers and jobs in the
+          web UI while your orchestrator runs in a terminal.
+        </li>
+        <li>
+          <strong>Worker library reference:</strong> see
+          <a href="{{ url_for('pages.library_reference') }}">Library Reference</a> for
+          <code>jd_upload</code>, checkpoints, and path helpers used inside entry scripts.
+        </li>
+      </ul>
+    </section>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}{% include '_learn_scripts.html' %}{% endblock %}
