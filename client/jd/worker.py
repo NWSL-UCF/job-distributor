@@ -136,6 +136,7 @@ from jd.worker_registry import (
 IS_WINDOWS = platform.system() == "Windows"
 BUSY_HEARTBEAT_INTERVAL = 57   # seconds while a job runs (also refreshes the job row)
 IDLE_POLL_INTERVAL = 180         # seconds when idle — heartbeat + optional job assignment
+IDLE_CONTROL_POLL_CHUNK = 30     # re-heartbeat while idle so stop/drain commands apply promptly
 
 # Default local layout: ~/jd_data/<expId>/<job_id>/ and ~/.jd_cache/.cache/<expId>/workers.db
 
@@ -383,12 +384,93 @@ def _apply_server_control(
         return desired_version, False, False
 
     if desired_state == "stop":
-        if registry:
-            registry.set_drained(True)
         logger.info(f"Server control: stop (v{desired_version})")
         return desired_version, True, False
 
     return desired_version, False, False
+
+
+def _acknowledge_stop(
+    urls: dict,
+    worker_id: str,
+    host: str,
+    machine_type: str,
+    applied_version: int,
+    logger: logging.Logger,
+    token_mgr: Optional[WorkerTokenManager] = None,
+) -> None:
+    """Final idle heartbeat so the server can mark the worker stopped."""
+    logger.info("Stop command applied — acknowledging and exiting.")
+    metrics = _collect_metrics(machine_type, logger)
+    _worker_heartbeat(
+        urls["heartbeat"], worker_id, host, machine_type,
+        "idle", None, applied_version, metrics, logger,
+        token_mgr=token_mgr,
+    )
+
+
+def _idle_wait_for_control(
+    poll_interval: int,
+    urls: dict,
+    worker_id: str,
+    host: str,
+    machine_type: str,
+    applied_version: int,
+    logger: logging.Logger,
+    token_mgr: Optional[WorkerTokenManager],
+    registry: Optional[WorkerRegistry],
+) -> Tuple[int, Optional[dict], bool]:
+    """Wait until the next idle poll, heartbeating periodically for server control.
+
+    Returns (applied_version, job_if_assigned, should_exit).
+    """
+    deadline = time.time() + poll_interval
+    first_chunk = True
+    while time.time() < deadline:
+        if registry and registry.is_drained():
+            logger.info("Experiment is draining — exiting worker.")
+            return applied_version, None, True
+
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+
+        if first_chunk:
+            logger.info(
+                f"No jobs available. Next idle heartbeat in {poll_interval}s…"
+            )
+            first_chunk = False
+
+        time.sleep(min(IDLE_CONTROL_POLL_CHUNK, remaining))
+
+        if time.time() >= deadline:
+            break
+
+        if token_mgr:
+            token_mgr.ensure_fresh()
+        metrics = _collect_metrics(machine_type, logger)
+        hb_resp, err = _worker_heartbeat(
+            urls["heartbeat"], worker_id, host, machine_type,
+            "idle", None, applied_version, metrics, logger,
+            token_mgr=token_mgr,
+        )
+        if hb_resp is None:
+            logger.warning(f"Idle control heartbeat failed: {err}")
+            continue
+
+        applied_version, exit_now, _ = _apply_server_control(
+            hb_resp, applied_version, registry, logger,
+        )
+        if exit_now:
+            _acknowledge_stop(
+                urls, worker_id, host, machine_type, applied_version,
+                logger, token_mgr=token_mgr,
+            )
+            return applied_version, None, True
+        if hb_resp.get("job"):
+            return applied_version, hb_resp["job"], False
+
+    return applied_version, None, False
 
 
 def _kill_worker_proc(proc_ref: list, logger: logging.Logger) -> None:
@@ -617,11 +699,9 @@ def _run_worker(cfg: dict) -> None:
             )
             control["applied_version"] = applied_version
             if exit_now:
-                logger.info("Stop command applied — acknowledging and exiting.")
-                _worker_heartbeat(
-                    urls['heartbeat'], worker_id, host, cfg['machine_type'],
-                    "idle", None, applied_version, metrics, logger,
-                    token_mgr=token_mgr,
+                _acknowledge_stop(
+                    urls, worker_id, host, cfg['machine_type'], applied_version,
+                    logger, token_mgr=token_mgr,
                 )
                 break
             if hb_resp.get("job"):
@@ -638,12 +718,17 @@ def _run_worker(cfg: dict) -> None:
                         f"Worker paused — no new jobs until resume. "
                         f"Next heartbeat in {poll_interval}s…"
                     )
-                elif reason == "no_jobs":
-                    logger.info(
-                        f"No jobs available. Next idle heartbeat in {poll_interval}s…"
-                    )
-                time.sleep(poll_interval)
-                continue
+                applied_version, waited_job, should_exit = _idle_wait_for_control(
+                    poll_interval, urls, worker_id, host, cfg['machine_type'],
+                    applied_version, logger, token_mgr, registry,
+                )
+                control["applied_version"] = applied_version
+                if should_exit:
+                    break
+                if waited_job:
+                    job = waited_job
+                else:
+                    continue
 
             job_id = job['job_id']
             params = job['parameters']

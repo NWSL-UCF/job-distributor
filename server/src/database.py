@@ -2467,6 +2467,27 @@ class JobDatabase:
                 )
                 worker = self._worker_row_to_dict(cur.fetchone(), include_history=False)
 
+                if (
+                    worker.get("desired_state") == WORKER_STATE_STOP
+                    and int(worker.get("applied_version") or 0)
+                    >= int(worker.get("desired_version") or 0)
+                    and (worker.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE)
+                    == WORKER_LIFECYCLE_ACTIVE
+                ):
+                    self._finalize_worker_stop_locked(
+                        conn,
+                        worker,
+                        "Worker acknowledged stop command.",
+                    )
+                    conn.commit()
+                    cur.execute(
+                        f"SELECT {_WORKER_HOT_COLS} FROM workers WHERE worker_id = ?",
+                        (worker_id,),
+                    )
+                    worker = self._worker_row_to_dict(
+                        cur.fetchone(), include_history=False,
+                    )
+
         job_payload = None
         if (
             status == WORKER_REPORTED_IDLE
