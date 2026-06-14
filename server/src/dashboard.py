@@ -537,26 +537,38 @@ def create_jobs():
 
 @app.route("/server_config", methods=["GET"])
 def get_server_config():
-    """Return current server configuration (idle_timeout, aborted_job_reset_timeout)."""
+    """Return current server configuration (idle_timeout, aborted_job_reset_timeout, hold_workers)."""
     try:
         config = db.get_all_config()
+        hold_raw = config.get("hold_workers", "1")
+        hold_workers = str(hold_raw).lower() not in ("0", "false", "no", "off")
         return jsonify({
             "idle_timeout": int(config.get("idle_timeout", 600)),
             "aborted_job_reset_timeout": int(config.get("aborted_job_reset_timeout", 1200)),
+            "hold_workers": hold_workers,
         })
     except Exception as e:
         logging.error(f"Error reading server config: {e}")
         return jsonify({"error": str(e)}), 500
 
 
+def _parse_hold_workers(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).lower() not in ("0", "false", "no", "off")
+
+
 @app.route("/update_server_config", methods=["POST"])
 def update_server_config():
-    """Update idle_timeout and/or aborted_job_reset_timeout."""
+    """Update idle_timeout, aborted_job_reset_timeout, and/or hold_workers."""
     db.track_api_request("Update Server Config", "POST")
 
     try:
         data = request.get_json()
         updated = []
+        stop_result = None
 
         for key in ("idle_timeout", "aborted_job_reset_timeout"):
             if key in data:
@@ -566,10 +578,20 @@ def update_server_config():
                 db.set_config_value(key, str(val))
                 updated.append(key)
 
+        if "hold_workers" in data:
+            hold = _parse_hold_workers(data["hold_workers"])
+            db.set_config_value("hold_workers", "1" if hold else "0")
+            updated.append("hold_workers")
+            if not hold:
+                stop_result = db.maybe_stop_workers_when_all_jobs_complete()
+
         if not updated:
             return jsonify({"success": False, "error": "No recognised config keys provided."}), 400
 
-        return jsonify({"success": True, "message": f"Updated: {', '.join(updated)}"})
+        payload = {"success": True, "message": f"Updated: {', '.join(updated)}"}
+        if stop_result is not None:
+            payload["workers_stopped"] = stop_result.get("workers_stopped", 0)
+        return jsonify(payload)
 
     except Exception as e:
         logging.error(f"Error updating server config: {e}")

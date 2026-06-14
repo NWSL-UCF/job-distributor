@@ -15,6 +15,7 @@ venv
 *.pyc
 train.csv
 test.csv
+test.tsv
 jobs.csv
 .env
 hub/.env

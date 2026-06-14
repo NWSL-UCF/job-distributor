@@ -178,6 +178,7 @@ class JobDatabase:
                 VALUES
                     ('idle_timeout',              '600'),
                     ('aborted_job_reset_timeout', '1200'),
+                    ('hold_workers',              '1'),
                     ('traffic_server_in',    '0'),
                     ('traffic_server_out',   '0'),
                     ('traffic_dashboard_in', '0'),
@@ -1823,11 +1824,22 @@ class JobDatabase:
             affected += 1
         return affected
 
+    def _hold_workers_enabled_locked(self, conn: sqlite3.Connection) -> bool:
+        """When True (default), workers stay alive after all jobs reach DONE/DELETED."""
+        row = conn.execute(
+            "SELECT value FROM server_config WHERE key = 'hold_workers'"
+        ).fetchone()
+        if row is None:
+            return True
+        return str(row[0]).lower() not in ("0", "false", "no", "off")
+
     def _maybe_stop_workers_when_all_jobs_complete_locked(
         self,
         conn: sqlite3.Connection,
     ) -> Dict[str, Any]:
         """If every job is DONE or DELETED, queue stop for active workers."""
+        if self._hold_workers_enabled_locked(conn):
+            return {"triggered": False, "workers_stopped": 0, "held": True}
         if not self._all_jobs_terminal_locked(conn):
             return {"triggered": False, "workers_stopped": 0}
         reason = (

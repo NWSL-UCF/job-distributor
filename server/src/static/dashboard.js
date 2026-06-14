@@ -837,8 +837,69 @@ function openModal() {
 
             function refreshWorkersPage() {
                 _updateWorkersTableTitle();
+                loadHoldWorkersSetting();
                 loadWorkerSummary();
                 loadWorkerFilters().then(() => loadWorkersPageTable());
+            }
+
+            function loadHoldWorkersSetting() {
+                fetch('/server_config')
+                    .then(r => r.json())
+                    .then(data => {
+                        const el = document.getElementById('holdWorkersToggle');
+                        if (el && data.hold_workers !== undefined) {
+                            el.checked = !!data.hold_workers;
+                        }
+                    }).catch(() => {});
+            }
+
+            function saveHoldWorkersSetting(enabled) {
+                const toggle = document.getElementById('holdWorkersToggle');
+                if (toggle) toggle.disabled = true;
+
+                fetch('/update_server_config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hold_workers: enabled }),
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            let msg = enabled
+                                ? 'Hold workers enabled — workers will stay alive after all jobs finish.'
+                                : 'Hold workers disabled — workers will stop when all jobs are Done or Deleted.';
+                            if (!enabled && data.workers_stopped > 0) {
+                                msg += ` Stop queued for ${data.workers_stopped} worker(s).`;
+                            }
+                            showNotification(msg, 'success');
+                            if (!enabled) {
+                                setTimeout(() => refreshWorkersPage(), 500);
+                            }
+                        } else {
+                            if (toggle) toggle.checked = !enabled;
+                            showNotification(data.error || 'Failed to update hold workers setting.', 'error');
+                        }
+                    })
+                    .catch(e => {
+                        if (toggle) toggle.checked = !enabled;
+                        showNotification('Network error: ' + e.message, 'error');
+                    })
+                    .finally(() => {
+                        if (toggle) toggle.disabled = false;
+                    });
+            }
+
+            function toggleHoldWorkersHelp(btn, ev) {
+                if (ev) ev.stopPropagation();
+                const popover = document.getElementById('holdWorkersHelpPopover');
+                if (!popover) return;
+                const willOpen = popover.hidden;
+                closeAllSearchHelp();
+                if (willOpen) {
+                    popover.hidden = false;
+                    btn.setAttribute('aria-expanded', 'true');
+                    btn.classList.add('is-active');
+                }
             }
 
             function _workerActionScopeLabel(action, scope, target) {
