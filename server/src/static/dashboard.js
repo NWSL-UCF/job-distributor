@@ -187,6 +187,46 @@ function openModal() {
                     .catch(() => {});
             }
 
+            function loadJobSummary() {
+                fetch('/job_counts')
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        if (!data) return;
+                        const done    = data.DONE    ?? 0;
+                        const served  = data.SERVED  ?? 0;
+                        const aborted = data.ABORTED ?? 0;
+                        const deleted = data.DELETED ?? 0;
+                        const pending = data.PENDING ?? 0;
+                        const total   = data.total   ?? 0;
+                        const pct     = data.completion_pct ?? 0;
+                        const remaining = total - done;
+
+                        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+                        set('jobCompletedCount',   done);
+                        set('jobRunningCount',     served);
+                        set('jobPendingCount',     pending);
+                        set('jobAbortedCount',     aborted);
+                        set('jobTotalCount',       total);
+                        set('jobDeletedCount',     deleted);
+                        set('jobCompletionPct',    pct.toFixed(1) + '%');
+                        set('jobProgressDone',     done + ' done');
+                        set('jobProgressRemaining', remaining + ' remaining');
+                        set('tabCountServed',      served);
+                        set('tabCountDone',        done);
+                        set('tabCountAborted',     aborted);
+                        set('tabCountPending',     pending);
+
+                        const bar = document.getElementById('jobProgressBar');
+                        if (bar) bar.style.width = Math.min(100, pct) + '%';
+                    })
+                    .catch(() => {});
+            }
+
+            function loadSidebarStats() {
+                loadWorkerSummary();
+                loadJobSummary();
+            }
+
             function _escHtml(s) {
                 return String(s ?? '')
                     .replace(/&/g, '&amp;')
@@ -1511,8 +1551,8 @@ function openModal() {
             }
 
             document.addEventListener('DOMContentLoaded', function() {
-                loadWorkerSummary();
-                setInterval(loadWorkerSummary, 30000);
+                loadSidebarStats();
+                setInterval(loadSidebarStats, 60000);
             });
 
 // Pagination and Search Variables
@@ -3997,9 +4037,9 @@ let chart;
                     })
                     .catch(() => {});
 
-                // Load traffic stats on page open, then refresh every 30 s
+                // Load traffic stats on page open, then refresh every 60 s
                 loadTrafficStats();
-                setInterval(loadTrafficStats, 30000);
+                setInterval(loadTrafficStats, 60000);
             });
 
             function formatBytes(bytes) {

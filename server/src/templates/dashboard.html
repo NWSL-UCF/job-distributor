@@ -183,29 +183,29 @@
                             <p class="sb-section-title">Job Status</p>
                             <div class="sb-stat-grid">
                                 <div class="sb-stat-tile" style="border-left-color:#27ae60;">
-                                    <div class="sb-stat-tile-val" style="color:#27ae60;">{{ total_jobs_completed }}</div>
+                                    <div class="sb-stat-tile-val" id="jobCompletedCount" style="color:#27ae60;">{{ total_jobs_completed }}</div>
                                     <div class="sb-stat-tile-lbl">Completed</div>
                                 </div>
                                 <div class="sb-stat-tile" style="border-left-color:#3498db;">
-                                    <div class="sb-stat-tile-val" style="color:#3498db;">{{ total_jobs_served }}</div>
+                                    <div class="sb-stat-tile-val" id="jobRunningCount" style="color:#3498db;">{{ total_jobs_served }}</div>
                                     <div class="sb-stat-tile-lbl">Running</div>
                                 </div>
                                 <div class="sb-stat-tile" style="border-left-color:#95a5a6;">
-                                    <div class="sb-stat-tile-val" style="color:#95a5a6;">{{ total_jobs - total_jobs_completed - total_jobs_served - total_jobs_aborted - total_jobs_deleted }}</div>
+                                    <div class="sb-stat-tile-val" id="jobPendingCount" style="color:#95a5a6;">{{ total_jobs - total_jobs_completed - total_jobs_served - total_jobs_aborted - total_jobs_deleted }}</div>
                                     <div class="sb-stat-tile-lbl">Pending</div>
                                 </div>
                                 <div class="sb-stat-tile" style="border-left-color:#e74c3c;">
-                                    <div class="sb-stat-tile-val" style="color:#e74c3c;">{{ total_jobs_aborted }}</div>
+                                    <div class="sb-stat-tile-val" id="jobAbortedCount" style="color:#e74c3c;">{{ total_jobs_aborted }}</div>
                                     <div class="sb-stat-tile-lbl">Aborted</div>
                                 </div>
                                 <div class="sb-stat-tile" style="border-left-color:#6c757d; grid-column: span 2;">
                                     <div style="display:flex; justify-content:space-between; align-items:center;">
                                         <div>
-                                            <div class="sb-stat-tile-val" style="color:#6c757d;">{{ total_jobs }}</div>
+                                            <div class="sb-stat-tile-val" id="jobTotalCount" style="color:#6c757d;">{{ total_jobs }}</div>
                                             <div class="sb-stat-tile-lbl">Total Jobs</div>
                                         </div>
                                         <div style="text-align:right;">
-                                            <div class="sb-stat-tile-val" style="font-size:1rem; color:#6c757d;">{{ total_jobs_deleted }}</div>
+                                            <div class="sb-stat-tile-val" id="jobDeletedCount" style="font-size:1rem; color:#6c757d;">{{ total_jobs_deleted }}</div>
                                             <div class="sb-stat-tile-lbl">Deleted</div>
                                         </div>
                                     </div>
@@ -216,14 +216,14 @@
                             <div style="margin-top:12px;">
                                 <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:#6c757d; margin-bottom:4px;">
                                     <span>Completion</span>
-                                    <span>{{ "%.1f"|format((total_jobs_completed / total_jobs * 100) if total_jobs > 0 else 0) }}%</span>
+                                    <span id="jobCompletionPct">{{ "%.1f"|format((total_jobs_completed / total_jobs * 100) if total_jobs > 0 else 0) }}%</span>
                                 </div>
                                 <div class="sb-progress-track">
-                                    <div class="sb-progress-fill" style="width:{{ (total_jobs_completed / total_jobs * 100) if total_jobs > 0 else 0 }}%;"></div>
+                                    <div class="sb-progress-fill" id="jobProgressBar" style="width:{{ (total_jobs_completed / total_jobs * 100) if total_jobs > 0 else 0 }}%;"></div>
                                 </div>
                                 <div class="sb-progress-meta">
-                                    <span>{{ total_jobs_completed }} done</span>
-                                    <span>{{ total_jobs - total_jobs_completed }} remaining</span>
+                                    <span id="jobProgressDone">{{ total_jobs_completed }} done</span>
+                                    <span id="jobProgressRemaining">{{ total_jobs - total_jobs_completed }} remaining</span>
                                 </div>
                             </div>
                         </div>
@@ -297,22 +297,22 @@
                             <button class="tab-button active" onclick="openTab(event, 'SERVED')">
                                 <i class="fas fa-play-circle"></i>
                                 SERVED
-                                <span class="tab-count">{{ total_jobs_served }}</span>
+                                <span class="tab-count" id="tabCountServed">{{ total_jobs_served }}</span>
                             </button>
                             <button class="tab-button" onclick="openTab(event, 'DONE')">
                                 <i class="fas fa-check-circle"></i>
                                 DONE
-                                <span class="tab-count">{{ total_jobs_completed }}</span>
+                                <span class="tab-count" id="tabCountDone">{{ total_jobs_completed }}</span>
                             </button>
                             <button class="tab-button" onclick="openTab(event, 'ABORTED')">
                                 <i class="fas fa-times-circle"></i>
                                 ABORTED
-                                <span class="tab-count">{{ total_jobs_aborted }}</span>
+                                <span class="tab-count" id="tabCountAborted">{{ total_jobs_aborted }}</span>
                             </button>
                             <button class="tab-button" onclick="openTab(event, 'PENDING')">
                                 <i class="fas fa-pause-circle"></i>
                                 PENDING
-                                <span class="tab-count">{{ job_counts.get('PENDING', 0) }}</span>
+                                <span class="tab-count" id="tabCountPending">{{ job_counts.get('PENDING', 0) }}</span>
                             </button>
                             <button class="tab-button" onclick="openTab(event, 'DELETED')">
                                 <i class="fas fa-trash"></i>

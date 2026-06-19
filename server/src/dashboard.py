@@ -270,6 +270,28 @@ def _utc_day_start(ts: float) -> float:
 # ------------------------- JOB STATISTICS ---------------------
 
 
+@app.route("/job_counts", methods=["GET"])
+def job_counts():
+    """Return current job counts by status — used by the sidebar auto-refresh."""
+    counts = db.get_job_counts_by_status()
+    total = sum(counts.values())
+    done = counts.get("DONE", 0)
+    served = counts.get("SERVED", 0)
+    aborted = counts.get("ABORTED", 0)
+    deleted = counts.get("DELETED", 0)
+    pending = counts.get("PENDING", 0)
+    pct = round((done / total * 100), 1) if total > 0 else 0.0
+    return jsonify({
+        "DONE":    done,
+        "SERVED":  served,
+        "ABORTED": aborted,
+        "DELETED": deleted,
+        "PENDING": pending,
+        "total":   total,
+        "completion_pct": pct,
+    })
+
+
 @app.route("/job_stats", methods=["GET"])
 def job_stats():
     # Track API request
