@@ -819,56 +819,156 @@
 
         <!-- Settings Modal -->
         <div id="settingsModal" class="modal">
-            <div class="modal-content" style="max-width:500px;">
-                <div class="modal-header-row" style="margin-bottom:14px;">
+            <div class="modal-content" style="max-width:560px;">
+                <div class="modal-header-row" style="margin-bottom:12px;">
                     <h2 style="margin:0; font-size:1.15rem;"><i class="fas fa-sliders-h"></i> Settings</h2>
                     <button class="close" onclick="closeSettingsModal()" title="Close">&times;</button>
                 </div>
 
                 <!-- Lock banner — shown when SERVED jobs exist -->
-                <div id="settingsLockBanner" style="display:none; margin-bottom:16px; padding:11px 14px; background:#fff3cd; border:1px solid #ffc107; border-radius:7px; display:none; align-items:center; gap:10px;">
+                <div id="settingsLockBanner" style="display:none; margin-bottom:12px; padding:10px 14px; background:#fff3cd; border:1px solid #ffc107; border-radius:7px; align-items:center; gap:10px;">
                     <i class="fas fa-lock" style="color:#e6a800; font-size:1rem; flex-shrink:0;"></i>
-                    <span style="font-size:0.84em; color:#7a5c00;">Settings are locked while jobs are running. Wait for all SERVED jobs to finish or be reset before making changes.</span>
+                    <span style="font-size:0.84em; color:#7a5c00;">Performance settings are locked while jobs are running. All SERVED jobs must finish or be reset first.</span>
                 </div>
 
-                <p style="margin:0 0 16px 0; color:#6c757d; font-size:0.83em;">
-                    Changes take effect on the job cleaner's next polling cycle (within 60 seconds).
-                </p>
-                <div class="setup-settings-grid" style="margin-bottom:20px;">
-                    <div class="setup-field">
-                        <label>Idle Timeout</label>
-                        <select id="settingsIdleTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <option value="1">1 minute</option>
-                            <option value="2">2 minutes</option>
-                            <option value="3">3 minutes</option>
-                            <option value="4">4 minutes</option>
-                            <option value="5">5 minutes</option>
-                        </select>
-                        <div class="hint">SERVED jobs silent for this long are reset to PENDING.</div>
-                    </div>
-                    <div class="setup-field">
-                        <label>Aborted Reset Timeout</label>
-                        <select id="settingsAbortedTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <option value="1">1 minute</option>
-                            <option value="5">5 minutes</option>
-                            <option value="10">10 minutes</option>
-                            <option value="20">20 minutes</option>
-                            <option value="30">30 minutes</option>
-                            <option value="60">60 minutes</option>
-                        </select>
-                        <div class="hint">How often ABORTED jobs are recycled back to PENDING.</div>
-                    </div>
-                </div>
-                <div style="display:flex; justify-content:flex-end; gap:10px; align-items:center;">
-                    <span id="settingsError" style="color:#dc3545; font-size:0.85em;"></span>
-                    <button id="settingsSaveBtn" onclick="saveSettings()" style="padding:9px 22px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
-                        <i class="fas fa-save"></i> Save Settings
+                <!-- Tab bar -->
+                <div style="display:flex; gap:0; border-bottom:2px solid #e9ecef; margin-bottom:18px;">
+                    <button id="settingsTabBtnPerf" onclick="switchSettingsTab('perf')"
+                        style="padding:8px 20px; border:none; background:none; cursor:pointer; font-size:0.9rem; font-weight:600; color:#007bff; border-bottom:2px solid #007bff; margin-bottom:-2px;">
+                        <i class="fas fa-tachometer-alt"></i> Performance
+                    </button>
+                    <button id="settingsTabBtnSec" onclick="switchSettingsTab('sec')"
+                        style="padding:8px 20px; border:none; background:none; cursor:pointer; font-size:0.9rem; font-weight:600; color:#6c757d; border-bottom:2px solid transparent; margin-bottom:-2px;">
+                        <i class="fas fa-key"></i> Security
                     </button>
                 </div>
 
-                <!-- Change PIN -->
-                <div style="border-top:1px solid #e9ecef; margin-top:22px; padding-top:18px;">
-                    <h4 style="margin:0 0 12px 0; font-size:0.95rem; color:#1a1f2e;"><i class="fas fa-key"></i> Change PIN</h4>
+                <!-- ═══════════ PERFORMANCE TAB ═══════════ -->
+                <div id="settingsTabPerf">
+                    <p style="margin:0 0 14px 0; color:#6c757d; font-size:0.82em;">
+                        Changes are sent to workers on their next heartbeat — no restart needed.
+                        Performance settings are locked while any job is running.
+                    </p>
+
+                    <!-- Capacity estimate bar -->
+                    <div style="background:#f0f7ff; border:1px solid #b8d9ff; border-radius:8px; padding:12px 14px; margin-bottom:18px;">
+                        <div style="font-size:0.8rem; font-weight:600; color:#1a4f8a; margin-bottom:6px;">
+                            <i class="fas fa-chart-bar"></i> Estimated Server Capacity
+                        </div>
+                        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
+                            <label style="font-size:0.78rem; color:#555;">Target workers:</label>
+                            <input id="capWorkerCount" type="number" value="5000" min="100" max="100000" step="1000"
+                                   oninput="updateCapacityEstimate()"
+                                   style="width:90px; padding:3px 7px; border:1px solid #b8d9ff; border-radius:4px; font-size:0.82rem;">
+                        </div>
+                        <div id="capacityEstimate" style="font-size:0.8rem; color:#1a4f8a; line-height:1.7;"></div>
+                    </div>
+
+                    <!-- Server-side timers -->
+                    <div style="font-size:0.78rem; font-weight:700; color:#495057; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">
+                        Server Timers (job cleaner)
+                    </div>
+                    <div class="setup-settings-grid" style="margin-bottom:16px;">
+                        <div class="setup-field">
+                            <label>Idle Timeout</label>
+                            <select id="settingsIdleTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                                <option value="60">1 min</option>
+                                <option value="120">2 min</option>
+                                <option value="180">3 min</option>
+                                <option value="300">5 min</option>
+                                <option value="600">10 min</option>
+                                <option value="900">15 min</option>
+                                <option value="1200">20 min</option>
+                            </select>
+                            <div class="hint">SERVED jobs silent this long → reset to PENDING.</div>
+                        </div>
+                        <div class="setup-field">
+                            <label>Aborted Reset Timeout</label>
+                            <select id="settingsAbortedTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                                <option value="300">5 min</option>
+                                <option value="600">10 min</option>
+                                <option value="1200">20 min</option>
+                                <option value="1800">30 min</option>
+                                <option value="3600">60 min</option>
+                            </select>
+                            <div class="hint">ABORTED jobs recycled back to PENDING this often.</div>
+                        </div>
+                    </div>
+
+                    <!-- Worker heartbeat timers -->
+                    <div style="font-size:0.78rem; font-weight:700; color:#495057; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">
+                        Worker Heartbeat (sent to workers via heartbeat)
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:16px;">
+                        <div class="setup-field">
+                            <label>Busy Interval</label>
+                            <input id="settingsHbBusy" type="number" min="30" max="600" step="10" oninput="updateCapacityEstimate()"
+                                   style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <div class="hint">Heartbeat while running a job (s).</div>
+                        </div>
+                        <div class="setup-field">
+                            <label>Idle — Jobs Exist</label>
+                            <input id="settingsHbIdleJobs" type="number" min="10" max="300" step="5"
+                                   style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <div class="hint">Poll interval when pending jobs exist (s).</div>
+                        </div>
+                        <div class="setup-field">
+                            <label>Idle — Queue Empty</label>
+                            <input id="settingsHbIdleNone" type="number" min="60" max="1800" step="30" oninput="updateCapacityEstimate()"
+                                   style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <div class="hint">Back-off when queue is empty (s).</div>
+                        </div>
+                        <div class="setup-field">
+                            <label>Control Check Chunk</label>
+                            <input id="settingsHbChunk" type="number" min="10" max="600" step="10" oninput="updateCapacityEstimate()"
+                                   style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <div class="hint">Sub-interval while idle-waiting — controls command latency (s).</div>
+                        </div>
+                        <div class="setup-field">
+                            <label>Worker Stale After</label>
+                            <input id="settingsStale" type="number" min="90" max="3600" step="30"
+                                   style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <div class="hint">No heartbeat this long → worker disabled &amp; job aborted (s).</div>
+                        </div>
+                    </div>
+
+                    <!-- Retry config -->
+                    <div style="font-size:0.78rem; font-weight:700; color:#495057; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">
+                        Status Update Retry (sent to workers via heartbeat)
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px;">
+                        <div class="setup-field">
+                            <label>Max Attempts</label>
+                            <input id="settingsRetryCount" type="number" min="1" max="20" step="1"
+                                   style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <div class="hint">How many times to retry a failed DONE/ABORTED POST.</div>
+                        </div>
+                        <div class="setup-field">
+                            <label>Base Delay (s)</label>
+                            <input id="settingsRetryBase" type="number" min="1" max="60" step="1"
+                                   style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <div class="hint">Wait before first retry.</div>
+                        </div>
+                        <div class="setup-field">
+                            <label>Max Delay (s)</label>
+                            <input id="settingsRetryMax" type="number" min="10" max="600" step="10"
+                                   style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
+                            <div class="hint">Cap on exponential backoff.</div>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; justify-content:flex-end; gap:10px; align-items:center;">
+                        <span id="settingsError" style="color:#dc3545; font-size:0.85em; flex:1;"></span>
+                        <button id="settingsSaveBtn" onclick="saveSettings()"
+                                style="padding:9px 22px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
+                            <i class="fas fa-save"></i> Save Settings
+                        </button>
+                    </div>
+                </div><!-- /settingsTabPerf -->
+
+                <!-- ═══════════ SECURITY TAB ═══════════ -->
+                <div id="settingsTabSec" style="display:none;">
+                    <h4 style="margin:0 0 14px 0; font-size:0.95rem; color:#1a1f2e;"><i class="fas fa-key"></i> Change Dashboard PIN</h4>
                     <div class="setup-settings-grid" style="margin-bottom:12px;">
                         <div class="setup-field">
                             <label>Current PIN</label>
@@ -890,7 +990,8 @@
                             <i class="fas fa-key"></i> Change PIN
                         </button>
                     </div>
-                </div>
+                </div><!-- /settingsTabSec -->
+
             </div>
         </div>
 

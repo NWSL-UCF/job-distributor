@@ -118,7 +118,8 @@ case "$CMD" in
         -e POSTGRES_USER=jd \
         -e POSTGRES_PASSWORD=jd_secret \
         -v "${PG_DATA_DIR}:/var/lib/postgresql/data" \
-        "$PG_IMAGE" >/dev/null
+        "$PG_IMAGE" \
+        postgres -c max_connections=250 -c shared_buffers=512MB -c work_mem=4MB >/dev/null
     fi
 
     # ── Wait for PostgreSQL to accept connections ─────────────────────────

@@ -3270,48 +3270,106 @@ function openModal() {
 
             // ====================== SETTINGS MODAL ======================
 
+            // ── Settings modal — tab state ────────────────────────────────────────
+            let _settingsActiveTab = 'perf';
+
+            function switchSettingsTab(tab) {
+                _settingsActiveTab = tab;
+                const perfPanel = document.getElementById('settingsTabPerf');
+                const secPanel  = document.getElementById('settingsTabSec');
+                const perfBtn   = document.getElementById('settingsTabBtnPerf');
+                const secBtn    = document.getElementById('settingsTabBtnSec');
+                const active  = { color:'#007bff', borderBottom:'2px solid #007bff', fontWeight:'600' };
+                const passive = { color:'#6c757d', borderBottom:'2px solid transparent', fontWeight:'600' };
+                if (tab === 'perf') {
+                    perfPanel.style.display = 'block'; secPanel.style.display = 'none';
+                    Object.assign(perfBtn.style, active); Object.assign(secBtn.style, passive);
+                } else {
+                    secPanel.style.display = 'block'; perfPanel.style.display = 'none';
+                    Object.assign(secBtn.style, active); Object.assign(perfBtn.style, passive);
+                }
+            }
+
+            // Capacity estimate — called on input changes
+            function updateCapacityEstimate() {
+                const target   = parseInt(document.getElementById('capWorkerCount').value) || 20000;
+                const hbBusy   = parseInt(document.getElementById('settingsHbBusy').value)   || 300;
+                const hbChunk  = parseInt(document.getElementById('settingsHbChunk').value)  || 120;
+                const hbNone   = parseInt(document.getElementById('settingsHbIdleNone').value) || 600;
+
+                // Heartbeat request rate estimates
+                const busyRate  = (target / hbBusy).toFixed(1);        // req/s busy workers
+                const idleRate  = (target / hbChunk).toFixed(1);       // req/s idle workers (worst case)
+                const emptyRate = (target / hbNone).toFixed(1);        // req/s all idle, no jobs
+
+                // Rough capacity: 8 workers × 16 threads = 128 concurrent, ~50ms avg per heartbeat
+                const capacity  = Math.round(128 * (1000 / 50));       // ~2560 req/s theoretical
+                const maxBusy   = Math.round(capacity * hbBusy * 0.25); // 25% load budget
+
+                const el = document.getElementById('capacityEstimate');
+                const fmt = n => parseInt(n).toLocaleString();
+                el.innerHTML = `
+                    <span style="margin-right:18px;">📡 <b>${fmt(target)}</b> busy workers → <b>${busyRate} req/s</b> heartbeat load</span>
+                    <span style="margin-right:18px;">⏸ <b>${fmt(target)}</b> idle (waiting) → <b>${idleRate} req/s</b> control-chunk load</span><br>
+                    <span style="margin-right:18px;">😴 <b>${fmt(target)}</b> idle (no jobs) → <b>${emptyRate} req/s</b> back-off load</span>
+                    <span style="color:${busyRate > 500 ? '#dc3545' : '#198754'}; font-weight:600;">
+                        ${busyRate > 500
+                            ? `⚠ Load may be high — consider increasing busy interval`
+                            : `✓ Comfortable for ~${fmt(maxBusy)} max busy workers at this interval`}
+                    </span>`;
+            }
+
+            // Snap a <select> to the closest available option value
+            function _snapSelect(el, val) {
+                const opts = Array.from(el.options).map(o => parseInt(o.value));
+                const closest = opts.reduce((a, b) => Math.abs(b - val) < Math.abs(a - val) ? b : a);
+                el.value = closest;
+            }
+
             function openSettingsModal() {
-                const errEl   = document.getElementById("settingsError");
-                const lockEl  = document.getElementById("settingsLockBanner");
-                const saveBtn = document.getElementById("settingsSaveBtn");
-                const idleIn  = document.getElementById("settingsIdleTimeout");
-                const abortIn = document.getElementById("settingsAbortedTimeout");
-
-                errEl.textContent = "";
-
-                // Always clear PIN fields and their error — prevent browser autofill residue
-                document.getElementById("currentPin").value     = "";
-                document.getElementById("newPin").value         = "";
+                document.getElementById("settingsError").textContent = "";
+                document.getElementById("currentPin").value = "";
+                document.getElementById("newPin").value = "";
                 document.getElementById("pinUpdateError").textContent = "";
+                switchSettingsTab('perf');
 
-                // Load current values (idle_timeout stored as seconds, dropdown shows minutes)
+                // Load all config values
                 fetch('/server_config')
                     .then(r => r.json())
-                    .then(data => {
-                        if (data.idle_timeout !== undefined) {
-                            const minutes = Math.round(data.idle_timeout / 60);
-                            idleIn.value = Math.min(Math.max(minutes, 1), 5); // clamp 1–5
-                        }
-                        if (data.aborted_job_reset_timeout !== undefined) {
-                            const abortMins = Math.round(data.aborted_job_reset_timeout / 60);
-                            const abortOpts = [1, 5, 10, 20, 30, 60];
-                            // Pick the closest option
-                            const closest = abortOpts.reduce((a, b) => Math.abs(b - abortMins) < Math.abs(a - abortMins) ? b : a);
-                            abortIn.value = closest;
-                        }
+                    .then(cfg => {
+                        _snapSelect(document.getElementById("settingsIdleTimeout"),   cfg.idle_timeout ?? 900);
+                        _snapSelect(document.getElementById("settingsAbortedTimeout"), cfg.aborted_job_reset_timeout ?? 1200);
+                        document.getElementById("settingsHbBusy").value      = cfg.heartbeat_busy          ?? 300;
+                        document.getElementById("settingsHbIdleJobs").value   = cfg.heartbeat_idle_jobs     ?? 60;
+                        document.getElementById("settingsHbIdleNone").value   = cfg.heartbeat_idle_none     ?? 600;
+                        document.getElementById("settingsHbChunk").value      = cfg.heartbeat_control_chunk ?? 120;
+                        document.getElementById("settingsStale").value        = cfg.worker_stale_seconds    ?? 900;
+                        document.getElementById("settingsRetryCount").value   = cfg.status_retry_count      ?? 8;
+                        document.getElementById("settingsRetryBase").value    = cfg.status_retry_base_delay ?? 5;
+                        document.getElementById("settingsRetryMax").value     = cfg.status_retry_max_delay  ?? 120;
+                        updateCapacityEstimate();
                     }).catch(() => {});
 
-                // Lock the form if any jobs are currently SERVED
-                fetch('/jobs_paginated?status=SERVED&per_page=1&page=1')
+                // Lock performance tab if any jobs are SERVED
+                fetch('/job_counts')
                     .then(r => r.json())
-                    .then(data => {
-                        const locked = data.total_count > 0;
+                    .then(counts => {
+                        const locked  = (counts.SERVED ?? 0) > 0;
+                        const lockEl  = document.getElementById("settingsLockBanner");
+                        const saveBtn = document.getElementById("settingsSaveBtn");
                         lockEl.style.display  = locked ? 'flex' : 'none';
                         saveBtn.disabled      = locked;
                         saveBtn.style.opacity = locked ? '0.5' : '1';
                         saveBtn.style.cursor  = locked ? 'not-allowed' : 'pointer';
-                        idleIn.disabled  = locked;
-                        abortIn.disabled = locked;
+                        // Disable all performance inputs when locked
+                        ['settingsIdleTimeout','settingsAbortedTimeout',
+                         'settingsHbBusy','settingsHbIdleJobs','settingsHbIdleNone',
+                         'settingsHbChunk','settingsStale',
+                         'settingsRetryCount','settingsRetryBase','settingsRetryMax'
+                        ].forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) el.disabled = locked;
+                        });
                     }).catch(() => {});
 
                 document.getElementById("settingsModal").style.display = "block";
@@ -3322,28 +3380,58 @@ function openModal() {
             }
 
             function saveSettings() {
-                const idleMinutes   = parseInt(document.getElementById("settingsIdleTimeout").value);
-                const idleSeconds   = idleMinutes * 60;
-                const abortMinutes  = parseInt(document.getElementById("settingsAbortedTimeout").value);
-                const abortSeconds  = abortMinutes * 60;
-                const errEl         = document.getElementById("settingsError");
-                errEl.textContent   = "";
+                const errEl = document.getElementById("settingsError");
+                errEl.textContent = "";
+
+                const payload = {
+                    idle_timeout:              parseInt(document.getElementById("settingsIdleTimeout").value),
+                    aborted_job_reset_timeout: parseInt(document.getElementById("settingsAbortedTimeout").value),
+                    heartbeat_busy:            parseInt(document.getElementById("settingsHbBusy").value),
+                    heartbeat_idle_jobs:       parseInt(document.getElementById("settingsHbIdleJobs").value),
+                    heartbeat_idle_none:       parseInt(document.getElementById("settingsHbIdleNone").value),
+                    heartbeat_control_chunk:   parseInt(document.getElementById("settingsHbChunk").value),
+                    worker_stale_seconds:      parseInt(document.getElementById("settingsStale").value),
+                    status_retry_count:        parseInt(document.getElementById("settingsRetryCount").value),
+                    status_retry_base_delay:   parseInt(document.getElementById("settingsRetryBase").value),
+                    status_retry_max_delay:    parseInt(document.getElementById("settingsRetryMax").value),
+                };
+
+                // Client-side pre-validation with clear messages
+                const hbBusy  = payload.heartbeat_busy;
+                const stale   = payload.worker_stale_seconds;
+                const hbChunk = payload.heartbeat_control_chunk;
+                const hbNone  = payload.heartbeat_idle_none;
+                const hbJobs  = payload.heartbeat_idle_jobs;
+                const idle    = payload.idle_timeout;
+                const rBase   = payload.status_retry_base_delay;
+                const rMax    = payload.status_retry_max_delay;
+
+                if (stale < hbBusy * 3)
+                    return void (errEl.textContent = `Stale threshold (${stale}s) must be ≥ 3× busy heartbeat (${hbBusy*3}s).`);
+                if (idle < hbBusy)
+                    return void (errEl.textContent = `Idle timeout (${idle}s) must be ≥ busy heartbeat (${hbBusy}s).`);
+                if (hbNone < hbJobs)
+                    return void (errEl.textContent = `"Idle (no jobs)" interval must be ≥ "Idle (jobs exist)" interval.`);
+                if (hbChunk > hbNone)
+                    return void (errEl.textContent = `Control chunk (${hbChunk}s) must be ≤ "Idle (no jobs)" interval (${hbNone}s).`);
+                if (rMax < rBase)
+                    return void (errEl.textContent = `Retry max delay (${rMax}s) must be ≥ base delay (${rBase}s).`);
 
                 fetch('/update_server_config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idle_timeout: idleSeconds, aborted_job_reset_timeout: abortSeconds })
+                    body: JSON.stringify(payload),
                 })
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
-                        showNotification(`Settings saved — idle: ${idleMinutes} min, aborted reset: ${abortMinutes} min. Takes effect on next cleaner cycle.`, "success");
+                        showNotification('Settings saved. Workers will apply on their next heartbeat.', 'success');
                         closeSettingsModal();
                     } else {
-                        errEl.textContent = data.error || "Failed to save settings.";
+                        errEl.textContent = data.error || 'Failed to save settings.';
                     }
                 })
-                .catch(e => { errEl.textContent = "Network error: " + e.message; });
+                .catch(e => { errEl.textContent = 'Network error: ' + e.message; });
             }
 
             // ====================== SETUP OVERLAY ======================

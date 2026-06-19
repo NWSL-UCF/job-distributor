@@ -54,10 +54,10 @@ def main():
     parser.add_argument("--workspace_path",
                         default=os.path.dirname(os.path.abspath(__file__)),
                         help="Directory where experiment data (DB, logs) will be stored")
-    parser.add_argument("--workers", type=int, default=4,
-                        help="Gunicorn worker processes per server (default: 4)")
-    parser.add_argument("--threads", type=int, default=8,
-                        help="Threads per gunicorn worker (default: 8)")
+    parser.add_argument("--workers", type=int, default=8,
+                        help="Gunicorn worker processes per server (default: 8)")
+    parser.add_argument("--threads", type=int, default=16,
+                        help="Threads per gunicorn worker (default: 16)")
     args = parser.parse_args()
 
     exp_dir = os.path.join(args.workspace_path, args.expId)

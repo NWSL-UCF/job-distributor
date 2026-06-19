@@ -134,9 +134,10 @@ from jd.worker_registry import (
 )
 
 IS_WINDOWS = platform.system() == "Windows"
-BUSY_HEARTBEAT_INTERVAL = 57   # seconds while a job runs (also refreshes the job row)
-IDLE_POLL_INTERVAL = 180         # seconds when idle — heartbeat + optional job assignment
-IDLE_CONTROL_POLL_CHUNK = 30     # re-heartbeat while idle so stop/drain commands apply promptly
+BUSY_HEARTBEAT_INTERVAL  = 120  # seconds while a job runs — server can override via response
+IDLE_POLL_INTERVAL       = 180  # fallback when server doesn't respond (server drives the real value)
+IDLE_CONTROL_POLL_CHUNK  = 60   # re-heartbeat while idle so stop/drain commands apply promptly
+                                 # defaults tuned for 5 000 workers; tune via dashboard for more
 
 # Default local layout: ~/jd_data/<expId>/<job_id>/ and ~/.jd_cache/.cache/<expId>/workers.db
 
@@ -419,10 +420,13 @@ def _idle_wait_for_control(
     logger: logging.Logger,
     token_mgr: Optional[WorkerTokenManager],
     registry: Optional[WorkerRegistry],
+    control: Optional[dict] = None,
 ) -> Tuple[int, Optional[dict], bool]:
     """Wait until the next idle poll, heartbeating periodically for server control.
 
     Returns (applied_version, job_if_assigned, should_exit).
+    The sub-interval (control_chunk) is read from *control* so the server can
+    tune it dynamically without redeploying workers.
     """
     deadline = time.time() + poll_interval
     first_chunk = True
@@ -441,7 +445,8 @@ def _idle_wait_for_control(
             )
             first_chunk = False
 
-        time.sleep(min(IDLE_CONTROL_POLL_CHUNK, remaining))
+        chunk = (control or {}).get("control_chunk", IDLE_CONTROL_POLL_CHUNK)
+        time.sleep(min(chunk, remaining))
 
         if time.time() >= deadline:
             break
@@ -501,8 +506,13 @@ def _heartbeat_loop(
     token_mgr: Optional[WorkerTokenManager] = None,
     registry: Optional[WorkerRegistry] = None,
 ) -> None:
-    """Background heartbeat via POST /worker/heartbeat while a job runs."""
-    while not stop_event.wait(BUSY_HEARTBEAT_INTERVAL):
+    """Background heartbeat via POST /worker/heartbeat while a job runs.
+
+    The wait interval is server-driven: the server returns ``heartbeat_interval``
+    in each response so the operator can tune load without redeploying clients.
+    Falls back to BUSY_HEARTBEAT_INTERVAL when the server is unreachable.
+    """
+    while not stop_event.wait(control.get("heartbeat_interval", BUSY_HEARTBEAT_INTERVAL)):
         try:
             if token_mgr:
                 token_mgr.ensure_fresh()
@@ -515,6 +525,14 @@ def _heartbeat_loop(
             if resp is None:
                 logger.warning(f"Heartbeat failed (job {job_id}): {err}")
                 continue
+            # Let the server tune all timing and retry config dynamically.
+            server_interval = resp.get("heartbeat_interval")
+            if server_interval and int(server_interval) > 0:
+                control["heartbeat_interval"] = int(server_interval)
+            for _key in ("control_chunk", "status_retry_count",
+                         "status_retry_base_delay", "status_retry_max_delay"):
+                if resp.get(_key) and int(resp[_key]) > 0:
+                    control[_key] = int(resp[_key])
             av, exit_now, stop_after = _apply_server_control(
                 resp, control["applied_version"], registry, logger,
             )
@@ -531,16 +549,19 @@ def _heartbeat_loop(
 
 def _update_status(url: str, job_id: int, status: str,
                    message: str, logger: logging.Logger,
-                   token_mgr: Optional[WorkerTokenManager] = None) -> None:
+                   token_mgr: Optional[WorkerTokenManager] = None,
+                   max_attempts: int = 8,
+                   base_delay: int = 5,
+                   max_delay: int = 120) -> None:
     """POST a terminal status update (DONE / ABORTED) with exponential-backoff retries.
 
     A failed status update leaves the job stuck in SERVED (running) state
-    indefinitely, so this is worth retrying aggressively.  We attempt up to
-    MAX_ATTEMPTS times with exponential backoff capped at 120 s per wait.
+    indefinitely, so this is worth retrying aggressively.  Retry params are
+    driven by the server config delivered via heartbeat response.
     """
-    MAX_ATTEMPTS = 8
-    BASE_DELAY   = 5    # seconds before first retry
-    MAX_DELAY    = 120  # seconds cap between retries
+    MAX_ATTEMPTS = max_attempts
+    BASE_DELAY   = base_delay
+    MAX_DELAY    = max_delay
     payload  = {"job_id": job_id, "status": status, "message": message}
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -700,7 +721,15 @@ def _run_worker(cfg: dict) -> None:
         job_id = None
         stop_heartbeat = threading.Event()
         heartbeat = None
-        control = {"applied_version": applied_version, "stop_after_job": False}
+        control = {
+            "applied_version":        applied_version,
+            "stop_after_job":         False,
+            "heartbeat_interval":     BUSY_HEARTBEAT_INTERVAL,   # updated live from server
+            "control_chunk":          IDLE_CONTROL_POLL_CHUNK,   # updated live from server
+            "status_retry_count":     8,
+            "status_retry_base_delay": 5,
+            "status_retry_max_delay": 120,
+        }
         try:
             if token_mgr:
                 token_mgr.ensure_fresh()
@@ -725,6 +754,15 @@ def _run_worker(cfg: dict) -> None:
                 or hb_resp.get("poll_interval")
                 or IDLE_POLL_INTERVAL
             )
+            # Propagate all server-driven config into control so it's available
+            # to the busy heartbeat thread, idle wait loop, and status updates.
+            busy_interval = int(hb_resp.get("heartbeat_interval") or BUSY_HEARTBEAT_INTERVAL)
+            if busy_interval > 0:
+                control["heartbeat_interval"] = busy_interval
+            for _key in ("control_chunk", "status_retry_count",
+                         "status_retry_base_delay", "status_retry_max_delay"):
+                if hb_resp.get(_key) and int(hb_resp[_key]) > 0:
+                    control[_key] = int(hb_resp[_key])
             applied_version, exit_now, _ = _apply_server_control(
                 hb_resp, applied_version, registry, logger,
             )
@@ -751,7 +789,7 @@ def _run_worker(cfg: dict) -> None:
                     )
                 applied_version, waited_job, should_exit = _idle_wait_for_control(
                     poll_interval, urls, worker_id, host, cfg['machine_type'],
-                    applied_version, logger, token_mgr, registry,
+                    applied_version, logger, token_mgr, registry, control=control,
                 )
                 control["applied_version"] = applied_version
                 if should_exit:
@@ -827,12 +865,20 @@ def _run_worker(cfg: dict) -> None:
             stdout, stderr = _proc[0].communicate()
             rc             = _proc[0].returncode
 
+            # Retry kwargs driven by server config delivered via heartbeat.
+            _retry_kw = {
+                "token_mgr":    token_mgr,
+                "max_attempts": control.get("status_retry_count",      8),
+                "base_delay":   control.get("status_retry_base_delay", 5),
+                "max_delay":    control.get("status_retry_max_delay",  120),
+            }
+
             if control.get("exit_now") and job_id is not None:
                 logger.info(f"Job {job_id} aborted — dashboard stop command.")
                 _update_status(
                     urls['update'], job_id, 'ABORTED',
                     f"Job aborted on {worker_id}: dashboard stop command.",
-                    logger, token_mgr=token_mgr,
+                    logger, **_retry_kw,
                 )
                 _worker_heartbeat(
                     urls['heartbeat'], worker_id, host, cfg['machine_type'],
@@ -849,7 +895,7 @@ def _run_worker(cfg: dict) -> None:
                 _update_status(
                     urls['update'], job_id, 'DONE',
                     f"Completed successfully on {worker_id}.",
-                    logger, token_mgr=token_mgr,
+                    logger, **_retry_kw,
                 )
             else:
                 logger.error(f"Job {job_id} failed — exit code {rc}")
@@ -871,7 +917,7 @@ def _run_worker(cfg: dict) -> None:
                     abort_msg += " (Process killed — possible OOM or time limit.)"
 
                 _update_status(urls['update'], job_id, 'ABORTED', abort_msg, logger,
-                               token_mgr=token_mgr)
+                               **_retry_kw)
 
             _proc[0] = None
             if registry:
@@ -889,6 +935,9 @@ def _run_worker(cfg: dict) -> None:
                     urls['update'], job_id, 'ABORTED',
                     f"Unexpected exception on {worker_id}: {exc}",
                     logger, token_mgr=token_mgr,
+                    max_attempts=control.get("status_retry_count", 8),
+                    base_delay=control.get("status_retry_base_delay", 5),
+                    max_delay=control.get("status_retry_max_delay", 120),
                 )
             break
         finally:

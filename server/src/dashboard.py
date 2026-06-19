@@ -538,15 +538,25 @@ def create_jobs():
 
 @app.route("/server_config", methods=["GET"])
 def get_server_config():
-    """Return current server configuration (idle_timeout, aborted_job_reset_timeout, hold_workers)."""
+    """Return all server configuration including worker performance settings."""
     try:
         config = db.get_all_config()
         hold_raw = config.get("hold_workers", "1")
         hold_workers = str(hold_raw).lower() not in ("0", "false", "no", "off")
         return jsonify({
-            "idle_timeout": int(config.get("idle_timeout", 600)),
+            # Cleaner / job-reset timers
+            "idle_timeout":              int(config.get("idle_timeout", 600)),
             "aborted_job_reset_timeout": int(config.get("aborted_job_reset_timeout", 1200)),
-            "hold_workers": hold_workers,
+            "hold_workers":              hold_workers,
+            # Worker heartbeat & retry config (sent to workers via heartbeat response)
+            "heartbeat_busy":          int(config.get("heartbeat_busy",          300)),
+            "heartbeat_idle_jobs":     int(config.get("heartbeat_idle_jobs",     60)),
+            "heartbeat_idle_none":     int(config.get("heartbeat_idle_none",     600)),
+            "heartbeat_control_chunk": int(config.get("heartbeat_control_chunk", 120)),
+            "worker_stale_seconds":    int(config.get("worker_stale_seconds",    900)),
+            "status_retry_count":      int(config.get("status_retry_count",      8)),
+            "status_retry_base_delay": int(config.get("status_retry_base_delay", 5)),
+            "status_retry_max_delay":  int(config.get("status_retry_max_delay",  120)),
         })
     except Exception as e:
         logging.error(f"Error reading server config: {e}")
@@ -563,7 +573,7 @@ def _parse_hold_workers(value) -> bool:
 
 @app.route("/update_server_config", methods=["POST"])
 def update_server_config():
-    """Update idle_timeout, aborted_job_reset_timeout, and/or hold_workers."""
+    """Update server configuration including worker performance timers."""
     db.track_api_request("Update Server Config", "POST")
 
     try:
@@ -571,6 +581,7 @@ def update_server_config():
         updated = []
         stop_result = None
 
+        # ── Simple positive-integer keys ─────────────────────────────────────
         for key in ("idle_timeout", "aborted_job_reset_timeout"):
             if key in data:
                 val = int(data[key])
@@ -585,6 +596,72 @@ def update_server_config():
             updated.append("hold_workers")
             if not hold:
                 stop_result = db.maybe_stop_workers_when_all_jobs_complete()
+
+        # ── Performance settings — collected together for cross-validation ────
+        PERF_KEYS = (
+            "heartbeat_busy", "heartbeat_idle_jobs", "heartbeat_idle_none",
+            "heartbeat_control_chunk", "worker_stale_seconds",
+            "status_retry_count", "status_retry_base_delay", "status_retry_max_delay",
+        )
+        perf = {}
+        for key in PERF_KEYS:
+            if key in data:
+                val = int(data[key])
+                if val <= 0:
+                    return jsonify({"success": False,
+                                    "error": f"'{key}' must be a positive integer."}), 400
+                perf[key] = val
+
+        if perf:
+            # Merge with current DB values so partial updates still validate
+            current = db.get_performance_config()
+            merged = {**current, **perf}
+
+            hb_busy  = merged["heartbeat_busy"]
+            hb_ijobs = merged["heartbeat_idle_jobs"]
+            hb_inone = merged["heartbeat_idle_none"]
+            hb_chunk = merged["heartbeat_control_chunk"]
+            stale    = merged["worker_stale_seconds"]
+            rd_base  = merged["status_retry_base_delay"]
+            rd_max   = merged["status_retry_max_delay"]
+            idle_to  = int(db.get_config_value("idle_timeout", "600"))
+
+            errors = []
+            # Rule 1: stale ≥ busy × 3 (at least 3 missed heartbeats before disabled)
+            if stale < hb_busy * 3:
+                errors.append(
+                    f"Worker stale threshold ({stale}s) must be ≥ 3× busy heartbeat "
+                    f"({hb_busy}s × 3 = {hb_busy*3}s)."
+                )
+            # Rule 2: idle_timeout ≥ busy heartbeat (job can't expire before one ping)
+            if idle_to < hb_busy:
+                errors.append(
+                    f"Idle timeout ({idle_to}s) must be ≥ busy heartbeat ({hb_busy}s). "
+                    f"Increase idle timeout or decrease busy heartbeat."
+                )
+            # Rule 3: idle_none ≥ idle_jobs
+            if hb_inone < hb_ijobs:
+                errors.append(
+                    f"'Idle (no jobs)' interval ({hb_inone}s) must be ≥ "
+                    f"'Idle (jobs exist)' interval ({hb_ijobs}s)."
+                )
+            # Rule 4: control chunk ≤ idle_none
+            if hb_chunk > hb_inone:
+                errors.append(
+                    f"Control chunk ({hb_chunk}s) must be ≤ "
+                    f"'Idle (no jobs)' interval ({hb_inone}s)."
+                )
+            # Rule 5: retry delays
+            if rd_max < rd_base:
+                errors.append(
+                    f"Retry max delay ({rd_max}s) must be ≥ base delay ({rd_base}s)."
+                )
+            if errors:
+                return jsonify({"success": False, "error": " | ".join(errors)}), 400
+
+            for key, val in perf.items():
+                db.set_config_value(key, str(val))
+                updated.append(key)
 
         if not updated:
             return jsonify({"success": False, "error": "No recognised config keys provided."}), 400

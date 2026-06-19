@@ -23,6 +23,15 @@ services:
     image: postgres:16-alpine
     container_name: jd-db-${EXP:?Set EXP=<experiment-name> before running docker compose}
     restart: unless-stopped
+    # Tuned for 20 000+ parallel workers:
+    #   max_connections=250  — covers 12 Gunicorn processes × 15-conn pool each
+    #   shared_buffers=512MB — PostgreSQL working-set cache (tune up on large machines)
+    #   work_mem=4MB         — per-sort/join memory; keeps aggregate queries fast
+    command: >
+      postgres
+        -c max_connections=250
+        -c shared_buffers=512MB
+        -c work_mem=4MB
     environment:
       POSTGRES_DB: jobdistributor
       POSTGRES_USER: jd
