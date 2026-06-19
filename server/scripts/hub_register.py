@@ -7,7 +7,6 @@ Requires: JD_HUB_URL, JD_API_KEY, JD_EXP_NAME, JD_WORKSPACE_PATH
 from __future__ import annotations
 
 import os
-import sqlite3
 import sys
 import time
 
@@ -15,44 +14,46 @@ import requests
 
 POLL_SECS = 3
 MAX_WAIT = 120
+DEFAULT_SERVER_PORT = 8000
 
 
-def _read_admin_token(workspace: str, exp_id: str) -> str | None:
-    db_path = os.path.join(workspace, exp_id, "meta", "jobs.db")
-    if not os.path.isfile(db_path):
-        return None
+def _read_admin_token_via_http(port: int) -> str | None:
+    """Fetch the admin token from the local job server's /admin/token endpoint."""
     try:
-        conn = sqlite3.connect(db_path, timeout=5)
-        cur = conn.execute(
-            "SELECT value FROM server_config WHERE key = 'admin_token' LIMIT 1"
-        )
-        row = cur.fetchone()
-        conn.close()
-        return row[0].strip() if row and row[0] else None
-    except sqlite3.Error:
-        return None
+        r = requests.get(f"http://127.0.0.1:{port}/admin/token", timeout=5)
+        if r.status_code == 200:
+            token = r.json().get("admin_token", "").strip()
+            return token or None
+    except requests.RequestException:
+        pass
+    return None
+
+
+def _server_port() -> int:
+    raw = os.environ.get("JD_SERVER_PORT", "").strip()
+    return int(raw) if raw.isdigit() else DEFAULT_SERVER_PORT
 
 
 def main() -> int:
     hub_url = os.environ.get("JD_HUB_URL", "").strip().rstrip("/")
     api_key = os.environ.get("JD_API_KEY", "").strip()
     exp_name = os.environ.get("JD_EXP_NAME", "").strip().lower()
-    workspace = os.environ.get("JD_WORKSPACE_PATH", "/workspace").strip()
 
     if not hub_url or not api_key or not exp_name:
         return 0
 
+    port = _server_port()
     print("hub_register: waiting for dashboard admin token…", file=sys.stderr)
     deadline = time.time() + MAX_WAIT
     admin_token = None
     while time.time() < deadline:
-        admin_token = _read_admin_token(workspace, exp_name)
+        admin_token = _read_admin_token_via_http(port)
         if admin_token:
             break
         time.sleep(POLL_SECS)
 
     if not admin_token:
-        print("hub_register: admin token not found in jobs.db", file=sys.stderr)
+        print("hub_register: admin token not available from server", file=sys.stderr)
         return 1
 
     url = f"{hub_url}/api/experiments/{exp_name}/register"

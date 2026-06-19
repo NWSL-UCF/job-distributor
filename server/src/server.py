@@ -23,7 +23,6 @@ from workspace_layout import (
     ensure_exp_layout,
     exp_meta_dir,
     job_worker_data_dir,
-    jobs_db_path,
 )
 
 app = Flask(__name__)
@@ -32,7 +31,6 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
 
 BASE_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-DB_FILE    = ""
 EXP_ID     = ""
 LOG_FILENAME = "server.log"
 
@@ -179,11 +177,10 @@ if _jd_workspace and _jd_exp_id:
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
-    DB_FILE = jobs_db_path(BASE_DIR, _jd_exp_id)
     EXP_ID  = _jd_exp_id
-    db = JobDatabase(DB_FILE)
+    db = JobDatabase(os.environ["DATABASE_URL"])
     logging.info(
-        f"[gunicorn] Job server initialised. DB: {DB_FILE}  BASE_DIR: {BASE_DIR}"
+        f"[gunicorn] Job server initialised. DATABASE_URL set.  BASE_DIR: {BASE_DIR}"
     )
     _start_hub_threads()
 # ─────────────────────────────────────────────────────────────────────────
@@ -665,6 +662,16 @@ def api_download_job_upload(job_id: int):
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/admin/token", methods=["GET"])
+def admin_get_token():
+    """Return the admin token. Only accessible from localhost (used by hub scripts)."""
+    remote = request.remote_addr or ""
+    if remote not in ("127.0.0.1", "::1", "localhost"):
+        return jsonify({"error": "Forbidden"}), 403
+    token = db.get_or_create_admin_token()
+    return jsonify({"admin_token": token})
+
+
 @app.route("/admin/shutdown", methods=["POST"])
 def admin_shutdown():
     """Stop all active workers. Called by Hub before experiment deletion."""
@@ -698,10 +705,9 @@ if __name__ == "__main__":
     ensure_exp_layout(args.workspacePath, args.expId)
     setup_log(args)
 
-    DB_FILE = jobs_db_path(args.workspacePath, args.expId)
-    logging.info(f"Starting Flask job server on 0.0.0.0:{args.port}, DB: {DB_FILE}")
+    logging.info(f"Starting Flask job server on 0.0.0.0:{args.port}")
 
-    db = JobDatabase(DB_FILE)
+    db = JobDatabase(os.environ["DATABASE_URL"])
     _start_hub_threads()
     app.run(host="0.0.0.0", port=args.port, threaded=True)
 

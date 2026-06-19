@@ -12,7 +12,7 @@ from typing import Optional
 import pytz
 from database import JobDatabase, job_worker_id
 from flask import Flask, jsonify, make_response, redirect, render_template, request, send_file
-from workspace_layout import ensure_exp_layout, exp_meta_dir, jobs_db_path
+from workspace_layout import ensure_exp_layout, exp_meta_dir
 from job_api_helpers import parse_create_jobs_payload, upload_rows_for_job
 from job_files import (
     MAX_PREVIEW_BYTES,
@@ -25,7 +25,6 @@ app = Flask(__name__)
 
 # -------------------------- CONFIG --------------------------
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-DB_FILE = ""
 LOG_FILENAME = "dashboard.log"
 EXP_ID = "sim100"
 
@@ -129,10 +128,9 @@ if _jd_workspace and _jd_exp_id:
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
-    DB_FILE  = jobs_db_path(BASE_DIR, EXP_ID)
-    db = JobDatabase(DB_FILE)
+    db = JobDatabase(os.environ["DATABASE_URL"])
     _init_pin_and_token()
-    logging.info(f"[gunicorn] Dashboard initialised. DB: {DB_FILE}")
+    logging.info("[gunicorn] Dashboard initialised.")
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -1220,10 +1218,9 @@ if __name__ == "__main__":
     ensure_exp_layout(args.workspacePath, args.expId)
     setup_log(args)
 
-    DB_FILE = jobs_db_path(args.workspacePath, args.expId)
-    logging.info(f"Starting Flask Dashboard on 0.0.0.0:{args.port}, DB: {DB_FILE}")
+    logging.info(f"Starting Flask Dashboard on 0.0.0.0:{args.port}")
 
-    db = JobDatabase(DB_FILE)
+    db = JobDatabase(os.environ["DATABASE_URL"])
     _init_pin_and_token()
 
     app.run(host="0.0.0.0", port=args.port)

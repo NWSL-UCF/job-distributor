@@ -54,10 +54,10 @@ def main():
     parser.add_argument("--workspace_path",
                         default=os.path.dirname(os.path.abspath(__file__)),
                         help="Directory where experiment data (DB, logs) will be stored")
-    parser.add_argument("--workers", type=int, default=1,
-                        help="Gunicorn worker processes per server (default: 1)")
-    parser.add_argument("--threads", type=int, default=4,
-                        help="Threads per gunicorn worker (default: 4)")
+    parser.add_argument("--workers", type=int, default=4,
+                        help="Gunicorn worker processes per server (default: 4)")
+    parser.add_argument("--threads", type=int, default=8,
+                        help="Threads per gunicorn worker (default: 8)")
     args = parser.parse_args()
 
     exp_dir = os.path.join(args.workspace_path, args.expId)
@@ -83,6 +83,10 @@ def main():
     env = os.environ.copy()
     env["JD_WORKSPACE_PATH"] = args.workspace_path
     env["JD_EXP_ID"]         = args.expId
+    # DATABASE_URL is inherited from the environment (set by docker-compose or caller).
+    # Fail early and loudly if it is missing rather than getting a cryptic error later.
+    if "DATABASE_URL" not in env:
+        sys.exit("ERROR: DATABASE_URL environment variable is not set.")
 
     # ── Job server ────────────────────────────────────────────────────────
     server_cmd = [

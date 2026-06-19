@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import sqlite3
 import sys
 import time
 
@@ -29,20 +28,16 @@ START_PID_FILE = "/tmp/jd-start.pid"
 DEFAULT_SERVER_PORT = 8000
 
 
-def _read_admin_token(workspace: str, exp_id: str) -> str | None:
-    db_path = os.path.join(workspace, exp_id, "meta", "jobs.db")
-    if not os.path.isfile(db_path):
-        return None
+def _read_admin_token_via_http(port: int) -> str | None:
+    """Fetch the admin token from the local job server's /admin/token endpoint."""
     try:
-        conn = sqlite3.connect(db_path, timeout=5)
-        cur = conn.execute(
-            "SELECT value FROM server_config WHERE key = 'admin_token' LIMIT 1"
-        )
-        row = cur.fetchone()
-        conn.close()
-        return row[0].strip() if row and row[0] else None
-    except sqlite3.Error:
-        return None
+        r = requests.get(f"http://127.0.0.1:{port}/admin/token", timeout=5)
+        if r.status_code == 200:
+            token = r.json().get("admin_token", "").strip()
+            return token or None
+    except requests.RequestException:
+        pass
+    return None
 
 
 def _local_server_port() -> int:
@@ -117,9 +112,7 @@ def _graceful_shutdown(status: str) -> None:
         file=sys.stderr,
     )
 
-    workspace = os.environ.get("JD_WORKSPACE_PATH", "/workspace").strip()
-    exp_name = os.environ.get("JD_EXP_NAME", "").strip().lower()
-    admin_token = _read_admin_token(workspace, exp_name) if exp_name else None
+    admin_token = _read_admin_token_via_http(_local_server_port())
 
     if admin_token:
         _request_local_shutdown(admin_token)

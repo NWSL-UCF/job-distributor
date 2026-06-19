@@ -6,7 +6,7 @@ import argparse
 import requests
 
 from database import JobDatabase
-from workspace_layout import ensure_exp_layout, exp_meta_dir, jobs_db_path
+from workspace_layout import ensure_exp_layout, exp_meta_dir
 
 LOG_FILENAME = "job_cleaner.log"
 POLLING_INTERVAL = 60  # seconds between each loop tick
@@ -126,8 +126,7 @@ if __name__ == "__main__":
     ensure_exp_layout(args.workspacePath, args.expId)
     setup_log(args.workspacePath, args.expId)
 
-    db_path = jobs_db_path(args.workspacePath, args.expId)
-    db = JobDatabase(db_path)
+    db = JobDatabase(os.environ["DATABASE_URL"])
 
-    logging.info(f"Job cleaner started. Server: localhost:{args.serverPort}, DB: {db_path}")
+    logging.info(f"Job cleaner started. Server: localhost:{args.serverPort}")
     cleanup_loop("localhost", args.serverPort, db)

@@ -5,7 +5,11 @@
 #   JD_API_KEY=jd_xxx EXP=tuning-01 docker compose up -d
 #
 # Run multiple experiments on the same machine by using different EXP values.
-# Each gets its own container (jd-<EXP>) and workspace folder (./workspace/<EXP>/).
+# Each gets its own container stack and workspace folder.
+#
+# Database location on host: ./workspace/<EXP>/meta/pgdata/
+# Delete that folder (or the whole meta/ folder) and restart → brand new database.
+# "docker compose down -v" also wipes everything cleanly.
 #
 # Optional overrides:
 #   JD_HUB_URL=https://hub.jobdistributor.net  (default shown)
@@ -15,17 +19,41 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
+  jd_db:
+    image: postgres:16-alpine
+    container_name: jd-db-${EXP:?Set EXP=<experiment-name> before running docker compose}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: jobdistributor
+      POSTGRES_USER: jd
+      POSTGRES_PASSWORD: jd_secret
+    volumes:
+      # PostgreSQL data lives alongside logs and uploads in the familiar meta/ folder.
+      # Delete ./workspace/<EXP>/meta/pgdata/ (or the whole meta/ folder) and
+      # restart the stack to get a brand new empty database — same behaviour as
+      # deleting jobs.db previously.
+      - ./workspace/${EXP}/meta/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jd -d jobdistributor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   jd_server:
     image: jobdistributor/jd-server:latest
-    container_name: jd-${EXP:?Set EXP=<experiment-name> before running docker compose}
+    container_name: jd-${EXP}
     restart: unless-stopped
+    depends_on:
+      jd_db:
+        condition: service_healthy
 
     environment:
       - JD_HUB_URL=${JD_HUB_URL:-https://hub.jobdistributor.net}
       - JD_API_KEY=${JD_API_KEY:?Set JD_API_KEY=<your api key>}
       - JD_EXP_NAME=${EXP}
+      - DATABASE_URL=postgresql://jd:jd_secret@jd_db:5432/jobdistributor
 
     volumes:
-      # Host: ~/jd_server/workspace/<EXP>/  →  Container: /workspace/<EXP>/
-      # Job DB, logs, and config are persisted here across container restarts.
+      # Host: ./workspace/<EXP>/  →  Container: /workspace/<EXP>/
+      # Logs, uploads, and checkpoints are persisted here across container restarts.
       - ./workspace/${EXP}:/workspace/${EXP}

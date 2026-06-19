@@ -5,3 +5,4 @@ pytz
 numpy
 requests
 PyJWT
+psycopg2-binary
