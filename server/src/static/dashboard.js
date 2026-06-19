@@ -3290,33 +3290,49 @@ function openModal() {
                 }
             }
 
-            // Capacity estimate — called on input changes
+            // Capacity estimate — recalculates whenever any timer input changes.
+            // Formula: the server comfortably handles ~150 heartbeat req/s total.
+            // A mix of 60% busy workers (at hbBusy interval) and 40% idle workers
+            // (at controlChunk interval) gives the blended rate per worker.
             function updateCapacityEstimate() {
-                const target   = parseInt(document.getElementById('capWorkerCount').value) || 20000;
-                const hbBusy   = parseInt(document.getElementById('settingsHbBusy').value)   || 300;
-                const hbChunk  = parseInt(document.getElementById('settingsHbChunk').value)  || 120;
-                const hbNone   = parseInt(document.getElementById('settingsHbIdleNone').value) || 600;
+                const hbBusy  = parseInt(document.getElementById('settingsHbBusy').value)    || 120;
+                const hbChunk = parseInt(document.getElementById('settingsHbChunk').value)   || 60;
 
-                // Heartbeat request rate estimates
-                const busyRate  = (target / hbBusy).toFixed(1);        // req/s busy workers
-                const idleRate  = (target / hbChunk).toFixed(1);       // req/s idle workers (worst case)
-                const emptyRate = (target / hbNone).toFixed(1);        // req/s all idle, no jobs
+                // Blended requests/second per worker (60% busy, 40% idle-waiting)
+                const rpsPerWorker = 0.6 / hbBusy + 0.4 / hbChunk;
+                const COMFORTABLE_RPS = 150;  // conservative sustainable heartbeat throughput
+                const maxWorkers = Math.round(COMFORTABLE_RPS / rpsPerWorker);
 
-                // Rough capacity: 8 workers × 16 threads = 128 concurrent, ~50ms avg per heartbeat
-                const capacity  = Math.round(128 * (1000 / 50));       // ~2560 req/s theoretical
-                const maxBusy   = Math.round(capacity * hbBusy * 0.25); // 25% load budget
+                const busyRps  = (maxWorkers / hbBusy).toFixed(0);
+                const idleRps  = (maxWorkers / hbChunk).toFixed(0);
 
-                const el = document.getElementById('capacityEstimate');
-                const fmt = n => parseInt(n).toLocaleString();
-                el.innerHTML = `
-                    <span style="margin-right:18px;">📡 <b>${fmt(target)}</b> busy workers → <b>${busyRate} req/s</b> heartbeat load</span>
-                    <span style="margin-right:18px;">⏸ <b>${fmt(target)}</b> idle (waiting) → <b>${idleRate} req/s</b> control-chunk load</span><br>
-                    <span style="margin-right:18px;">😴 <b>${fmt(target)}</b> idle (no jobs) → <b>${emptyRate} req/s</b> back-off load</span>
-                    <span style="color:${busyRate > 500 ? '#dc3545' : '#198754'}; font-weight:600;">
-                        ${busyRate > 500
-                            ? `⚠ Load may be high — consider increasing busy interval`
-                            : `✓ Comfortable for ~${fmt(maxBusy)} max busy workers at this interval`}
-                    </span>`;
+                const numEl  = document.getElementById('capNumber');
+                const subEl  = document.getElementById('capSubline');
+                const boxEl  = document.getElementById('capacityBox');
+
+                const fmt = n => n >= 1000
+                    ? (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'k'
+                    : n.toString();
+
+                numEl.textContent = fmt(maxWorkers) + ' workers';
+
+                // Color by scale
+                if (maxWorkers >= 10000) {
+                    numEl.style.color   = '#198754';
+                    boxEl.style.background   = '#f0fff4';
+                    boxEl.style.borderColor  = '#a3d9b1';
+                } else if (maxWorkers >= 3000) {
+                    numEl.style.color   = '#e6a800';
+                    boxEl.style.background   = '#fffbec';
+                    boxEl.style.borderColor  = '#ffd966';
+                } else {
+                    numEl.style.color   = '#dc3545';
+                    boxEl.style.background   = '#fff5f5';
+                    boxEl.style.borderColor  = '#f5c2c7';
+                }
+
+                subEl.textContent =
+                    `${busyRps} req/s (busy heartbeat) + ${idleRps} req/s (idle control-chunk)`;
             }
 
             // Snap a <select> to the closest available option value

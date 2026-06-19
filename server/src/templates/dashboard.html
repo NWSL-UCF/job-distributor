@@ -850,18 +850,13 @@
                         Performance settings are locked while any job is running.
                     </p>
 
-                    <!-- Capacity estimate bar -->
-                    <div style="background:#f0f7ff; border:1px solid #b8d9ff; border-radius:8px; padding:12px 14px; margin-bottom:18px;">
-                        <div style="font-size:0.8rem; font-weight:600; color:#1a4f8a; margin-bottom:6px;">
-                            <i class="fas fa-chart-bar"></i> Estimated Server Capacity
+                    <!-- Capacity estimate -->
+                    <div id="capacityBox" style="border-radius:8px; padding:14px 18px; margin-bottom:18px; text-align:center; border:1px solid #b8d9ff; background:#f0f7ff; transition:background .3s, border-color .3s;">
+                        <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#6c757d; margin-bottom:4px;">
+                            Server handles up to
                         </div>
-                        <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
-                            <label style="font-size:0.78rem; color:#555;">Target workers:</label>
-                            <input id="capWorkerCount" type="number" value="5000" min="100" max="100000" step="1000"
-                                   oninput="updateCapacityEstimate()"
-                                   style="width:90px; padding:3px 7px; border:1px solid #b8d9ff; border-radius:4px; font-size:0.82rem;">
-                        </div>
-                        <div id="capacityEstimate" style="font-size:0.8rem; color:#1a4f8a; line-height:1.7;"></div>
+                        <div id="capNumber" style="font-size:2rem; font-weight:800; line-height:1.1; color:#1a6dbf; margin-bottom:4px;">—</div>
+                        <div id="capSubline" style="font-size:0.75rem; color:#6c757d;"></div>
                     </div>
 
                     <!-- Server-side timers -->
@@ -870,7 +865,7 @@
                     </div>
                     <div class="setup-settings-grid" style="margin-bottom:16px;">
                         <div class="setup-field">
-                            <label>Idle Timeout</label>
+                            <label>Idle Timeout <span class="sinfo" data-tooltip="SERVED jobs silent this long are reset to PENDING.">ⓘ</span></label>
                             <select id="settingsIdleTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
                                 <option value="60">1 min</option>
                                 <option value="120">2 min</option>
@@ -880,10 +875,9 @@
                                 <option value="900">15 min</option>
                                 <option value="1200">20 min</option>
                             </select>
-                            <div class="hint">SERVED jobs silent this long → reset to PENDING.</div>
                         </div>
                         <div class="setup-field">
-                            <label>Aborted Reset Timeout</label>
+                            <label>Aborted Reset Timeout <span class="sinfo" data-tooltip="ABORTED jobs are recycled back to PENDING this often.">ⓘ</span></label>
                             <select id="settingsAbortedTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
                                 <option value="300">5 min</option>
                                 <option value="600">10 min</option>
@@ -891,7 +885,6 @@
                                 <option value="1800">30 min</option>
                                 <option value="3600">60 min</option>
                             </select>
-                            <div class="hint">ABORTED jobs recycled back to PENDING this often.</div>
                         </div>
                     </div>
 
@@ -901,34 +894,29 @@
                     </div>
                     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:16px;">
                         <div class="setup-field">
-                            <label>Busy Interval</label>
+                            <label>Busy Interval (s) <span class="sinfo" data-tooltip="How often a busy worker heartbeats while running a job. Lower = more server load.">ⓘ</span></label>
                             <input id="settingsHbBusy" type="number" min="30" max="600" step="10" oninput="updateCapacityEstimate()"
                                    style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <div class="hint">Heartbeat while running a job (s).</div>
                         </div>
                         <div class="setup-field">
-                            <label>Idle — Jobs Exist</label>
+                            <label>Idle — Jobs Exist (s) <span class="sinfo" data-tooltip="Poll interval when pending jobs are in the queue. Keep short so idle workers grab jobs quickly.">ⓘ</span></label>
                             <input id="settingsHbIdleJobs" type="number" min="10" max="300" step="5"
                                    style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <div class="hint">Poll interval when pending jobs exist (s).</div>
                         </div>
                         <div class="setup-field">
-                            <label>Idle — Queue Empty</label>
+                            <label>Idle — Queue Empty (s) <span class="sinfo" data-tooltip="Back-off interval when there are no pending jobs. Increase to reduce load from idle workers.">ⓘ</span></label>
                             <input id="settingsHbIdleNone" type="number" min="60" max="1800" step="30" oninput="updateCapacityEstimate()"
                                    style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <div class="hint">Back-off when queue is empty (s).</div>
                         </div>
                         <div class="setup-field">
-                            <label>Control Check Chunk</label>
+                            <label>Control Chunk (s) <span class="sinfo" data-tooltip="Sub-interval while idle-waiting. Controls how quickly stop/pause/drain commands reach idle workers.">ⓘ</span></label>
                             <input id="settingsHbChunk" type="number" min="10" max="600" step="10" oninput="updateCapacityEstimate()"
                                    style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <div class="hint">Sub-interval while idle-waiting — controls command latency (s).</div>
                         </div>
                         <div class="setup-field">
-                            <label>Worker Stale After</label>
+                            <label>Worker Stale After (s) <span class="sinfo" data-tooltip="If no heartbeat is received for this long, the worker is disabled and its running job is aborted. Must be ≥ 3× busy interval.">ⓘ</span></label>
                             <input id="settingsStale" type="number" min="90" max="3600" step="30"
                                    style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <div class="hint">No heartbeat this long → worker disabled &amp; job aborted (s).</div>
                         </div>
                     </div>
 
@@ -938,22 +926,19 @@
                     </div>
                     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px;">
                         <div class="setup-field">
-                            <label>Max Attempts</label>
+                            <label>Max Attempts <span class="sinfo" data-tooltip="How many times the worker retries a failed DONE/ABORTED status POST before giving up.">ⓘ</span></label>
                             <input id="settingsRetryCount" type="number" min="1" max="20" step="1"
                                    style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <div class="hint">How many times to retry a failed DONE/ABORTED POST.</div>
                         </div>
                         <div class="setup-field">
-                            <label>Base Delay (s)</label>
+                            <label>Base Delay (s) <span class="sinfo" data-tooltip="Wait time before the first retry. Doubles on each subsequent attempt (exponential backoff).">ⓘ</span></label>
                             <input id="settingsRetryBase" type="number" min="1" max="60" step="1"
                                    style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <div class="hint">Wait before first retry.</div>
                         </div>
                         <div class="setup-field">
-                            <label>Max Delay (s)</label>
+                            <label>Max Delay (s) <span class="sinfo" data-tooltip="Cap on the exponential backoff. Retries never wait longer than this, regardless of attempt count.">ⓘ</span></label>
                             <input id="settingsRetryMax" type="number" min="10" max="600" step="10"
                                    style="width:100%; padding:7px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
-                            <div class="hint">Cap on exponential backoff.</div>
                         </div>
                     </div>
 

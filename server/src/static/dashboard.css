@@ -1959,6 +1959,15 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
             .setup-field .hint {
                 font-size: 0.74em; color: #6c757d; margin-top: 3px;
             }
+            .sinfo {
+                display: inline-flex; align-items: center; justify-content: center;
+                width: 14px; height: 14px;
+                font-size: 0.78rem; font-style: normal; font-weight: 600;
+                color: #6c9ed4; cursor: default;
+                vertical-align: middle; margin-left: 2px;
+                user-select: none;
+            }
+            .sinfo:hover { color: #1a6dbf; }
             .param-row {
                 display: flex; gap: 8px; align-items: flex-start;
             }
