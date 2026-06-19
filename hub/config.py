@@ -36,7 +36,10 @@ FRPS_API_URL = _env("FRPS_API_URL", "http://localhost:7500")   # never public
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
 JWT_SECRET_KEY             = _env("JWT_SECRET_KEY", "dev-jwt-change-me")
-JWT_WORKER_TOKEN_TTL_HOURS = int(_env("JWT_WORKER_TOKEN_TTL_HOURS", "1"))
+JWT_WORKER_TOKEN_TTL_HOURS = int(_env("JWT_WORKER_TOKEN_TTL_HOURS", "6"))
+# How many seconds before expiry the worker should proactively refresh.
+# Returned in the token response so clients never need to hardcode this.
+JWT_REFRESH_MARGIN_SECS    = int(_env("JWT_REFRESH_MARGIN_SECS", "1800"))  # 30 min
 
 # ── Session ───────────────────────────────────────────────────────────────────
 HUB_SESSION_TTL_DAYS = int(_env("HUB_SESSION_TTL_DAYS", "30"))

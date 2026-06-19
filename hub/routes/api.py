@@ -239,10 +239,11 @@ def issue_worker_token():
     db.session.commit()
 
     return jsonify({
-        "worker_token": token,
-        "server_url":   f"https://{exp.name}-server.{config.JD_BASE_DOMAIN}",
-        "exp_name":     exp.name,
-        "expires_at":   (now_utc + ttl).isoformat(),
+        "worker_token":        token,
+        "server_url":          f"https://{exp.name}-server.{config.JD_BASE_DOMAIN}",
+        "exp_name":            exp.name,
+        "expires_at":          (now_utc + ttl).isoformat(),
+        "refresh_margin_secs": config.JWT_REFRESH_MARGIN_SECS,
     }), 200
 
 

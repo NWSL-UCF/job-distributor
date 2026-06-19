@@ -45,8 +45,9 @@ def worker_token_file_path(
         TOKEN_FILENAME,
     )
 
-# Refresh this many seconds before JWT exp (1h Hub TTL → refresh at ~55m).
-REFRESH_MARGIN_SECS = 300
+# Fallback refresh margin used only when the Hub doesn't return refresh_margin_secs.
+# The authoritative value comes from the Hub token response and is stored per-manager.
+REFRESH_MARGIN_SECS = 1800  # 30 minutes
 
 # Hub token fetch retries (spreads load when many workers refresh together).
 TOKEN_REFRESH_MAX_RETRIES = max(1, int(os.environ.get("JD_TOKEN_REFRESH_RETRIES", "5")))
@@ -168,11 +169,13 @@ def _fetch_worker_token_once(hub_url: str, api_key: str, exp_id: str) -> Optiona
         token = (data.get("worker_token") or "").strip()
         if not token:
             return None
-        exp = jwt_exp_unix(token)
+        exp    = jwt_exp_unix(token)
+        margin = data.get("refresh_margin_secs")
         return {
-            "token":      token,
-            "server_url": (data.get("server_url") or "").strip(),
-            "expires_at": exp,
+            "token":               token,
+            "server_url":          (data.get("server_url") or "").strip(),
+            "expires_at":          exp,
+            "refresh_margin_secs": int(margin) if margin is not None else None,
         }
     except requests.RequestException:
         return None
@@ -302,6 +305,7 @@ class WorkerTokenManager:
         self._lock = threading.Lock()
         self._token = initial_token.strip()
         self._expires_at = jwt_exp_unix(self._token) or 0.0
+        self._refresh_margin = REFRESH_MARGIN_SECS  # overwritten by Hub response
         self._registry: Optional["WorkerRegistry"] = None
         self._registry_worker_id: Optional[str] = None
         self._legacy_token_file: Optional[str] = None
@@ -370,7 +374,7 @@ class WorkerTokenManager:
         with self._lock:
             now = time.time()
             if self._token and self._expires_at:
-                if now < self._expires_at - REFRESH_MARGIN_SECS:
+                if now < self._expires_at - self._refresh_margin:
                     return True
             return self._refresh_locked()
 
@@ -400,12 +404,17 @@ class WorkerTokenManager:
         self._expires_at = data.get("expires_at") or jwt_exp_unix(self._token) or 0.0
         if data.get("server_url"):
             self.last_server_url = data["server_url"]
+        # Use the Hub-provided refresh margin if present; fall back to module default.
+        hub_margin = data.get("refresh_margin_secs")
+        if hub_margin is not None and int(hub_margin) > 0:
+            self._refresh_margin = int(hub_margin)
 
         self._persist_token(self._token)
 
         remaining_m = max(0, (self._expires_at - time.time()) / 60)
         self.logger.info(
-            f"Worker token refreshed proactively (valid ~{remaining_m:.0f}m more)"
+            f"Worker token refreshed (valid ~{remaining_m:.0f}m, "
+            f"refresh margin {self._refresh_margin}s)"
         )
         return True
 
