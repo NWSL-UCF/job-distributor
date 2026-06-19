@@ -2284,6 +2284,7 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
             .workers-hold-help-popover {
                 left: 0;
                 right: 0;
+                width: auto;
                 margin-top: 8px;
             }
             .toggle-switch {
