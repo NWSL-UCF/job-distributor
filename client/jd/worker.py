@@ -532,19 +532,50 @@ def _heartbeat_loop(
 def _update_status(url: str, job_id: int, status: str,
                    message: str, logger: logging.Logger,
                    token_mgr: Optional[WorkerTokenManager] = None) -> None:
-    try:
-        headers = token_mgr.auth_headers() if token_mgr else {}
-        r = requests.post(url, json={"job_id": job_id,
-                                     "status":  status,
-                                     "message": message},
-                          headers=headers,
-                          timeout=30)
-        if r.status_code == 200:
-            logger.info(f"Job {job_id} → {status}")
-        else:
-            logger.warning(f"Status update failed: HTTP {r.status_code}")
-    except Exception as exc:
-        logger.error(f"Status update error: {exc}")
+    """POST a terminal status update (DONE / ABORTED) with exponential-backoff retries.
+
+    A failed status update leaves the job stuck in SERVED (running) state
+    indefinitely, so this is worth retrying aggressively.  We attempt up to
+    MAX_ATTEMPTS times with exponential backoff capped at 120 s per wait.
+    """
+    MAX_ATTEMPTS = 8
+    BASE_DELAY   = 5    # seconds before first retry
+    MAX_DELAY    = 120  # seconds cap between retries
+    payload  = {"job_id": job_id, "status": status, "message": message}
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            headers = token_mgr.auth_headers() if token_mgr else {}
+            r = requests.post(url, json=payload, headers=headers, timeout=45)
+            if r.status_code == 200:
+                if attempt > 1:
+                    logger.info(f"Job {job_id} → {status} (succeeded on attempt {attempt})")
+                else:
+                    logger.info(f"Job {job_id} → {status}")
+                return
+            # 4xx errors are not retryable (bad request, auth failure, etc.)
+            if r.status_code < 500:
+                logger.warning(f"Status update failed: HTTP {r.status_code} — not retrying")
+                return
+            logger.warning(
+                f"Status update HTTP {r.status_code} for job {job_id} "
+                f"(attempt {attempt}/{MAX_ATTEMPTS})"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Status update error for job {job_id} "
+                f"(attempt {attempt}/{MAX_ATTEMPTS}): {exc}"
+            )
+
+        if attempt < MAX_ATTEMPTS:
+            delay = min(BASE_DELAY * (2 ** (attempt - 1)), MAX_DELAY)
+            logger.info(f"Retrying status update for job {job_id} in {delay}s…")
+            time.sleep(delay)
+
+    logger.error(
+        f"Status update for job {job_id} → {status} failed after {MAX_ATTEMPTS} attempts. "
+        f"Job may be stuck in SERVED state — server will auto-recover it via job_cleaner."
+    )
 
 
 def _cfg_for_storage(cfg: dict) -> str:

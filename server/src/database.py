@@ -2303,6 +2303,28 @@ class JobDatabase:
                         event="job_finished",
                         metrics=system_metrics,
                     )
+                    # If the job is still SERVED (e.g. the client's explicit
+                    # _update_status POST timed out and was never received), close
+                    # it here so it doesn't stay stuck in running state forever.
+                    if prev_job is not None:
+                        assignee = _jobs_assignee_sql()
+                        cur.execute(
+                            f"""
+                            UPDATE jobs
+                            SET    status = %s,
+                                   completion_timestamp = %s
+                            WHERE  id     = %s
+                              AND  status = %s
+                              AND  {assignee} = %s
+                            """,
+                            (STATUS_DONE, now, int(prev_job), STATUS_SERVED, worker_id),
+                        )
+                        if cur.rowcount:
+                            logging.info(
+                                f"[heartbeat] Closed job {prev_job} → DONE via "
+                                f"busy→idle transition for worker {worker_id} "
+                                f"(client status update was not received)."
+                            )
             else:
                 cur.execute(
                     """
