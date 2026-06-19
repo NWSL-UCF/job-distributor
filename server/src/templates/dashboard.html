@@ -863,7 +863,7 @@
                     <div style="font-size:0.78rem; font-weight:700; color:#495057; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">
                         Server Timers (job cleaner)
                     </div>
-                    <div class="setup-settings-grid" style="margin-bottom:16px;">
+                    <div class="setup-settings-grid" style="margin-bottom:16px; align-items:end;">
                         <div class="setup-field">
                             <label>Idle Timeout <span class="sinfo" data-tooltip="SERVED jobs silent this long are reset to PENDING.">ⓘ</span></label>
                             <select id="settingsIdleTimeout" style="width:100%; padding:8px; border:1px solid #ced4da; border-radius:4px; font-size:0.9em;">
@@ -892,7 +892,7 @@
                     <div style="font-size:0.78rem; font-weight:700; color:#495057; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">
                         Worker Heartbeat (sent to workers via heartbeat)
                     </div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:16px;">
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:16px; align-items:end;">
                         <div class="setup-field">
                             <label>Busy Interval (s) <span class="sinfo" data-tooltip="How often a busy worker heartbeats while running a job. Lower = more server load.">ⓘ</span></label>
                             <input id="settingsHbBusy" type="number" min="30" max="600" step="10" oninput="updateCapacityEstimate()"
@@ -924,7 +924,7 @@
                     <div style="font-size:0.78rem; font-weight:700; color:#495057; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">
                         Status Update Retry (sent to workers via heartbeat)
                     </div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px;">
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px; align-items:end;">
                         <div class="setup-field">
                             <label>Max Attempts <span class="sinfo" data-tooltip="How many times the worker retries a failed DONE/ABORTED status POST before giving up.">ⓘ</span></label>
                             <input id="settingsRetryCount" type="number" min="1" max="20" step="1"

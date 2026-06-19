@@ -1949,8 +1949,12 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
             }
             .setup-field label {
-                display: block; font-size: 0.82em;
-                font-weight: bold; margin-bottom: 4px; color: #495057;
+                display: flex; align-items: center; gap: 3px;
+                font-size: 0.82em; font-weight: bold;
+                margin-bottom: 4px; color: #495057;
+            }
+            .setup-field label .sinfo {
+                flex-shrink: 0;
             }
             .setup-field input {
                 width: 100%; padding: 8px; box-sizing: border-box;
@@ -1964,7 +1968,7 @@ body { font-family: 'Comfortaa', Arial, sans-serif; }
                 width: 14px; height: 14px;
                 font-size: 0.78rem; font-style: normal; font-weight: 600;
                 color: #6c9ed4; cursor: default;
-                vertical-align: middle; margin-left: 2px;
+                flex-shrink: 0;
                 user-select: none;
             }
             .sinfo:hover { color: #1a6dbf; }
