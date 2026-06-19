@@ -134,9 +134,20 @@ class JobDatabase:
                 self._pool.putconn(conn)
 
     def _init_database(self):
-        """Initialize the database schema."""
+        """Initialize the database schema.
+
+        Uses a transaction-level PostgreSQL advisory lock so that when multiple
+        Gunicorn workers start simultaneously only one runs the DDL at a time.
+        The lock is released automatically on commit or rollback.
+        """
         with self.get_connection() as conn:
             cur = conn.cursor()
+            # Acquire an exclusive transaction-level advisory lock before touching DDL.
+            # This prevents the race where concurrent workers all race to CREATE TABLE
+            # and collide on the implicit pg_type entry, raising UniqueViolation.
+            # Transaction-level locks auto-release on commit or rollback — no explicit
+            # unlock needed, so the error path is safe too.
+            cur.execute("SELECT pg_advisory_xact_lock(5263425)")  # 0x504D_0001 — "JD init"
 
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS jobs (
@@ -262,7 +273,7 @@ class JobDatabase:
             cur.execute('CREATE INDEX IF NOT EXISTS idx_worker_history_worker_ts ON worker_history(worker_id, timestamp DESC)')
             cur.execute('CREATE INDEX IF NOT EXISTS idx_worker_history_metrics ON worker_history(worker_id, metrics)')
 
-            conn.commit()
+            conn.commit()  # lock auto-released here
             logging.info("PostgreSQL database initialized.")
 
     def create_jobs(self, parameters_list: List[str], clear_api_stats: bool = True) -> int:
