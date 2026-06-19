@@ -452,7 +452,7 @@
                             <div class="sb-section">
                                 <p class="sb-section-title">Workers Management</p>
                                 <p class="workers-sidebar-hint">
-                                    Active workers (idle or busy) accept commands on their next poll (~3 min).
+                                    Active workers (idle or busy) accept commands on their next poll (up to <span id="hintIdleNone1">the configured Idle — Queue Empty interval</span>).
                                     Pending lists queued commands until applied or finalized.
                                     Paused workers finish the current job, then stay idle until resumed.
                                     Stopped workers no longer poll and are read-only.
@@ -496,7 +496,7 @@
                                         When <strong>enabled</strong> (default), workers keep polling after every job reaches Done or Deleted — useful if you plan to append more jobs later.
                                     </p>
                                     <p class="search-help-note" style="margin:8px 0 0;">
-                                        When <strong>disabled</strong>, the server queues a stop for all active workers as soon as the queue is fully Done or Deleted. Workers exit on their next poll (~3 min).
+                                        When <strong>disabled</strong>, the server queues a stop for all active workers as soon as the queue is fully Done or Deleted. Workers exit on their next poll (up to <span id="hintIdleNone2">the configured Idle — Queue Empty interval</span>).
                                     </p>
                                 </div>
                             </div>

@@ -1553,7 +1553,27 @@ function openModal() {
             document.addEventListener('DOMContentLoaded', function() {
                 loadSidebarStats();
                 setInterval(loadSidebarStats, 60000);
+                _loadIdleNoneHint();
             });
+
+            function _loadIdleNoneHint() {
+                fetch('/settings/performance')
+                    .then(r => r.ok ? r.json() : null)
+                    .then(cfg => {
+                        if (!cfg) return;
+                        const secs = parseInt(cfg.heartbeat_idle_none) || null;
+                        if (!secs) return;
+                        const label = secs >= 60
+                            ? Math.round(secs / 60) + ' min'
+                            : secs + ' s';
+                        const text = label + ' (Idle — Queue Empty)';
+                        ['hintIdleNone1', 'hintIdleNone2'].forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) el.textContent = text;
+                        });
+                    })
+                    .catch(() => {});
+            }
 
 // Pagination and Search Variables
             const JOB_STATUSES = ['SERVED', 'DONE', 'ABORTED', 'PENDING', 'DELETED'];
@@ -3442,6 +3462,7 @@ function openModal() {
                 .then(data => {
                     if (data.success) {
                         showNotification('Settings saved. Workers will apply on their next heartbeat.', 'success');
+                        _loadIdleNoneHint();
                         closeSettingsModal();
                     } else {
                         errEl.textContent = data.error || 'Failed to save settings.';
