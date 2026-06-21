@@ -39,7 +39,7 @@ WORKER_LIFECYCLE_DISABLED = "disabled"
 WORKER_LIST_PENDING = "pending"  # dashboard list filter (queued commands)
 WORKER_LIST_PAUSED = "paused"  # dashboard list filter (applied pause)
 WORKER_STOP_SLA_SECONDS = 300  # finalize stop after ~2 missed busy heartbeats (2 × 120s)
-_WORKER_INSTANCE_RE = re.compile(r"^(?:[a-z]{1,6}|[0-9A-Za-z]{6})$")
+_WORKER_INSTANCE_RE = re.compile(r"^(?:[a-z]{1,6}|[0-9A-Za-z]{6,12})$")
 
 
 def job_worker_id(job: Dict[str, Any]) -> str:
