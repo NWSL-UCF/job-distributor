@@ -273,36 +273,52 @@ class WorkerRegistry:
         )
 
     def allocate_instance_name(self) -> str:
-        """Pick a random unused name from ``possible_instances_name`` and mark it taken."""
-        with self._lock:
-            with self._connect() as conn:
-                for _ in range(64):
-                    row = conn.execute(
-                        """
-                        SELECT name FROM possible_instances_name
-                        WHERE taken = 0
-                        ORDER BY RANDOM()
-                        LIMIT 1
-                        """,
-                    ).fetchone()
-                    if not row:
-                        break
-                    name = normalize_instance_name(row["name"])
-                    updated = conn.execute(
-                        """
-                        UPDATE possible_instances_name SET taken = 1
-                        WHERE name = ? AND taken = 0
-                        """,
-                        (name,),
+        """Pick a random unused name from ``possible_instances_name`` and mark it taken.
+
+        Uses BEGIN EXCLUSIVE to acquire an exclusive file-level lock before the
+        SELECT, eliminating the SELECT→UPDATE race window that allowed two
+        concurrent processes on the same node to claim the same name.
+        """
+        with self._lock:  # serialise within this process (threads)
+            # isolation_level=None gives manual transaction control so we can
+            # issue BEGIN EXCLUSIVE ourselves without Python's sqlite3 module
+            # injecting its own implicit BEGIN first.
+            conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            try:
+                # EXCLUSIVE lock: no other process can read or write until COMMIT
+                conn.execute("BEGIN EXCLUSIVE")
+                row = conn.execute(
+                    """
+                    SELECT name FROM possible_instances_name
+                    WHERE taken = 0
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                    """,
+                ).fetchone()
+                if not row:
+                    conn.execute("ROLLBACK")
+                    raise RuntimeError(
+                        "No instance names available in the local registry pool. "
+                        "Stop workers to release names, or clear the experiment cache."
                     )
-                    if updated.rowcount == 1:
-                        conn.commit()
-                        return name
-                    conn.rollback()
-                raise RuntimeError(
-                    "No instance names available in the local registry pool. "
-                    "Stop workers to release names, or clear the experiment cache."
+                name = normalize_instance_name(row["name"])
+                # No need for WHERE taken=0 or rowcount check — the exclusive
+                # lock guarantees nobody else has modified this row since our SELECT.
+                conn.execute(
+                    "UPDATE possible_instances_name SET taken = 1 WHERE name = ?",
+                    (name,),
                 )
+                conn.execute("COMMIT")
+                return name
+            except Exception:
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
+            finally:
+                conn.close()
 
     def release_instance_name(self, instance: str) -> None:
         name = normalize_instance_name(instance)
