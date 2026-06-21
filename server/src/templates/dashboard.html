@@ -74,7 +74,6 @@
                     <thead>
                     <tr>
                         <th>Host</th>
-                        <th>Inst.</th>
                         <th>Workers</th>
                         <th>Jobs</th>
                         <th>Avg time</th>
@@ -85,7 +84,6 @@
                     {% for machine, data in machine_stats.items() %}
                     <tr>
                         <td>{{ machine }}</td>
-                        <td>{{ data.instance_count }}</td>
                         <td>{{ data.worker_count }}</td>
                         <td>{{ data.count }}</td>
                         <td>{{ data.average_time }}</td>
@@ -238,6 +236,14 @@
                             <div class="sb-meta-row">
                                 <span class="sb-meta-key">Chart Interval Total</span>
                                 <span class="sb-meta-val" id="totalJobs">0</span>
+                            </div>
+                            <div class="sb-meta-row">
+                                <span class="sb-meta-key">Jobs / min</span>
+                                <span class="sb-meta-val" id="jobsPerMinute">—</span>
+                            </div>
+                            <div class="sb-meta-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+                                <span class="sb-meta-key">Est. Completion</span>
+                                <span class="sb-meta-val" id="etaTime" style="font-size:0.78rem; word-break:break-word;">—</span>
                             </div>
                         </div>
 

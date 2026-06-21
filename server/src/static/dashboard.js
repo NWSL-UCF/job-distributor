@@ -218,6 +218,26 @@ function openModal() {
 
                         const bar = document.getElementById('jobProgressBar');
                         if (bar) bar.style.width = Math.min(100, pct) + '%';
+
+                        // ── Throughput & ETA ──────────────────────────────
+                        const jpm = data.jobs_per_minute;
+                        const eta = data.eta_epoch;
+                        const jpmEl  = document.getElementById('jobsPerMinute');
+                        const etaEl  = document.getElementById('etaTime');
+                        if (jpmEl) jpmEl.textContent = (jpm != null && jpm > 0)
+                            ? (jpm < 100 ? jpm.toFixed(2) : Math.round(jpm).toString())
+                            : '—';
+                        if (etaEl) {
+                            if (eta != null) {
+                                const d = new Date(eta * 1000);
+                                etaEl.textContent = d.toLocaleString([], {
+                                    month: 'short', day: 'numeric',
+                                    hour: '2-digit', minute: '2-digit',
+                                });
+                            } else {
+                                etaEl.textContent = '—';
+                            }
+                        }
                     })
                     .catch(() => {});
             }

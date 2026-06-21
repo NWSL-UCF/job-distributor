@@ -1285,6 +1285,19 @@ class JobDatabase:
 
             return counts
 
+    def get_first_job_assignment_timestamp(self) -> Optional[float]:
+        """Return the earliest request_timestamp across all assigned jobs (>0)."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT MIN(request_timestamp) AS first_ts FROM jobs "
+                "WHERE request_timestamp > 0"
+            )
+            row = cur.fetchone()
+            if row and row['first_ts']:
+                return float(row['first_ts'])
+            return None
+
     def next_upload_version(self, job_id: int) -> int:
         """Return the next monotonic upload version number for a job."""
         with self.get_connection() as conn:

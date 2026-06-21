@@ -57,7 +57,7 @@ def worker_machine_label(worker_id: str) -> str:
     # Current: {host}_{instance}_{slot}
     parts = rb.split("_")
     if len(parts) == 3 and parts[-1].isdigit() and re.fullmatch(
-        r"(?:[a-z]{1,6}|[0-9A-Za-z]{6})", parts[1]
+        r"(?:[a-z]{1,6}|[0-9A-Za-z]{6,12})", parts[1]
     ):
         return parts[0]
     if len(parts) == 3 and parts[-1].isdigit() and re.fullmatch(
@@ -273,6 +273,7 @@ def _utc_day_start(ts: float) -> float:
 @app.route("/job_counts", methods=["GET"])
 def job_counts():
     """Return current job counts by status — used by the sidebar auto-refresh."""
+    import time as _time
     counts = db.get_job_counts_by_status()
     total = sum(counts.values())
     done = counts.get("DONE", 0)
@@ -281,6 +282,22 @@ def job_counts():
     deleted = counts.get("DELETED", 0)
     pending = counts.get("PENDING", 0)
     pct = round((done / total * 100), 1) if total > 0 else 0.0
+
+    # ── Throughput & ETA ────────────────────────────────────────────────────
+    jobs_per_minute = None
+    eta_epoch = None
+    first_ts = db.get_first_job_assignment_timestamp()
+    if first_ts and done > 0:
+        now = _time.time()
+        elapsed_minutes = (now - first_ts) / 60.0
+        if elapsed_minutes > 0:
+            jobs_per_minute = done / elapsed_minutes
+            remaining = total - done
+            if jobs_per_minute > 0 and remaining > 0:
+                eta_epoch = now + (remaining / jobs_per_minute) * 60.0
+            elif remaining <= 0:
+                eta_epoch = now  # already done
+
     return jsonify({
         "DONE":    done,
         "SERVED":  served,
@@ -288,7 +305,9 @@ def job_counts():
         "DELETED": deleted,
         "PENDING": pending,
         "total":   total,
-        "completion_pct": pct,
+        "completion_pct":  pct,
+        "jobs_per_minute": jobs_per_minute,
+        "eta_epoch":       eta_epoch,
     })
 
 
