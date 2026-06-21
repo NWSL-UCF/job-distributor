@@ -108,7 +108,14 @@ class JobDatabase:
         self.dsn = dsn
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn=2,
-            maxconn=15,   # 8 server + 4 dashboard workers × 15 = 180 total, fits PG limit of 250
+            # Each Gunicorn process holds at most 15 connections to PgBouncer
+            # (not directly to PostgreSQL).  PgBouncer then multiplexes all of
+            # those onto its DEFAULT_POOL_SIZE=80 real PG connections, so
+            # PostgreSQL never sees more than 80 connections regardless of how
+            # many Gunicorn processes or worker heartbeats arrive at once.
+            # Formula: 8 server-processes × 15 = 120 + 8 dashboard × 15 = 120
+            # → 240 Gunicorn→PgBouncer connections, all funnelled into ≤ 80 PG.
+            maxconn=15,
             dsn=dsn,
         )
         self._init_database()

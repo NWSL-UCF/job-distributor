@@ -23,13 +23,15 @@ services:
     image: postgres:16-alpine
     container_name: jd-db-${EXP:?Set EXP=<experiment-name> before running docker compose}
     restart: unless-stopped
-    # Tuned for 20 000+ parallel workers:
-    #   max_connections=250  — covers 12 Gunicorn processes × 15-conn pool each
-    #   shared_buffers=512MB — PostgreSQL working-set cache (tune up on large machines)
-    #   work_mem=4MB         — per-sort/join memory; keeps aggregate queries fast
+    # PgBouncer sits in front, so PostgreSQL only ever sees connections from the
+    # bouncer — not raw connections from every Gunicorn thread.
+    # max_connections=100  — PgBouncer caps real PG connections at 80, so 100
+    #                         gives enough headroom for admin/monitoring access.
+    # shared_buffers=512MB — PostgreSQL working-set cache (tune up on large machines)
+    # work_mem=4MB         — per-sort/join memory; keeps aggregate queries fast
     command: >
       postgres
-        -c max_connections=250
+        -c max_connections=100
         -c shared_buffers=512MB
         -c work_mem=4MB
     environment:
@@ -48,19 +50,60 @@ services:
       timeout: 5s
       retries: 10
 
+  jd_pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: jd-pgbouncer-${EXP}
+    restart: unless-stopped
+    depends_on:
+      jd_db:
+        condition: service_healthy
+    environment:
+      # Upstream PostgreSQL
+      DATABASE_URL: postgresql://jd:jd_secret@jd_db:5432/jobdistributor
+      # transaction mode: a real PG connection is held only for the duration of
+      # one transaction, then returned to the pool.  Ideal for short-lived
+      # heartbeat/status requests and safe with the advisory locks and
+      # SELECT … FOR UPDATE SKIP LOCKED patterns used in this codebase.
+      POOL_MODE: transaction
+      # How many Gunicorn-to-PgBouncer connections are allowed in total.
+      # 16 workers × 15 pool-maxconn × 2 apps (server + dashboard) = 480 max.
+      # Set generously above that so there is never a wait at this layer.
+      MAX_CLIENT_CONN: "1000"
+      # Real PostgreSQL connections maintained by PgBouncer.
+      # 80 concurrent DB transactions @ ~15 ms each = ~5 300 tx/s — enough to
+      # drain 10 000 simultaneous heartbeats in under 2 seconds.
+      DEFAULT_POOL_SIZE: "80"
+      MIN_POOL_SIZE: "5"
+      # Release an idle server-side PG connection after 60 s.
+      SERVER_IDLE_TIMEOUT: "60"
+      # Keep client (Gunicorn) connections alive indefinitely so the psycopg2
+      # pool does not need to reconnect after periods of low traffic.
+      CLIENT_IDLE_TIMEOUT: "0"
+      # Hard cap on total connections to PostgreSQL (across all pools).
+      MAX_DB_CONNECTIONS: "80"
+      # Required for transaction pooling: discard all session state between
+      # clients so one Gunicorn thread never sees another's SET/temp objects.
+      SERVER_RESET_QUERY: "DISCARD ALL"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U jd"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   jd_server:
     image: jobdistributor/jd-server:latest
     container_name: jd-${EXP}
     restart: unless-stopped
     depends_on:
-      jd_db:
+      jd_pgbouncer:
         condition: service_healthy
 
     environment:
       - JD_HUB_URL=${JD_HUB_URL:-https://hub.jobdistributor.net}
       - JD_API_KEY=${JD_API_KEY:?Set JD_API_KEY=<your api key>}
       - JD_EXP_NAME=${EXP}
-      - DATABASE_URL=postgresql://jd:jd_secret@jd_db:5432/jobdistributor
+      # Connect through PgBouncer, not directly to PostgreSQL.
+      - DATABASE_URL=postgresql://jd:jd_secret@jd_pgbouncer:5432/jobdistributor
 
     volumes:
       # Host: ./workspace/<EXP>/  →  Container: /workspace/<EXP>/

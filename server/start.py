@@ -55,9 +55,14 @@ def main():
                         default=os.path.dirname(os.path.abspath(__file__)),
                         help="Directory where experiment data (DB, logs) will be stored")
     parser.add_argument("--workers", type=int, default=8,
-                        help="Gunicorn worker processes per server (default: 8)")
+                        help="Gunicorn worker processes per server (default: 8).")
     parser.add_argument("--threads", type=int, default=16,
-                        help="Threads per gunicorn worker (default: 16)")
+                        help="Threads per gunicorn worker (default: 16). "
+                             "8 workers × 16 threads = 128 concurrent handlers. "
+                             "PgBouncer absorbs DB connection spikes, so this is "
+                             "sufficient for 10 000+ simultaneous heartbeats "
+                             "(drains in ~4 s, well within the 45 s timeout). "
+                             "Increase only on machines with 16+ GB RAM and 8+ cores.")
     args = parser.parse_args()
 
     exp_dir = os.path.join(args.workspace_path, args.expId)
