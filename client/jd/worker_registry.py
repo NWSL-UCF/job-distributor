@@ -275,50 +275,72 @@ class WorkerRegistry:
     def allocate_instance_name(self) -> str:
         """Pick a random unused name from ``possible_instances_name`` and mark it taken.
 
-        Uses BEGIN EXCLUSIVE to acquire an exclusive file-level lock before the
-        SELECT, eliminating the SELECT→UPDATE race window that allowed two
-        concurrent processes on the same node to claim the same name.
+        Uses a two-layer locking strategy to handle concurrent processes on the
+        same node, even on network filesystems (GPFS/NFS) where SQLite's
+        internal locking is unreliable:
+
+        1. ``threading.Lock`` — serialises within the same Python process.
+        2. ``fcntl.flock(LOCK_EX)`` on a separate ``.lock`` file — serialises
+           across OS processes on the same node.  Unlike SQLite's ``BEGIN
+           EXCLUSIVE`` (which relies on ``fcntl`` advisory locks on the DB file
+           itself and can fail silently on GPFS/Lustre), a dedicated lockfile
+           with ``LOCK_EX`` is robust on local filesystems.  On platforms
+           without ``fcntl`` (Windows) the call is skipped and we fall back to
+           the ``BEGIN EXCLUSIVE`` safety net.
+        3. ``BEGIN EXCLUSIVE`` inside the locked section as an additional
+           safety net for any edge cases not covered by the file lock.
         """
-        with self._lock:  # serialise within this process (threads)
-            # isolation_level=None gives manual transaction control so we can
-            # issue BEGIN EXCLUSIVE ourselves without Python's sqlite3 module
-            # injecting its own implicit BEGIN first.
-            conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
-            conn.row_factory = sqlite3.Row
+        lock_path = self.db_path + ".lock"
+        with self._lock:  # intra-process (threads)
+            # Inter-process lock via a dedicated lockfile.
+            _lock_fd = open(lock_path, "w")
             try:
-                # EXCLUSIVE lock: no other process can read or write until COMMIT
-                conn.execute("BEGIN EXCLUSIVE")
-                row = conn.execute(
-                    """
-                    SELECT name FROM possible_instances_name
-                    WHERE taken = 0
-                    ORDER BY RANDOM()
-                    LIMIT 1
-                    """,
-                ).fetchone()
-                if not row:
-                    conn.execute("ROLLBACK")
-                    raise RuntimeError(
-                        "No instance names available in the local registry pool. "
-                        "Stop workers to release names, or clear the experiment cache."
-                    )
-                name = normalize_instance_name(row["name"])
-                # No need for WHERE taken=0 or rowcount check — the exclusive
-                # lock guarantees nobody else has modified this row since our SELECT.
-                conn.execute(
-                    "UPDATE possible_instances_name SET taken = 1 WHERE name = ?",
-                    (name,),
-                )
-                conn.execute("COMMIT")
-                return name
-            except Exception:
                 try:
-                    conn.execute("ROLLBACK")
+                    import fcntl as _fcntl
+                    _fcntl.flock(_lock_fd.fileno(), _fcntl.LOCK_EX)
+                except (ImportError, OSError):
+                    pass  # Windows or unusual filesystem — rely on BEGIN EXCLUSIVE only
+
+                conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
+                conn.row_factory = sqlite3.Row
+                try:
+                    conn.execute("BEGIN EXCLUSIVE")
+                    row = conn.execute(
+                        """
+                        SELECT name FROM possible_instances_name
+                        WHERE taken = 0
+                        ORDER BY RANDOM()
+                        LIMIT 1
+                        """,
+                    ).fetchone()
+                    if not row:
+                        conn.execute("ROLLBACK")
+                        raise RuntimeError(
+                            "No instance names available in the local registry pool. "
+                            "Stop workers to release names, or clear the experiment cache."
+                        )
+                    name = normalize_instance_name(row["name"])
+                    conn.execute(
+                        "UPDATE possible_instances_name SET taken = 1 WHERE name = ?",
+                        (name,),
+                    )
+                    conn.execute("COMMIT")
+                    return name
                 except Exception:
-                    pass
-                raise
+                    try:
+                        conn.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    conn.close()
             finally:
-                conn.close()
+                try:
+                    import fcntl as _fcntl
+                    _fcntl.flock(_lock_fd.fileno(), _fcntl.LOCK_UN)
+                except (ImportError, OSError):
+                    pass
+                _lock_fd.close()
 
     def release_instance_name(self, instance: str) -> None:
         name = normalize_instance_name(instance)
