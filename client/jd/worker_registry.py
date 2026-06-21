@@ -16,7 +16,6 @@ from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
 from jd.instance_names import (
-    DEFAULT_INSTANCE_NAMES,
     INSTANCE_NAME_RE,
     is_valid_instance_name,
     normalize_instance_name,
@@ -109,10 +108,10 @@ def exp_cache_dir(exp_id: str, parent: Optional[str] = None) -> str:
     return os.path.join(cache_root(parent), ".cache", exp_id.strip().lower())
 
 
-_INSTANCE_LEN = 6
-_INSTANCE_ALPHABET = string.ascii_letters + string.digits
-# Word names (1–6 letters) or legacy 6-char alphanumeric tokens.
-_INSTANCE_RE = re.compile(r"^(?:[a-z]{1,6}|[0-9A-Za-z]{6})$")
+_INSTANCE_LEN = 10
+_INSTANCE_ALPHABET = string.ascii_letters + string.digits  # a-z A-Z 0-9
+# Word names (1–6 letters), legacy 6-char tokens, or new 10-char random IDs.
+_INSTANCE_RE = re.compile(r"^(?:[a-z]{1,6}|[0-9A-Za-z]{6,12})$")
 
 
 def _legacy_random_instance() -> str:
@@ -249,149 +248,26 @@ class WorkerRegistry:
                     conn.execute(f"ALTER TABLE workers ADD COLUMN {col} {typedef}")
                 except sqlite3.OperationalError:
                     pass
-            self._seed_instance_names(conn)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_workers_exp_pid "
                 "ON workers(exp_id, pid)"
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_instances_taken "
-                "ON possible_instances_name(taken)"
-            )
             conn.commit()
 
-    def _seed_instance_names(self, conn: sqlite3.Connection) -> None:
-        cur = conn.execute("SELECT COUNT(*) AS n FROM possible_instances_name")
-        if int(cur.fetchone()[0]) > 0:
-            return
-        rows = [
-            (n, 0) for n in DEFAULT_INSTANCE_NAMES if is_valid_instance_name(n)
-        ]
-        conn.executemany(
-            "INSERT OR IGNORE INTO possible_instances_name (name, taken) VALUES (?, ?)",
-            rows,
-        )
-
     def allocate_instance_name(self) -> str:
-        """Pick a unique name from ``possible_instances_name`` and mark it taken.
+        """Generate a unique 10-character random instance name ([a-zA-Z0-9]).
 
-        Strategy depends on the execution environment:
+        Uses ``secrets.choice`` from a 62-character alphabet, giving
+        62**10 ≈ 8.4 × 10¹⁷ possible values — effectively zero collision
+        probability even across tens of thousands of concurrent workers.
 
-        **SLURM array jobs** (``SLURM_ARRAY_TASK_ID`` is set):
-            Derive the name deterministically from the task ID — no locking or
-            coordination needed at all.  Each task ID maps to a distinct entry
-            in the 2,000+ name pool, so two tasks on the same node can never
-            collide regardless of filesystem locking support.
-
-        **Local / non-SLURM** (laptops, workstations, login nodes):
-            Use a two-layer lock: ``threading.Lock`` for intra-process safety
-            and ``fcntl.flock(LOCK_EX)`` on a dedicated ``.lock`` file for
-            inter-process safety.  ``BEGIN EXCLUSIVE`` is kept as an additional
-            SQLite-level safety net.  On Windows (no ``fcntl``), only
-            ``BEGIN EXCLUSIVE`` is used, which works correctly there.
+        No database coordination or filesystem locking is required because
+        the name is generated purely from cryptographic randomness.
         """
-        # ── Fast path: SLURM array jobs ──────────────────────────────────────
-        # Each array task has a unique SLURM_ARRAY_TASK_ID, so we can map
-        # task_id → pool index without any inter-process coordination.
-        slurm_task_id = os.environ.get("SLURM_ARRAY_TASK_ID", "").strip()
-        if slurm_task_id.isdigit():
-            idx  = int(slurm_task_id) % len(DEFAULT_INSTANCE_NAMES)
-            name = normalize_instance_name(DEFAULT_INSTANCE_NAMES[idx])
-            # Best-effort DB write for registry tracking; uniqueness does NOT
-            # depend on this succeeding (it's guaranteed by the task ID).
-            try:
-                with self._lock:
-                    conn = sqlite3.connect(
-                        self.db_path, timeout=5.0, isolation_level=None,
-                    )
-                    conn.row_factory = sqlite3.Row
-                    try:
-                        conn.execute("BEGIN EXCLUSIVE")
-                        conn.execute(
-                            "INSERT OR IGNORE INTO possible_instances_name"
-                            " (name, taken) VALUES (?, 0)",
-                            (name,),
-                        )
-                        conn.execute(
-                            "UPDATE possible_instances_name SET taken = 1"
-                            " WHERE name = ?",
-                            (name,),
-                        )
-                        conn.execute("COMMIT")
-                    except Exception:
-                        try:
-                            conn.execute("ROLLBACK")
-                        except Exception:
-                            pass
-                    finally:
-                        conn.close()
-            except Exception:
-                pass  # DB unreachable — name is still unique via task ID
-            return name
-
-        # ── Slow path: local / non-SLURM ─────────────────────────────────────
-        lock_path = self.db_path + ".lock"
-        with self._lock:  # intra-process (threads)
-            _lock_fd = open(lock_path, "w")
-            try:
-                try:
-                    import fcntl as _fcntl
-                    _fcntl.flock(_lock_fd.fileno(), _fcntl.LOCK_EX)
-                except (ImportError, OSError):
-                    pass  # Windows or locking-unsupported FS → rely on BEGIN EXCLUSIVE
-
-                conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
-                conn.row_factory = sqlite3.Row
-                try:
-                    conn.execute("BEGIN EXCLUSIVE")
-                    row = conn.execute(
-                        """
-                        SELECT name FROM possible_instances_name
-                        WHERE taken = 0
-                        ORDER BY RANDOM()
-                        LIMIT 1
-                        """,
-                    ).fetchone()
-                    if not row:
-                        conn.execute("ROLLBACK")
-                        raise RuntimeError(
-                            "No instance names available in the local registry pool. "
-                            "Stop workers to release names, or clear the experiment cache."
-                        )
-                    name = normalize_instance_name(row["name"])
-                    conn.execute(
-                        "UPDATE possible_instances_name SET taken = 1 WHERE name = ?",
-                        (name,),
-                    )
-                    conn.execute("COMMIT")
-                    return name
-                except Exception:
-                    try:
-                        conn.execute("ROLLBACK")
-                    except Exception:
-                        pass
-                    raise
-                finally:
-                    conn.close()
-            finally:
-                try:
-                    import fcntl as _fcntl
-                    _fcntl.flock(_lock_fd.fileno(), _fcntl.LOCK_UN)
-                except (ImportError, OSError):
-                    pass
-                _lock_fd.close()
+        return "".join(secrets.choice(_INSTANCE_ALPHABET) for _ in range(_INSTANCE_LEN))
 
     def release_instance_name(self, instance: str) -> None:
-        name = normalize_instance_name(instance)
-        if not is_valid_instance_name(name):
-            return
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute(
-                    "UPDATE possible_instances_name SET taken = 0 WHERE name = ?",
-                    (name,),
-                )
-                conn.commit()
+        """No-op: random instance names have no pool to return to."""
 
     def new_worker_id(self, *, slot: int = 0, instance: Optional[str] = None) -> str:
         inst = instance or self.allocate_instance_name()
@@ -512,27 +388,9 @@ class WorkerRegistry:
                 conn.commit()
 
     def unregister(self, worker_id: str) -> None:
-        inst = _instance_from_worker_id(worker_id)
         with self._lock:
             with self._connect() as conn:
                 conn.execute("DELETE FROM workers WHERE worker_id = ?", (worker_id,))
-                if inst:
-                    norm = normalize_instance_name(inst)
-                    still_used = conn.execute(
-                        """
-                        SELECT worker_id FROM workers
-                        WHERE exp_id = ? AND worker_id != ?
-                        """,
-                        (self.exp_id, worker_id),
-                    ).fetchall()
-                    if not any(
-                        _instance_from_worker_id(r["worker_id"]) == inst
-                        for r in still_used
-                    ):
-                        conn.execute(
-                            "UPDATE possible_instances_name SET taken = 0 WHERE name = ?",
-                            (norm,),
-                        )
                 conn.commit()
 
     def mark_stopping(self, worker_id: str) -> None:
@@ -589,21 +447,15 @@ class WorkerRegistry:
             ))
 
         dead_ids: List[str] = []
-        active_instances: set[str] = set()
         for row in rows:
             wid = row["worker_id"]
             pid = int(row["pid"])
-            if _pid_alive(pid):
-                inst = _instance_from_worker_id(wid)
-                if inst and is_valid_instance_name(inst):
-                    active_instances.add(normalize_instance_name(inst))
-            else:
+            if not _pid_alive(pid):
                 dead_ids.append(wid)
             if progress_tick is not None:
                 progress_tick(1)
 
         workers_removed = 0
-        instances_released = 0
         with self._lock:
             with self._connect() as conn:
                 if dead_ids:
@@ -612,20 +464,6 @@ class WorkerRegistry:
                         [(wid, self.exp_id) for wid in dead_ids],
                     )
                     workers_removed = len(dead_ids)
-
-                cur = conn.execute(
-                    "SELECT name FROM possible_instances_name WHERE taken = 1",
-                )
-                previously_taken = {r["name"] for r in cur.fetchall()}
-                conn.execute(
-                    "UPDATE possible_instances_name SET taken = 0 WHERE taken = 1",
-                )
-                if active_instances:
-                    conn.executemany(
-                        "UPDATE possible_instances_name SET taken = 1 WHERE name = ?",
-                        [(n,) for n in sorted(active_instances)],
-                    )
-                instances_released = len(previously_taken - active_instances)
 
                 remaining = int(conn.execute(
                     "SELECT COUNT(*) FROM workers WHERE exp_id = ?",
@@ -639,7 +477,7 @@ class WorkerRegistry:
 
         return {
             "workers_removed": workers_removed,
-            "instances_released": instances_released,
+            "instances_released": 0,
             "experiment_removed": experiment_removed,
         }
 
@@ -668,16 +506,10 @@ class WorkerRegistry:
                 with self._lock:
                     with self._connect() as conn:
                         for row in dead:
-                            inst = _instance_from_worker_id(row["worker_id"])
                             conn.execute(
                                 "DELETE FROM workers WHERE worker_id = ?",
                                 (row["worker_id"],),
                             )
-                            if inst and is_valid_instance_name(inst):
-                                conn.execute(
-                                    "UPDATE possible_instances_name SET taken = 0 WHERE name = ?",
-                                    (normalize_instance_name(inst),),
-                                )
                         conn.commit()
                 rows = [r for r in rows if _pid_alive(r["pid"])]
         return rows
