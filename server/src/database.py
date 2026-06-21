@@ -2454,32 +2454,29 @@ class JobDatabase:
                         "status": STATUS_SERVED,
                     }
 
-        # ── Read live performance config from DB ─────────────────────────────
-        # All intervals are stored in server_config so the dashboard can tune
-        # them without redeploying.  Workers receive the full config on every
-        # heartbeat response and apply it dynamically.
-        cur.execute("SELECT key, value FROM server_config WHERE key IN ("
-                    "'heartbeat_busy','heartbeat_idle_jobs','heartbeat_idle_none',"
-                    "'heartbeat_control_chunk','worker_stale_seconds',"
-                    "'status_retry_count','status_retry_base_delay','status_retry_max_delay')")
-        pcfg = {row['key']: int(row['value']) for row in cur.fetchall()}
-        hb_busy          = pcfg.get("heartbeat_busy",          WORKER_POLL_INTERVAL_BUSY)
-        hb_idle_jobs     = pcfg.get("heartbeat_idle_jobs",     WORKER_POLL_INTERVAL_IDLE_JOBS)
-        hb_idle_none     = pcfg.get("heartbeat_idle_none",     WORKER_POLL_INTERVAL_IDLE_NONE)
-        hb_ctrl_chunk    = pcfg.get("heartbeat_control_chunk", 120)
-        retry_count      = pcfg.get("status_retry_count",      8)
-        retry_base       = pcfg.get("status_retry_base_delay", 5)
-        retry_max        = pcfg.get("status_retry_max_delay",  120)
+            # ── Read live performance config from DB ──────────────────────────
+            # Kept inside the connection context so cur remains valid.
+            cur.execute("SELECT key, value FROM server_config WHERE key IN ("
+                        "'heartbeat_busy','heartbeat_idle_jobs','heartbeat_idle_none',"
+                        "'heartbeat_control_chunk','worker_stale_seconds',"
+                        "'status_retry_count','status_retry_base_delay','status_retry_max_delay')")
+            pcfg = {row['key']: int(row['value']) for row in cur.fetchall()}
+            hb_busy       = pcfg.get("heartbeat_busy",          WORKER_POLL_INTERVAL_BUSY)
+            hb_idle_jobs  = pcfg.get("heartbeat_idle_jobs",     WORKER_POLL_INTERVAL_IDLE_JOBS)
+            hb_idle_none  = pcfg.get("heartbeat_idle_none",     WORKER_POLL_INTERVAL_IDLE_NONE)
+            hb_ctrl_chunk = pcfg.get("heartbeat_control_chunk", 120)
+            retry_count   = pcfg.get("status_retry_count",      8)
+            retry_base    = pcfg.get("status_retry_base_delay", 5)
+            retry_max     = pcfg.get("status_retry_max_delay",  120)
 
-        # ── Adaptive next-heartbeat interval ────────────────────────────────
-        if status == WORKER_REPORTED_BUSY or job_payload is not None:
-            next_interval = hb_busy
-        else:
-            # Idle, no job assigned — back off when queue is empty.
-            cur.execute(
-                "SELECT 1 FROM jobs WHERE status = %s LIMIT 1", (STATUS_PENDING,)
-            )
-            next_interval = hb_idle_jobs if cur.fetchone() else hb_idle_none
+            # ── Adaptive next-heartbeat interval ──────────────────────────────
+            if status == WORKER_REPORTED_BUSY or job_payload is not None:
+                next_interval = hb_busy
+            else:
+                cur.execute(
+                    "SELECT 1 FROM jobs WHERE status = %s LIMIT 1", (STATUS_PENDING,)
+                )
+                next_interval = hb_idle_jobs if cur.fetchone() else hb_idle_none
 
         return {
             "desired_state":   worker["desired_state"],
