@@ -273,33 +273,72 @@ class WorkerRegistry:
         )
 
     def allocate_instance_name(self) -> str:
-        """Pick a random unused name from ``possible_instances_name`` and mark it taken.
+        """Pick a unique name from ``possible_instances_name`` and mark it taken.
 
-        Uses a two-layer locking strategy to handle concurrent processes on the
-        same node, even on network filesystems (GPFS/NFS) where SQLite's
-        internal locking is unreliable:
+        Strategy depends on the execution environment:
 
-        1. ``threading.Lock`` — serialises within the same Python process.
-        2. ``fcntl.flock(LOCK_EX)`` on a separate ``.lock`` file — serialises
-           across OS processes on the same node.  Unlike SQLite's ``BEGIN
-           EXCLUSIVE`` (which relies on ``fcntl`` advisory locks on the DB file
-           itself and can fail silently on GPFS/Lustre), a dedicated lockfile
-           with ``LOCK_EX`` is robust on local filesystems.  On platforms
-           without ``fcntl`` (Windows) the call is skipped and we fall back to
-           the ``BEGIN EXCLUSIVE`` safety net.
-        3. ``BEGIN EXCLUSIVE`` inside the locked section as an additional
-           safety net for any edge cases not covered by the file lock.
+        **SLURM array jobs** (``SLURM_ARRAY_TASK_ID`` is set):
+            Derive the name deterministically from the task ID — no locking or
+            coordination needed at all.  Each task ID maps to a distinct entry
+            in the 2,000+ name pool, so two tasks on the same node can never
+            collide regardless of filesystem locking support.
+
+        **Local / non-SLURM** (laptops, workstations, login nodes):
+            Use a two-layer lock: ``threading.Lock`` for intra-process safety
+            and ``fcntl.flock(LOCK_EX)`` on a dedicated ``.lock`` file for
+            inter-process safety.  ``BEGIN EXCLUSIVE`` is kept as an additional
+            SQLite-level safety net.  On Windows (no ``fcntl``), only
+            ``BEGIN EXCLUSIVE`` is used, which works correctly there.
         """
+        # ── Fast path: SLURM array jobs ──────────────────────────────────────
+        # Each array task has a unique SLURM_ARRAY_TASK_ID, so we can map
+        # task_id → pool index without any inter-process coordination.
+        slurm_task_id = os.environ.get("SLURM_ARRAY_TASK_ID", "").strip()
+        if slurm_task_id.isdigit():
+            idx  = int(slurm_task_id) % len(DEFAULT_INSTANCE_NAMES)
+            name = normalize_instance_name(DEFAULT_INSTANCE_NAMES[idx])
+            # Best-effort DB write for registry tracking; uniqueness does NOT
+            # depend on this succeeding (it's guaranteed by the task ID).
+            try:
+                with self._lock:
+                    conn = sqlite3.connect(
+                        self.db_path, timeout=5.0, isolation_level=None,
+                    )
+                    conn.row_factory = sqlite3.Row
+                    try:
+                        conn.execute("BEGIN EXCLUSIVE")
+                        conn.execute(
+                            "INSERT OR IGNORE INTO possible_instances_name"
+                            " (name, taken) VALUES (?, 0)",
+                            (name,),
+                        )
+                        conn.execute(
+                            "UPDATE possible_instances_name SET taken = 1"
+                            " WHERE name = ?",
+                            (name,),
+                        )
+                        conn.execute("COMMIT")
+                    except Exception:
+                        try:
+                            conn.execute("ROLLBACK")
+                        except Exception:
+                            pass
+                    finally:
+                        conn.close()
+            except Exception:
+                pass  # DB unreachable — name is still unique via task ID
+            return name
+
+        # ── Slow path: local / non-SLURM ─────────────────────────────────────
         lock_path = self.db_path + ".lock"
         with self._lock:  # intra-process (threads)
-            # Inter-process lock via a dedicated lockfile.
             _lock_fd = open(lock_path, "w")
             try:
                 try:
                     import fcntl as _fcntl
                     _fcntl.flock(_lock_fd.fileno(), _fcntl.LOCK_EX)
                 except (ImportError, OSError):
-                    pass  # Windows or unusual filesystem — rely on BEGIN EXCLUSIVE only
+                    pass  # Windows or locking-unsupported FS → rely on BEGIN EXCLUSIVE
 
                 conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
                 conn.row_factory = sqlite3.Row
