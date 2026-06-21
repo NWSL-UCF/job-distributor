@@ -2368,12 +2368,13 @@ class JobDatabase:
                             f"""
                             UPDATE jobs
                             SET    status = %s,
-                                   completion_timestamp = %s
+                                   completion_timestamp = %s,
+                                   required_time = GREATEST(0, %s - request_timestamp)
                             WHERE  id     = %s
                               AND  status = %s
                               AND  {assignee} = %s
                             """,
-                            (STATUS_DONE, now, int(prev_job), STATUS_SERVED, worker_id),
+                            (STATUS_DONE, now, now, int(prev_job), STATUS_SERVED, worker_id),
                         )
                         if cur.rowcount:
                             logging.info(

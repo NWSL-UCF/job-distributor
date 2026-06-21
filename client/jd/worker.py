@@ -574,13 +574,27 @@ def _update_status(url: str, job_id: int, status: str,
                 else:
                     logger.info(f"Job {job_id} → {status}")
                 return
-            # 4xx errors are not retryable (bad request, auth failure, etc.)
-            if r.status_code < 500:
-                logger.warning(f"Status update failed: HTTP {r.status_code} — not retrying")
+            # 400: server accepted the request but job is already in a terminal
+            # state (safety-net already closed it). No point retrying.
+            if r.status_code == 400:
+                logger.warning(
+                    f"Status update for job {job_id} rejected (HTTP 400) — "
+                    f"job likely already closed by server safety-net."
+                )
                 return
+            # 401/403: auth failure — not retryable without a token refresh.
+            if r.status_code in (401, 403):
+                logger.warning(
+                    f"Status update for job {job_id} failed: HTTP {r.status_code} "
+                    f"(auth error) — not retrying."
+                )
+                return
+            # 404 and 5xx are treated as transient — retry with backoff.
+            # 404 can occur when a server restarts mid-request or a load-balancer
+            # routes to a node that has not yet processed the job assignment.
             logger.warning(
                 f"Status update HTTP {r.status_code} for job {job_id} "
-                f"(attempt {attempt}/{MAX_ATTEMPTS})"
+                f"(attempt {attempt}/{MAX_ATTEMPTS}) — will retry."
             )
         except Exception as exc:
             logger.warning(
