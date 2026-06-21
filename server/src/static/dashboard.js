@@ -220,22 +220,43 @@ function openModal() {
                         if (bar) bar.style.width = Math.min(100, pct) + '%';
 
                         // ── Throughput & ETA ──────────────────────────────
-                        const jpm = data.jobs_per_minute;
-                        const eta = data.eta_epoch;
-                        const jpmEl  = document.getElementById('jobsPerMinute');
-                        const etaEl  = document.getElementById('etaTime');
+                        const jpm    = data.jobs_per_minute;
+                        const eta    = data.eta_epoch;
+                        const actual = data.actual_completion_epoch;
+                        const jpmEl   = document.getElementById('jobsPerMinute');
+                        const etaEl   = document.getElementById('etaTime');
+                        const lblEl   = document.getElementById('etaLabel');
+                        const cardEl  = document.getElementById('etaCard');
+
                         if (jpmEl) jpmEl.textContent = (jpm != null && jpm > 0)
                             ? (jpm < 100 ? jpm.toFixed(2) : Math.round(jpm).toString())
                             : '—';
-                        if (etaEl) {
-                            if (eta != null) {
-                                const d = new Date(eta * 1000);
-                                etaEl.textContent = d.toLocaleString([], {
-                                    month: 'short', day: 'numeric',
-                                    hour: '2-digit', minute: '2-digit',
-                                });
+
+                        const fmtTs = ts => {
+                            const d = new Date(ts * 1000);
+                            return d.toLocaleString([], {
+                                month: 'short', day: 'numeric',
+                                hour: '2-digit', minute: '2-digit',
+                            });
+                        };
+
+                        if (cardEl) {
+                            cardEl.classList.remove('sb-eta-card--pending', 'sb-eta-card--done', 'sb-eta-card--waiting');
+                            if (actual != null) {
+                                // All jobs done — show actual finish time
+                                cardEl.classList.add('sb-eta-card--done');
+                                if (lblEl) lblEl.textContent = 'Completed at';
+                                if (etaEl) etaEl.textContent = fmtTs(actual);
+                            } else if (eta != null) {
+                                // Jobs in progress — show estimate
+                                cardEl.classList.add('sb-eta-card--pending');
+                                if (lblEl) lblEl.textContent = 'Est. Completion';
+                                if (etaEl) etaEl.textContent = fmtTs(eta);
                             } else {
-                                etaEl.textContent = '—';
+                                // Not enough data yet
+                                cardEl.classList.add('sb-eta-card--waiting');
+                                if (lblEl) lblEl.textContent = 'Est. Completion';
+                                if (etaEl) etaEl.textContent = '—';
                             }
                         }
                     })

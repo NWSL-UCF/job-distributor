@@ -286,17 +286,21 @@ def job_counts():
     # ── Throughput & ETA ────────────────────────────────────────────────────
     jobs_per_minute = None
     eta_epoch = None
+    actual_completion_epoch = None
+    # "remaining" excludes aborted/deleted which will never complete
+    active_total = total - aborted - deleted
+    remaining = active_total - done
     first_ts = db.get_first_job_assignment_timestamp()
     if first_ts and done > 0:
         now = _time.time()
         elapsed_minutes = (now - first_ts) / 60.0
         if elapsed_minutes > 0:
             jobs_per_minute = done / elapsed_minutes
-            remaining = total - done
-            if jobs_per_minute > 0 and remaining > 0:
-                eta_epoch = now + (remaining / jobs_per_minute) * 60.0
-            elif remaining <= 0:
-                eta_epoch = now  # already done
+        if remaining <= 0:
+            # All completable jobs are done — use actual last-completion time
+            actual_completion_epoch = db.get_last_completion_timestamp()
+        elif jobs_per_minute and jobs_per_minute > 0:
+            eta_epoch = now + (remaining / jobs_per_minute) * 60.0
 
     return jsonify({
         "DONE":    done,
@@ -305,9 +309,10 @@ def job_counts():
         "DELETED": deleted,
         "PENDING": pending,
         "total":   total,
-        "completion_pct":  pct,
-        "jobs_per_minute": jobs_per_minute,
-        "eta_epoch":       eta_epoch,
+        "completion_pct":          pct,
+        "jobs_per_minute":         jobs_per_minute,
+        "eta_epoch":               eta_epoch,
+        "actual_completion_epoch": actual_completion_epoch,
     })
 
 

@@ -1298,6 +1298,20 @@ class JobDatabase:
                 return float(row['first_ts'])
             return None
 
+    def get_last_completion_timestamp(self) -> Optional[float]:
+        """Return the latest completion_timestamp across all DONE jobs."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT MAX(completion_timestamp) AS last_ts FROM jobs "
+                "WHERE status = %s AND completion_timestamp > 0",
+                (STATUS_DONE,),
+            )
+            row = cur.fetchone()
+            if row and row['last_ts']:
+                return float(row['last_ts'])
+            return None
+
     def next_upload_version(self, job_id: int) -> int:
         """Return the next monotonic upload version number for a job."""
         with self.get_connection() as conn:

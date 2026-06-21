@@ -241,9 +241,10 @@
                                 <span class="sb-meta-key">Jobs / min</span>
                                 <span class="sb-meta-val" id="jobsPerMinute">—</span>
                             </div>
-                            <div class="sb-meta-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
-                                <span class="sb-meta-key">Est. Completion</span>
-                                <span class="sb-meta-val" id="etaTime" style="font-size:0.78rem; word-break:break-word;">—</span>
+                            <!-- ETA card -->
+                            <div id="etaCard" class="sb-eta-card sb-eta-card--pending">
+                                <div class="sb-eta-label" id="etaLabel">Est. Completion</div>
+                                <div class="sb-eta-time" id="etaTime">—</div>
                             </div>
                         </div>
 
