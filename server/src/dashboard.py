@@ -302,6 +302,10 @@ def job_counts():
         elif jobs_per_minute and jobs_per_minute > 0:
             eta_epoch = now + (remaining / jobs_per_minute) * 60.0
 
+    total_run_seconds = None
+    if actual_completion_epoch and first_ts:
+        total_run_seconds = max(0, actual_completion_epoch - first_ts)
+
     return jsonify({
         "DONE":    done,
         "SERVED":  served,
@@ -313,6 +317,7 @@ def job_counts():
         "jobs_per_minute":         jobs_per_minute,
         "eta_epoch":               eta_epoch,
         "actual_completion_epoch": actual_completion_epoch,
+        "total_run_seconds":       total_run_seconds,
     })
 
 

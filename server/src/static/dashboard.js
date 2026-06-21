@@ -240,13 +240,27 @@ function openModal() {
                             });
                         };
 
+                        const fmtDuration = secs => {
+                            secs = Math.round(secs);
+                            const d = Math.floor(secs / 86400);
+                            const h = Math.floor((secs % 86400) / 3600);
+                            const m = Math.floor((secs % 3600) / 60);
+                            const s = secs % 60;
+                            if (d > 0) return `${d}d ${h}h ${m}m`;
+                            if (h > 0) return `${h}h ${m}m`;
+                            if (m > 0) return `${m}m ${s}s`;
+                            return `${s}s`;
+                        };
+
                         if (cardEl) {
                             cardEl.classList.remove('sb-eta-card--pending', 'sb-eta-card--done', 'sb-eta-card--waiting');
                             if (actual != null) {
-                                // All jobs done — show actual finish time
+                                // All jobs done — show actual finish time + total run time
                                 cardEl.classList.add('sb-eta-card--done');
                                 if (lblEl) lblEl.textContent = 'Completed at';
-                                if (etaEl) etaEl.textContent = fmtTs(actual);
+                                const runSecs = data.total_run_seconds;
+                                const durStr  = (runSecs != null) ? ` · ${fmtDuration(runSecs)}` : '';
+                                if (etaEl) etaEl.textContent = fmtTs(actual) + durStr;
                             } else if (eta != null) {
                                 // Jobs in progress — show estimate
                                 cardEl.classList.add('sb-eta-card--pending');
