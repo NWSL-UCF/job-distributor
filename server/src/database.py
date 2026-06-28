@@ -106,6 +106,10 @@ class JobDatabase:
 
     def __init__(self, dsn: str):
         self.dsn = dsn
+        # Mirrors server_config.worker_stale_seconds; refreshed on every
+        # heartbeat via _disable_stale_workers so _worker_row_to_dict can use
+        # the live value without an extra DB round-trip per row.
+        self._cached_stale_seconds: int = WORKER_STALE_SECONDS
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn=2,
             # Each Gunicorn process holds at most 15 connections to PgBouncer
@@ -1839,8 +1843,16 @@ class JobDatabase:
     def _disable_stale_workers(self, conn: Any) -> None:
         """Move active workers with no recent poll to disabled lifecycle."""
         now = time.time()
-        stale_threshold = now - WORKER_STALE_SECONDS
         cur = conn.cursor()
+        # Read the live configurable value from server_config; fall back to the
+        # module-level default so the method works before the table is seeded.
+        cur.execute(
+            "SELECT value FROM server_config WHERE key = 'worker_stale_seconds'",
+        )
+        row = cur.fetchone()
+        stale_seconds = int(row["value"]) if row else WORKER_STALE_SECONDS
+        self._cached_stale_seconds = stale_seconds   # keep dashboard flag in sync
+        stale_threshold = now - stale_seconds
         cur.execute(
             "SELECT worker_id, current_job_id, last_poll_at "
             "FROM workers "
@@ -1884,7 +1896,7 @@ class JobDatabase:
         """Convert a worker DB row to a dict."""
         d = dict(row)
         now = time.time()
-        d["stale"] = (now - float(d.get("last_poll_at") or 0)) > WORKER_STALE_SECONDS
+        d["stale"] = (now - float(d.get("last_poll_at") or 0)) > self._cached_stale_seconds
         d["pending"] = int(d.get("desired_version") or 0) > int(d.get("applied_version") or 0)
         d["lifecycle_status"] = d.get("lifecycle_status") or WORKER_LIFECYCLE_ACTIVE
         try:
