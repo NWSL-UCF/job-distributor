@@ -73,6 +73,10 @@ def create_jobs(
     * **``.json`` / ``.csv`` / ``.tsv`` file** — loaded automatically.
 
     Set ``replace=True`` to delete existing jobs first; default appends.
+
+    The response always includes ``"start_id"`` (for append operations) — the ID
+    of the first job in the batch.  All IDs in the batch are the contiguous range
+    ``[start_id, start_id + total_jobs)``.
     """
     payload = normalize_create_payload(source)
     payload["replace"] = replace
@@ -93,6 +97,7 @@ def list_jobs(
     *,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    ids: Optional[List[int]] = None,
     page: int = 1,
     per_page: int = 50,
     fetch_all: bool = False,
@@ -102,18 +107,26 @@ def list_jobs(
 
     Set ``fetch_all=True`` to iterate every page and return a single dict with
     all jobs in ``jobs`` (``total_count`` / ``total_pages`` updated).
+
+    Pass ``ids`` as a list of integers to restrict results to those specific job
+    IDs.  ``ids`` takes priority over ``search`` when both are provided.
     """
     session = get_session()
     page = max(1, int(page))
     per_page = max(1, min(1000, int(per_page)))
 
-    if not fetch_all:
-        params: Dict[str, Any] = {"page": page, "per_page": per_page}
+    def _build_params(p: int) -> Dict[str, Any]:
+        qp: Dict[str, Any] = {"page": p, "per_page": per_page}
         if status:
-            params["status"] = status
-        if search:
-            params["search"] = search
-        resp = session.request("GET", "/api/jobs", params=params)
+            qp["status"] = status
+        if ids is not None:
+            qp["ids"] = ",".join(str(i) for i in ids)
+        elif search:
+            qp["search"] = search
+        return qp
+
+    if not fetch_all:
+        resp = session.request("GET", "/api/jobs", params=_build_params(page))
         return _raise_for_response(resp)
 
     all_jobs: List[Dict[str, Any]] = []
@@ -121,12 +134,7 @@ def list_jobs(
     total_pages = 1
     total_count = 0
     while current <= total_pages:
-        params = {"page": current, "per_page": per_page}
-        if status:
-            params["status"] = status
-        if search:
-            params["search"] = search
-        resp = session.request("GET", "/api/jobs", params=params)
+        resp = session.request("GET", "/api/jobs", params=_build_params(current))
         chunk = _raise_for_response(resp)
         jobs = chunk.get("jobs") or []
         all_jobs.extend(jobs)
@@ -139,6 +147,23 @@ def list_jobs(
         "total_pages": 1,
         "current_page": 1,
     }
+
+
+def get_job_statuses(job_ids: Iterable[Union[int, str]]) -> Dict[int, str]:
+    """Return a ``{job_id: status}`` map for the given IDs.
+
+    Uses ``GET /api/jobs/statuses`` which fetches only ``id`` and ``status`` —
+    no ``SELECT *``, no COUNT, no pagination overhead.
+    """
+    ids = [int(j) for j in job_ids]
+    if not ids:
+        return {}
+    session = get_session()
+    resp = session.request(
+        "GET", "/api/jobs/statuses", params={"ids": ",".join(str(i) for i in ids)}
+    )
+    data = _raise_for_response(resp)
+    return {int(k): str(v) for k, v in (data.get("statuses") or {}).items()}
 
 
 def list_job_uploads(job_id: Union[int, str]) -> List[Dict[str, Any]]:

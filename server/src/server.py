@@ -550,8 +550,9 @@ def api_create_jobs():
         if replace:
             total_jobs = db.create_jobs(parameters_list)
             action = "Created"
+            start_id = None
         else:
-            total_jobs = db.append_jobs(parameters_list)
+            total_jobs, start_id = db.append_jobs(parameters_list)
             action = "Appended"
 
         idle_timeout = data.get("idle_timeout")
@@ -568,14 +569,15 @@ def api_create_jobs():
         else:
             source = f"{len(parameters or {})} parameters"
         logging.info(f"{action} {total_jobs} jobs from {source} (replace={replace}).")
-        return jsonify(
-            {
-                "success": True,
-                "message": f"{action} {total_jobs} jobs",
-                "total_jobs": total_jobs,
-                "action": action,
-            }
-        )
+        response = {
+            "success": True,
+            "message": f"{action} {total_jobs} jobs",
+            "total_jobs": total_jobs,
+            "action": action,
+        }
+        if start_id is not None:
+            response["start_id"] = start_id
+        return jsonify(response)
     except Exception as exc:
         logging.error(f"Error creating jobs via API: {exc}")
         return jsonify({"success": False, "error": str(exc)}), 500
@@ -596,12 +598,41 @@ def api_list_jobs():
             per_page = 50
         status = request.args.get("status") or None
         search = request.args.get("search") or request.args.get("search_job_id") or None
+        ids_param = request.args.get("ids") or None
+        ids = (
+            [int(x) for x in ids_param.split(",") if x.strip().lstrip("-").isdigit()]
+            if ids_param else None
+        )
         result = db.get_jobs_paginated(
-            page=page, per_page=per_page, status=status, search=search
+            page=page, per_page=per_page, status=status, search=search, ids=ids
         )
         return jsonify(result)
     except Exception as exc:
         logging.error(f"Error listing jobs via API: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/jobs/statuses", methods=["GET"])
+def api_job_statuses():
+    """Return {job_id: status} for a comma-separated list of IDs (JWT auth).
+
+    Query param: ``ids=101,102,103``
+    Only ``id`` and ``status`` are fetched — no SELECT *, no COUNT, no pagination.
+    """
+    _, err = _require_worker_token()
+    if err:
+        return err
+    db.track_api_request("API Job Statuses", "GET")
+
+    try:
+        ids_param = request.args.get("ids") or ""
+        ids = [int(x) for x in ids_param.split(",") if x.strip().lstrip("-").isdigit()]
+        if not ids:
+            return jsonify({"error": "ids query param is required (comma-separated integers)"}), 400
+        statuses = db.get_job_statuses(ids)
+        return jsonify({"statuses": statuses})
+    except Exception as exc:
+        logging.error(f"Error fetching job statuses: {exc}")
         return jsonify({"error": str(exc)}), 500
 
 

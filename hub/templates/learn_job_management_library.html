@@ -60,7 +60,7 @@
       <div class="tut-note tut-note--info">
         <span class="tut-note__icon">ℹ️</span>
         <span>
-          Requires <code>jd-worker</code> ≥ 1.28.0 and a running experiment with workers.
+          Requires <code>jd-worker</code> ≥ 1.29.0 and a running experiment with workers.
           The orchestrator never runs your training code — it only talks to the job server API.
         </span>
       </div>
@@ -154,6 +154,30 @@ jd.create_jobs("batch1.tsv")
 <pre><code class="language-python">result = jd.create_jobs({"lr": [1e-3]}, replace=True)
 print(result["total_jobs"], result["action"])  # e.g. 1, "Created"
 </code></pre>
+
+      <h4>Getting the IDs of newly created jobs</h4>
+      <p>
+        For <strong>append</strong> operations the response always includes <code>start_id</code> —
+        the first ID assigned to the batch. Because the server assigns IDs as a contiguous range
+        in a single atomic INSERT, you can reconstruct the full list without any additional request:
+      </p>
+<pre><code class="language-python">result = jd.create_jobs([
+    {"lr": "0.001", "seed": "1"},
+    {"lr": "0.0001", "seed": "2"},
+    {"lr": "0.00001", "seed": "3"},
+])
+start_id   = result["start_id"]    # e.g. 42
+total_jobs = result["total_jobs"]  # e.g. 3
+job_ids    = list(range(start_id, start_id + total_jobs))  # [42, 43, 44]
+</code></pre>
+
+      <div class="tut-note tut-note--info">
+        <span class="tut-note__icon">ℹ️</span>
+        <span>
+          <code>start_id</code> is only present for append operations. When <code>replace=True</code>
+          is used (full replacement) it is omitted from the response.
+        </span>
+      </div>
     </section>
 
     <section class="tut-section" id="list-jobs">
@@ -268,14 +292,11 @@ RESULT_FILE = "metrics.json"
 TOP_K = 2
 
 
-def max_job_id() -> int:
-    jobs = jd.list_jobs(fetch_all=True).get("jobs") or []
-    return max((int(j["id"]) for j in jobs), default=0)
-
-
-def new_job_ids(since_id: int, *, status: str = "PENDING") -> list[int]:
-    jobs = jd.list_jobs(status=status, fetch_all=True).get("jobs") or []
-    return sorted(int(j["id"]) for j in jobs if int(j["id"]) > since_id)
+def job_ids_from(result: dict) -> list[int]:
+    """Reconstruct the exact IDs created by an append create_jobs() call."""
+    start_id = result["start_id"]
+    total    = result["total_jobs"]
+    return list(range(start_id, start_id + total))
 
 
 def collect_results(job_ids: list[int]) -> list[dict]:
@@ -300,36 +321,29 @@ def fine_grid_around(center: float, deltas=(0.5, 0.25, 0.75)) -> list[float]:
 
 # ── Round 1: coarse search ───────────────────────────────────────────────
 print("=== Round 1: coarse grid ===")
-before = max_job_id()
-jd.create_jobs({
+result1    = jd.create_jobs({
     "lr":     [1e-2, 1e-3, 1e-4, 1e-5],
     "epochs": [5],
     "seed":   [0, 1],
 }, replace=True)
-
-batch1_ids = new_job_ids(before)
+batch1_ids = job_ids_from(result1)
 print(f"Created {len(batch1_ids)} jobs: {batch1_ids}")
 
 jd.wait_for_jobs(batch1_ids, timeout=7200)
-round1 = collect_results(batch1_ids)
+round1   = collect_results(batch1_ids)
 best_lrs = pick_best_lrs(round1)
 print(f"Round 1 best lrs: {best_lrs}")
 
 # ── Round 2: refine around winners ─────────────────────────────────────────
 print("\n=== Round 2: fine grid ===")
-round2_jobs = []
-for lr in best_lrs:
-    for fine_lr in fine_grid_around(lr):
-        round2_jobs.append({
-            "lr": str(fine_lr),
-            "epochs": "10",
-            "seed": "0",
-            "round": "2",
-        })
+round2_jobs = [
+    {"lr": str(fine_lr), "epochs": "10", "seed": "0", "round": "2"}
+    for lr in best_lrs
+    for fine_lr in fine_grid_around(lr)
+]
 
-jd.create_jobs(round2_jobs)  # append — keeps round 1 history in DB
-before2 = max_job_id()
-batch2_ids = new_job_ids(before2)
+result2    = jd.create_jobs(round2_jobs)  # append — keeps round 1 history in DB
+batch2_ids = job_ids_from(result2)
 print(f"Appended {len(batch2_ids)} jobs: {batch2_ids}")
 
 jd.wait_for_jobs(batch2_ids, timeout=7200)
@@ -352,9 +366,12 @@ print(f"Summary written to {summary_path}")
       <div class="tut-note tut-note--tip">
         <span class="tut-note__icon">💡</span>
         <span>
-          <strong>Tracking job ids:</strong> record <code>max_job_id()</code> before
-          <code>create_jobs</code>, then select ids greater than that value afterward
-          (see <code>new_job_ids()</code> in the example above).
+          <strong>Tracking job ids:</strong> read <code>result["start_id"]</code> directly from
+          the <code>create_jobs()</code> response — no extra list-all call needed. The server
+          assigns IDs as a contiguous range in a single atomic INSERT, so
+          <code>range(start_id, start_id + result["total_jobs"])</code> gives you the exact IDs.
+          Never use a <em>snapshot-before / poll-after</em> approach — it breaks when multiple
+          orchestrators run against the same experiment concurrently.
         </span>
       </div>
 

@@ -1,5 +1,5 @@
 """jd — Job Distributor client package."""
-__version__ = "1.28.0"
+__version__ = "1.29.0"
 
 from jd._session import init_session
 from jd.files import jd_get_last_checkpoint, jd_update_checkpoint, jd_upload
@@ -8,6 +8,7 @@ from jd.job_mgmt import (
     data_root,
     download_result,
     exp_path,
+    get_job_statuses,
     job_download_dir,
     job_path,
     list_job_uploads,
@@ -31,6 +32,7 @@ def init(env_file=None, *, exp_id=None, hub_url=None):
 __all__ = [
     "init",
     "create_jobs",
+    "get_job_statuses",
     "list_jobs",
     "list_job_uploads",
     "download_result",

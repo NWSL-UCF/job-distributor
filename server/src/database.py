@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from contextlib import contextmanager
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Tuple, Union
 
 import psycopg2
 import psycopg2.extras
@@ -345,8 +345,14 @@ class JobDatabase:
             logging.info(f"Created {total_jobs} jobs in database")
             return total_jobs
 
-    def append_jobs(self, parameters_list: List[str]) -> int:
-        """Append new PENDING jobs without touching existing ones. IDs continue from the current maximum."""
+    def append_jobs(self, parameters_list: List[str]) -> Tuple[int, int]:
+        """Append new PENDING jobs without touching existing ones. IDs continue from the current maximum.
+
+        Returns ``(total_new, start_id)``.  The newly created job IDs are the contiguous range
+        ``[start_id, start_id + total_new)`` — all IDs are explicitly assigned as ``start_id + i``
+        in a single atomic batch INSERT, so the client can reconstruct the full list from just the
+        first ID.
+        """
         with self.get_connection() as conn:
             cur = conn.cursor()
 
@@ -382,7 +388,7 @@ class JobDatabase:
             conn.commit()
             total_new = len(parameters_list)
             logging.info(f"Appended {total_new} jobs (starting at id={start_id})")
-            return total_new
+            return total_new, start_id
 
     def get_all_jobs(self) -> List[Dict[str, Any]]:
         """Get all jobs from the database."""
@@ -632,6 +638,19 @@ class JobDatabase:
                 'schema': schema,
             }
 
+    def get_job_statuses(self, ids: List[int]) -> Dict[int, str]:
+        """Return a ``{job_id: status}`` map for the given IDs.
+
+        Fetches only the two columns needed — no pagination, no COUNT, no
+        heavyweight ``SELECT *``.
+        """
+        if not ids:
+            return {}
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, status FROM jobs WHERE id = ANY(%s)", (list(ids),))
+            return {int(row["id"]): str(row["status"]) for row in cur.fetchall()}
+
     def get_job_by_id(self, job_id: int) -> Optional[Dict[str, Any]]:
         """Get a specific job by ID."""
         with self.get_connection() as conn:
@@ -660,9 +679,13 @@ class JobDatabase:
         status: str = None,
         search_job_id: str = None,
         search: str = None,
+        ids: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
-        """Get jobs with pagination support."""
-        query = (search or search_job_id or "").strip() or None
+        """Get jobs with pagination support.
+
+        *ids* — when provided, only jobs whose id is in the list are returned.
+        Mutually exclusive with *search* / *search_job_id* (ids takes priority).
+        """
         with self.get_connection() as conn:
             cur = conn.cursor()
 
@@ -673,10 +696,15 @@ class JobDatabase:
                 where_conditions.append("status = %s")
                 params.append(status)
 
-            search_clause, search_params = jobs_search_sql(query)
-            if search_clause:
-                where_conditions.append(search_clause)
-                params.extend(search_params)
+            if ids is not None:
+                where_conditions.append("id = ANY(%s)")
+                params.append(list(ids))
+            else:
+                query = (search or search_job_id or "").strip() or None
+                search_clause, search_params = jobs_search_sql(query)
+                if search_clause:
+                    where_conditions.append(search_clause)
+                    params.extend(search_params)
 
             where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
 
